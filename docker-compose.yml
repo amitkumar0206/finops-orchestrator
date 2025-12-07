@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_DB: finops
+      POSTGRES_USER: finops
+      POSTGRES_PASSWORD: finops_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - finops_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finops -d finops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Valkey Cache
+  valkey:
+    image: valkey/valkey:latest
+    ports:
+      - "6379:6379"
+    command: valkey-server --appendonly yes --requirepass valkey_password
+    volumes:
+      - valkey_data:/data
+    networks:
+      - finops_network
+    healthcheck:
+      test: ["CMD", "valkey-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Backend API
+  backend:
+    platform: linux/amd64
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=finops
+      - POSTGRES_USER=finops
+      - POSTGRES_PASSWORD=finops_password
+      - VALKEY_HOST=valkey
+      - VALKEY_PORT=6379
+      - VALKEY_PASSWORD=valkey_password
+      - SECRET_KEY=your-development-secret-key
+      - AWS_REGION=us-east-1
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-finops-intelligence-platform-data-${AWS_ACCOUNT_ID}}
+      - AWS_CUR_DATABASE=cost_usage_db
+      - AWS_CUR_TABLE=cur_data
+      - CHROMA_DB_PATH=/app/data/chroma
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./backend:/app
+      - chroma_data:/app/data/chroma
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - finops_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend
+  frontend:
+    platform: linux/amd64
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - finops_network
+
+volumes:
+  postgres_data:
+    driver: local
+  valkey_data:
+    driver: local
+  chroma_data:
+    driver: local
+
+networks:
+  finops_network:
+    driver: bridge

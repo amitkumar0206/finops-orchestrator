@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Glue Crawler for CUR 2.0 Data Discovery'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: finops-intelligence-platform
+    Description: Project name for resource naming
+  
+  CurS3Bucket:
+    Type: String
+    Description: S3 bucket containing CUR data
+  
+  CurS3Prefix:
+    Type: String
+    Default: cost-exports/finops-cost-export
+    Description: S3 prefix for CUR data
+  
+  CurDatabase:
+    Type: String
+    Default: cost_usage_db
+    Description: Athena/Glue database name
+  
+  CurTableName:
+    Type: String
+    Default: cur_data
+    Description: Table name for CUR data
+
+Resources:
+  # IAM Role for Glue Crawler
+  GlueCrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-glue-crawler-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${CurS3Bucket}'
+                  - !Sub 'arn:aws:s3:::${CurS3Bucket}/*'
+        - PolicyName: GlueAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:*
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # Glue Database (if not exists)
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref CurDatabase
+        Description: Database for AWS Cost and Usage Report data
+
+  # Glue Crawler for CUR Data
+  CurGlueCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub '${ProjectName}-cur-crawler'
+      Role: !GetAtt GlueCrawlerRole.Arn
+      DatabaseName: !Ref GlueDatabase
+      Description: Crawler for AWS CUR 2.0 data discovery
+      Schedule:
+        # Run daily at 3 AM UTC to discover new partitions
+        ScheduleExpression: 'cron(0 3 * * ? *)'
+      Targets:
+        S3Targets:
+          - Path: !Sub 's3://${CurS3Bucket}/${CurS3Prefix}/'
+            Exclusions:
+              # Exclude manifest files to avoid schema conflicts
+              - '**/*Manifest.json'
+              - '**/*.json'
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+      Configuration: |
+        {
+          "Version": 1.0,
+          "Grouping": {
+            "TableGroupingPolicy": "CombineCompatibleSchemas"
+          },
+          "CrawlerOutput": {
+            "Partitions": {
+              "AddOrUpdateBehavior": "InheritFromTable"
+            },
+            "Tables": {
+              "AddOrUpdateBehavior": "MergeNewColumns"
+            }
+          }
+        }
+      RecrawlPolicy:
+        RecrawlBehavior: CRAWL_NEW_FOLDERS_ONLY
+
+Outputs:
+  GlueCrawlerName:
+    Description: Name of the Glue Crawler
+    Value: !Ref CurGlueCrawler
+    Export:
+      Name: !Sub '${ProjectName}-glue-crawler-name'
+  
+  GlueCrawlerRoleArn:
+    Description: ARN of the Glue Crawler IAM Role
+    Value: !GetAtt GlueCrawlerRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-glue-crawler-role-arn'
+  
+  GlueDatabaseName:
+    Description: Name of the Glue Database
+    Value: !Ref GlueDatabase
+    Export:
+      Name: !Sub '${ProjectName}-glue-database-name'

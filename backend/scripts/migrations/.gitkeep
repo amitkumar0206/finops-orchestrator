@@ -1,0 +1,3 @@
+# This directory is for one-time database migration scripts
+# These scripts run once during deployment updates (not fresh installs)
+# See ../README.md for details on how to add migration scripts

@@ -1,0 +1,396 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'FinOps AI Cost Intelligence Platform - ECS Services and Task Definitions'
+
+Parameters:
+  ParentStackName:
+    Type: String
+    Description: Name of the parent infrastructure stack
+
+  BackendImageUri:
+    Type: String
+    Description: URI of the backend Docker image in ECR
+
+  FrontendImageUri:
+    Type: String
+    Description: URI of the frontend Docker image in ECR
+
+  DatabaseEndpoint:
+    Type: String
+    Description: RDS database endpoint
+
+  ValkeyEndpoint:
+    Type: String
+    Description: Valkey cache endpoint
+
+  DatabasePassword:
+    Type: String
+    NoEcho: true
+    Description: Database password
+
+  BedrockModelId:
+    Type: String
+    Default: us.amazon.nova-premier-v1:0
+    Description: AWS Bedrock model ID for LLM operations (Amazon Nova Premier recommended)
+    AllowedValues:
+      - us.amazon.nova-premier-v1:0
+      - us.amazon.nova-pro-v1:0
+      - us.amazon.nova-lite-v1:0
+      - us.amazon.nova-micro-v1:0
+      - amazon.nova-premier-v1:0
+      - amazon.nova-2-lite-v1:0
+      - amazon.nova-2-sonic-v1:0
+      - amazon.nova-pro-v1:0
+      - amazon.nova-lite-v1:0
+      - amazon.nova-micro-v1:0
+      - meta.llama3-70b-instruct-v1:0
+      - meta.llama3-8b-instruct-v1:0
+      - mistral.mistral-large-2402-v1:0
+      - mistral.mixtral-8x7b-instruct-v0:1
+      - cohere.command-r-plus-v1:0
+      - amazon.titan-text-express-v1
+
+  S3BucketName:
+    Type: String
+    Description: S3 bucket name for cost data
+
+  CurBucketName:
+    Type: String
+    Default: ''
+    Description: S3 bucket name for CUR reports (Parquet files). Defaults to S3BucketName if not specified.
+
+  CurDatabase:
+    Type: String
+    Default: cost_usage_db
+    Description: AWS Glue database name for CUR data
+
+  CurTable:
+    Type: String
+    Default: cur_data
+    Description: AWS Glue table name for CUR data
+  
+  CurS3Prefix:
+    Type: String
+    Default: cost-exports/finops-cost-export
+    Description: S3 prefix for CUR data exports
+
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: ARN of ACM certificate for HTTPS (optional, leave empty for HTTP only)
+
+Conditions:
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
+
+Resources:
+  # CloudWatch Logs Groups
+  BackendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${ParentStackName}/backend'
+      RetentionInDays: 7
+
+  FrontendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${ParentStackName}/frontend'
+      RetentionInDays: 7
+
+  # Backend Task Definition
+  BackendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ParentStackName}-backend'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '1024'
+      Memory: '2048'
+      ExecutionRoleArn: 
+        Fn::ImportValue: !Sub '${ParentStackName}-ecs-execution-role'
+      TaskRoleArn:
+        Fn::ImportValue: !Sub '${ParentStackName}-ecs-task-role'
+      ContainerDefinitions:
+        - Name: backend
+          Image: !Ref BackendImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8000
+              Protocol: tcp
+          Environment:
+            - Name: DATABASE_URL
+              Value: !Sub 'postgresql://finops:${DatabasePassword}@${DatabaseEndpoint}:5432/finops'
+            - Name: POSTGRES_PASSWORD
+              Value: !Ref DatabasePassword
+            - Name: POSTGRES_HOST
+              Value: !Ref DatabaseEndpoint
+            - Name: POSTGRES_PORT
+              Value: '5432'
+            - Name: POSTGRES_DB
+              Value: 'finops'
+            - Name: POSTGRES_USER
+              Value: 'finops'
+            - Name: VALKEY_HOST
+              Value: !Ref ValkeyEndpoint
+            - Name: VALKEY_PORT
+              Value: '6379'
+            - Name: S3_BUCKET
+              Value: !Ref S3BucketName
+            - Name: AWS_S3_BUCKET
+              Value: !Ref S3BucketName
+            - Name: CUR_BUCKET_NAME
+              Value: !Ref CurBucketName
+            - Name: CUR_S3_BUCKET
+              Value: !Ref S3BucketName
+            - Name: CUR_S3_PREFIX
+              Value: !Ref CurS3Prefix
+            - Name: ATHENA_OUTPUT_LOCATION
+              Value: !Sub 's3://${S3BucketName}/athena-results/'
+            - Name: AWS_CUR_DATABASE
+              Value: !Ref CurDatabase
+            - Name: AWS_CUR_TABLE
+              Value: !Ref CurTable
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: ENVIRONMENT
+              Value: production
+            - Name: SECRET_KEY
+              Value: !Sub '${AWS::StackName}-${AWS::AccountId}-secret-key-v1'
+            - Name: LLM_PROVIDER
+              Value: 'bedrock'
+            - Name: BEDROCK_MODEL_ID
+              Value: !Ref BedrockModelId
+            - Name: DEFAULT_LLM_MODEL
+              Value: !Ref BedrockModelId
+            - Name: ALLOWED_ORIGINS
+              Value: !Sub
+                - '["${AppURL}","http://localhost:3000","http://127.0.0.1:3000"]'
+                - AppURL:
+                    Fn::ImportValue: !Sub '${ParentStackName}-app-url'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref BackendLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: backend
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - 'curl -f http://localhost:8000/health || exit 1'
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 300
+
+  # Frontend Task Definition
+  FrontendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ParentStackName}-frontend'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub '${ParentStackName}-ecs-execution-role'
+      TaskRoleArn:
+        Fn::ImportValue: !Sub '${ParentStackName}-ecs-task-role'
+      ContainerDefinitions:
+        - Name: frontend
+          Image: !Ref FrontendImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          Environment:
+            - Name: BACKEND_URL
+              Value: !Sub 
+                - 'http://${ALBDns}'
+                - ALBDns:
+                    Fn::ImportValue: !Sub '${ParentStackName}-alb-dns'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref FrontendLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: frontend
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - 'curl -f http://localhost:80/health || exit 1'
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+
+  # Target Groups
+  BackendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: finops-backend-tg
+      Port: 8000
+      Protocol: HTTP
+      TargetType: ip
+      VpcId:
+        Fn::ImportValue: !Sub '${ParentStackName}-vpc-id'
+      HealthCheckEnabled: true
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+
+  FrontendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: finops-frontend-tg
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      VpcId:
+        Fn::ImportValue: !Sub '${ParentStackName}-vpc-id'
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+
+  # ALB Listeners
+  ALBListenerHTTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn:
+        Fn::ImportValue: !Sub '${ParentStackName}-alb-arn'
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - !If
+          - HasCertificate
+          - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: '443'
+              StatusCode: HTTP_301
+          - Type: forward
+            TargetGroupArn: !Ref FrontendTargetGroup
+
+  ALBListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasCertificate
+    Properties:
+      LoadBalancerArn:
+        Fn::ImportValue: !Sub '${ParentStackName}-alb-arn'
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+  # Listener Rules
+  BackendListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !If [HasCertificate, !Ref ALBListenerHTTPS, !Ref ALBListenerHTTP]
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /api/*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref BackendTargetGroup
+
+  # Backend ECS Service
+  BackendService:
+    Type: AWS::ECS::Service
+    DependsOn: BackendListenerRule
+    Properties:
+      ServiceName: !Sub '${ParentStackName}-backend'
+      Cluster:
+        Fn::ImportValue: !Sub '${ParentStackName}-ecs-cluster'
+      TaskDefinition: !Ref BackendTaskDefinition
+      EnableExecuteCommand: true
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - Fn::ImportValue: !Sub '${ParentStackName}-ecs-sg'
+          Subnets:
+            - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-1'
+            - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-2'
+      LoadBalancers:
+        - ContainerName: backend
+          ContainerPort: 8000
+          TargetGroupArn: !Ref BackendTargetGroup
+      HealthCheckGracePeriodSeconds: 360
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+
+  # Frontend ECS Service
+  FrontendService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListenerHTTP
+    Properties:
+      ServiceName: !Sub '${ParentStackName}-frontend'
+      Cluster:
+        Fn::ImportValue: !Sub '${ParentStackName}-ecs-cluster'
+      TaskDefinition: !Ref FrontendTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - Fn::ImportValue: !Sub '${ParentStackName}-ecs-sg'
+          Subnets:
+            - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-1'
+            - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-2'
+      LoadBalancers:
+        - ContainerName: frontend
+          ContainerPort: 80
+          TargetGroupArn: !Ref FrontendTargetGroup
+      HealthCheckGracePeriodSeconds: 60
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+
+Outputs:
+  BackendServiceName:
+    Description: Backend ECS Service Name
+    Value: !GetAtt BackendService.Name
+    Export:
+      Name: !Sub '${ParentStackName}-backend-service'
+
+  FrontendServiceName:
+    Description: Frontend ECS Service Name
+    Value: !GetAtt FrontendService.Name
+    Export:
+      Name: !Sub '${ParentStackName}-frontend-service'
+
+  BackendTargetGroupArn:
+    Description: Backend Target Group ARN
+    Value: !Ref BackendTargetGroup
+    Export:
+      Name: !Sub '${ParentStackName}-backend-tg'
+
+  FrontendTargetGroupArn:
+    Description: Frontend Target Group ARN
+    Value: !Ref FrontendTargetGroup
+    Export:
+      Name: !Sub '${ParentStackName}-frontend-tg'
+
+  TemplateVersion:
+    Description: Template version marker to force services template update (Nova AllowedValues fix)
+    Value: '2025-12-03-nova-allowlist-fix'

@@ -1,0 +1,22 @@
+# Files to exclude from git but keep locally for deployment
+# Add these to .gitignore when ready
+
+# Deployment environment configuration (contains secrets)
+deployment.env
+deployment.env.backup
+
+# Deployment logs
+log_deploy.log
+deploy_*.log
+
+# AWS temporary files
+.aws-sam/
+samconfig.toml
+
+# Local development overrides
+docker-compose.local.yml
+.env.local
+
+# Test data downloads
+athena-results/
+query-results/

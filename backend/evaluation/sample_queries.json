@@ -1,0 +1,59 @@
+[
+  {
+    "query": "Show AWS cost breakdown by service for the last 30 days",
+    "expected_intent": "COST_BREAKDOWN",
+    "expected_dimensions": ["service"],
+    "expected_time_range_kind": "explicit"
+  },
+  {
+    "query": "Top 5 most expensive services this month",
+    "expected_intent": "TOP_N_RANKING",
+    "expected_top_n": 5,
+    "expected_time_range_kind": "explicit"
+  },
+  {
+    "query": "Cost trend over the past week",
+    "expected_intent": "COST_TREND",
+    "expected_time_range_kind": "explicit"
+  },
+  {
+    "query": "Why was there a spike in EC2 costs yesterday?",
+    "expected_intent": "ANOMALY_ANALYSIS",
+    "expected_services": ["Amazon Elastic Compute Cloud"],
+    "expected_time_range_kind": "explicit"
+  },
+  {
+    "query": "Optimize DynamoDB spend",
+    "expected_intent": "OPTIMIZATION",
+    "expected_services": ["Amazon DynamoDB"]
+  },
+  {
+    "query": "Compare dev vs prod costs last month",
+    "expected_intent": "COMPARATIVE",
+    "expected_time_range_kind": "explicit"
+  },
+  {
+    "query": "Show regional breakdown of S3 spending for 2025-11-01",
+    "expected_intent": "COST_BREAKDOWN",
+    "expected_dimensions": ["region"],
+    "expected_services": ["Amazon Simple Storage Service"],
+    "expected_time_range_kind": "explicit"
+  },
+  {
+    "query": "Break down cost by account",
+    "expected_intent": "COST_BREAKDOWN",
+    "expected_dimensions": ["account"],
+    "expected_time_range_kind": "inherited"
+  },
+  {
+    "query": "Top 3 services",
+    "expected_intent": "TOP_N_RANKING",
+    "expected_top_n": 3,
+    "expected_time_range_kind": "inherited"
+  },
+  {
+    "query": "Show utilization details for idle EC2 instances",
+    "expected_intent": "UTILIZATION",
+    "expected_services": ["Amazon Elastic Compute Cloud"]
+  }
+]

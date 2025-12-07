@@ -1,0 +1,39 @@
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    sendfile on;
+    keepalive_timeout 65;
+    gzip on;
+
+    server {
+        listen 80;
+        server_name localhost;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # SPA routing - always serve index.html for non-API routes
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # Inject runtime config for API URL
+        location = /config.js {
+            default_type application/javascript;
+            return 200 'window.APP_CONFIG = { apiUrl: "${BACKEND_URL}" };';
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+        }
+
+        # Health check endpoint
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+    }
+}

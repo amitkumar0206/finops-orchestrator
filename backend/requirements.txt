@@ -1,0 +1,88 @@
+# Production Dependencies
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# Database
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+valkey==6.0.2
+psycopg2-binary==2.9.10
+
+# LangGraph and AI
+# Using latest compatible versions to address all security vulnerabilities
+langgraph>=0.2.56,<0.3
+langchain>=0.3.27,<0.4
+langchain-core>=0.3.37,<0.4
+langchain-community>=0.3.27,<0.4
+langchain-aws==0.2.9
+boto3==1.35.86
+botocore==1.35.86
+
+# PyArrow for parquet writing support
+pyarrow==15.0.0
+
+# Embeddings and Vector DB
+# Use CPU-only torch to reduce image size from 3.5GB to ~800MB
+# Install torch with CPU-only flag (no CUDA) for production deployment
+# Note: Dockerfile uses --extra-index-url for torch CPU-only builds
+torch==2.5.1
+
+sentence-transformers==3.3.1
+chromadb==0.5.23
+pgvector==0.3.6
+
+# AWS SDK
+# (moved to LangGraph and AI section above)
+
+# HTTP Client
+httpx==0.28.1
+aiohttp==3.13.2
+
+# Data Processing
+pandas==2.2.3
+numpy==1.26.4  # Pinned to <2.0 for langchain-aws compatibility
+polars==1.17.1
+python-dateutil==2.9.0
+
+# Visualization (lightweight alternatives)
+plotly==5.24.1
+# matplotlib==3.8.2  # Heavy, comment out if not needed
+# seaborn==0.13.0    # Heavy, comment out if not needed
+
+# Authentication
+# Replaced python-jose with PyJWT due to critical ECDSA vulnerability (CVE-2022-29217)
+PyJWT[crypto]==2.10.1
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.20
+
+# Monitoring
+prometheus-client==0.21.0
+structlog==24.4.0
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+
+# Development
+black==24.10.0
+isort==5.13.2
+flake8==7.1.1
+mypy==1.13.0
+
+# Environment
+python-dotenv==1.0.0
+
+# Background Tasks (Note: Using valkey-py which is Redis protocol compatible)
+celery==5.4.0
+
+# File Processing
+openpyxl==3.1.5
+reportlab==4.2.5
+
+# Caching
+aiocache==0.12.2
+rapidfuzz==3.9.6

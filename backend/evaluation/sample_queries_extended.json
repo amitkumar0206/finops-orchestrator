@@ -1,0 +1,12 @@
+[
+  {"query": "Cost breakdown by region and service for Q3 2025", "expected_intent": "COST_BREAKDOWN", "expected_dimensions": ["region", "service"], "expected_time_range_kind": "explicit"},
+  {"query": "Top 10 EC2 instance families last quarter", "expected_intent": "TOP_N_RANKING", "expected_services": ["Amazon Elastic Compute Cloud"], "expected_top_n": 10, "expected_time_range_kind": "explicit"},
+  {"query": "Compare RDS vs DynamoDB spend this month", "expected_intent": "COMPARATIVE", "expected_services": ["Amazon Relational Database Service", "Amazon DynamoDB"], "expected_time_range_kind": "explicit"},
+  {"query": "Show untagged resources last 7 days", "expected_intent": "GOVERNANCE", "expected_time_range_kind": "explicit"},
+  {"query": "Anomaly analysis: sudden surge in S3 data transfer costs", "expected_intent": "ANOMALY_ANALYSIS", "expected_services": ["AWS Data Transfer", "Amazon Simple Storage Service"], "expected_time_range_kind": "default"},
+  {"query": "Rightsizing recommendations for underutilized m5.large instances", "expected_intent": "OPTIMIZATION", "expected_time_range_kind": "default"},
+  {"query": "CUR ingestion gap yesterday", "expected_intent": "DATA_METADATA", "expected_time_range_kind": "explicit"},
+  {"query": "Daily cost trend for last 14 days", "expected_intent": "COST_TREND", "expected_time_range_kind": "explicit"},
+  {"query": "List idle resources", "expected_intent": "UTILIZATION", "expected_time_range_kind": "inherited"},
+  {"query": "Break down spend by account and instance type", "expected_intent": "COST_BREAKDOWN", "expected_dimensions": ["account", "instance_type"], "expected_time_range_kind": "inherited"}
+]

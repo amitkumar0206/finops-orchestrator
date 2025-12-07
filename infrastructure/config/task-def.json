@@ -1,0 +1,185 @@
+{
+    "taskDefinitionArn": "arn:aws:ecs:us-east-1:515966519020:task-definition/finops-intelligence-platform-backend:17",
+    "containerDefinitions": [
+        {
+            "name": "backend",
+            "image": "515966519020.dkr.ecr.us-east-1.amazonaws.com/finops-backend:latest",
+            "cpu": 0,
+            "links": [],
+            "portMappings": [
+                {
+                    "containerPort": 8000,
+                    "hostPort": 8000,
+                    "protocol": "tcp"
+                }
+            ],
+            "essential": true,
+            "entryPoint": [],
+            "command": [],
+            "environment": [
+                {
+                    "name": "S3_BUCKET",
+                    "value": "finops-intelligence-platform-data-${AWS_ACCOUNT_ID}"
+                },
+                {
+                    "name": "POSTGRES_USER",
+                    "value": "finops"
+                },
+                {
+                    "name": "REDIS_HOST",
+                    "value": "master.finops-intelligence-platform-redis.xfmrmp.use1.cache.amazonaws.com"
+                },
+                {
+                    "name": "AWS_REGION",
+                    "value": "us-east-1"
+                },
+                {
+                    "name": "POSTGRES_HOST",
+                    "value": "finops-intelligence-platform-postgres.c1oey686imx4.us-east-1.rds.amazonaws.com"
+                },
+                {
+                    "name": "ENVIRONMENT",
+                    "value": "production"
+                },
+                {
+                    "name": "DEFAULT_LLM_MODEL",
+                    "value": "amazon.nova-premier-v1:0"
+                },
+                {
+                    "name": "POSTGRES_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "POSTGRES_PASSWORD",
+                    "value": "****"
+                },
+                {
+                    "name": "SECRET_KEY",
+                    "value": "finops-intelligence-platform-services-515966519020-secret-key-v1"
+                },
+                {
+                    "name": "POSTGRES_DB",
+                    "value": "finops"
+                },
+                {
+                    "name": "LLM_PROVIDER",
+                    "value": "bedrock"
+                },
+                {
+                    "name": "CUR_BUCKET_NAME",
+                    "value": "finops-intelligence-platform-cur-reports-1761591318"
+                },
+                {
+                    "name": "DATABASE_URL",
+                    "value": "postgresql://finops:****@finops-intelligence-platform-postgres.c1oey686imx4.us-east-1.rds.amazonaws.com:5432/finops"
+                },
+                {
+                    "name": "AWS_S3_BUCKET",
+                    "value": "finops-intelligence-platform-data-${AWS_ACCOUNT_ID}"
+                },
+                {
+                    "name": "REDIS_PORT",
+                    "value": "6379"
+                },
+                {
+                    "name": "AWS_CUR_DATABASE",
+                    "value": "cost_usage_db"
+                },
+                {
+                    "name": "AWS_CUR_TABLE",
+                    "value": "cur_finops_cost_report"
+                },
+                {
+                    "name": "BEDROCK_MODEL_ID",
+                    "value": "amazon.nova-premier-v1:0"
+                },
+            ],
+            "environmentFiles": [],
+            "mountPoints": [],
+            "volumesFrom": [],
+            "secrets": [],
+            "dnsServers": [],
+            "dnsSearchDomains": [],
+            "extraHosts": [],
+            "dockerSecurityOptions": [],
+            "dockerLabels": {},
+            "ulimits": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/finops-intelligence-platform/backend",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "backend"
+                },
+                "secretOptions": []
+            },
+            "healthCheck": {
+                "command": [
+                    "CMD-SHELL",
+                    "curl -f http://localhost:8000/health || exit 1"
+                ],
+                "interval": 30,
+                "timeout": 5,
+                "retries": 3,
+                "startPeriod": 60
+            },
+            "systemControls": [],
+            "credentialSpecs": []
+        }
+    ],
+    "family": "finops-intelligence-platform-backend",
+    "taskRoleArn": "arn:aws:iam::515966519020:role/finops-intelligence-platform-ECSTaskRole-G4sbGu5FgUtw",
+    "executionRoleArn": "arn:aws:iam::515966519020:role/finops-intelligence-platform-ECSTaskExecutionRole-91QFvtw52B5M",
+    "networkMode": "awsvpc",
+    "revision": 17,
+    "volumes": [],
+    "status": "ACTIVE",
+    "requiresAttributes": [
+        {
+            "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
+        },
+        {
+            "name": "ecs.capability.execution-role-awslogs"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.ecr-auth"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.17"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.task-iam-role"
+        },
+        {
+            "name": "ecs.capability.container-health-check"
+        },
+        {
+            "name": "ecs.capability.execution-role-ecr-pull"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
+        },
+        {
+            "name": "ecs.capability.task-eni"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.29"
+        }
+    ],
+    "placementConstraints": [],
+    "compatibilities": [
+        "EC2",
+        "FARGATE",
+        "MANAGED_INSTANCES"
+    ],
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "1024",
+    "memory": "2048",
+    "registeredAt": "2025-10-28T23:44:51.477000+05:30",
+    "registeredBy": "arn:aws:sts::515966519020:assumed-role/AWSReservedSSO_power-user_b1e00a7113409603/Amit.Kumar2@dazn.com"
+}
