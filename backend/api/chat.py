@@ -69,12 +69,19 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
         )
         derived_context = conversation_manager.get_context_for_query(conversation_id)
 
-        # Execute multi-agent workflow
+        # Extract organization and account info from context
+        organization_id = request_context.organization_id if request_context else None
+        account_ids = request_context.allowed_account_ids if request_context else None
+
+        # Execute multi-agent workflow with organization/account scoping
         response = await execute_multi_agent_query(
             query=request.message,
             conversation_id=conversation_id,
             chat_history=request.chat_history or [],
-            previous_context={**derived_context, **(request.context or {})}
+            previous_context={**derived_context, **(request.context or {})},
+            organization_id=organization_id,
+            account_ids=account_ids,
+            timezone=request.context.get("timezone", "UTC") if request.context else "UTC"
         )
 
         # Extract response components

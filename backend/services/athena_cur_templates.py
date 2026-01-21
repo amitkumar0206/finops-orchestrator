@@ -12,6 +12,20 @@ import structlog
 from backend.services.column_constants import (
     DIMENSION_VALUE, SERVICE, REGION, COST_USD, DAYS_WITH_USAGE, RESOURCE_TYPE
 )
+from backend.utils.sql_validation import (
+    validate_tag_key,
+    validate_tag_value,
+    validate_service_code,
+    validate_instance_type,
+    validate_operating_system,
+    validate_database_engine,
+    validate_date,
+    validate_resource_id,
+    escape_sql_string,
+    escape_like_pattern,
+    build_safe_in_clause,
+    ValidationError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -153,29 +167,38 @@ class AthenaCURTemplates:
         """
         Build filter for resource tags.
         Tags format: {"Environment": ["prod", "staging"], "CostCenter": ["media"]}
+
+        Security: All tag keys and values are validated to prevent SQL injection.
         """
         if not tags:
             return ""
-        
+
         conditions = []
         for tag_key, tag_values in tags.items():
             if not tag_values:
                 continue
-            
-            # Normalize tag key to lowercase for column name
-            normalized_key = tag_key.lower()
-            
-            if len(tag_values) == 1:
-                # Single value - simple equality
-                conditions.append(f"resource_tags_user_{normalized_key} = '{tag_values[0]}'")
-            else:
-                # Multiple values - IN clause
-                values_str = ", ".join(f"'{v}'" for v in tag_values)
-                conditions.append(f"resource_tags_user_{normalized_key} IN ({values_str})")
-        
+
+            try:
+                # Validate and normalize tag key for safe column name construction
+                normalized_key = validate_tag_key(tag_key)
+
+                # Validate and escape all tag values
+                validated_values = [validate_tag_value(v) for v in tag_values]
+
+                if len(validated_values) == 1:
+                    # Single value - simple equality
+                    conditions.append(f"resource_tags_user_{normalized_key} = '{validated_values[0]}'")
+                else:
+                    # Multiple values - IN clause
+                    values_str = ", ".join(f"'{v}'" for v in validated_values)
+                    conditions.append(f"resource_tags_user_{normalized_key} IN ({values_str})")
+            except ValidationError as e:
+                logger.warning("Invalid tag filter skipped", tag_key=tag_key[:50], error=str(e))
+                continue
+
         if not conditions:
             return ""
-        
+
         # Combine with AND (all tag filters must match)
         combined = " AND ".join(conditions)
         return f"AND ({combined})"
@@ -187,17 +210,29 @@ class AthenaCURTemplates:
         """
         Build filter for platforms/operating systems (Linux, Windows, etc.).
         Uses product_operating_system column.
+
+        Security: All platform values are validated against known OS list.
         """
         if not platforms:
             return ""
-        
-        # Normalize to title case to match CUR values (e.g., "Linux", "Windows")
-        normalized = [p.title() for p in platforms]
-        
-        if len(normalized) == 1:
-            return f"AND product_operating_system = '{normalized[0]}'"
+
+        # Validate and normalize each platform
+        validated_platforms = []
+        for platform in platforms:
+            try:
+                validated = validate_operating_system(platform)
+                validated_platforms.append(validated)
+            except ValidationError as e:
+                logger.warning("Invalid platform filter skipped", platform=platform[:50], error=str(e))
+                continue
+
+        if not validated_platforms:
+            return ""
+
+        if len(validated_platforms) == 1:
+            return f"AND product_operating_system = '{validated_platforms[0]}'"
         else:
-            platforms_str = ", ".join(f"'{p}'" for p in normalized)
+            platforms_str = ", ".join(f"'{p}'" for p in validated_platforms)
             return f"AND product_operating_system IN ({platforms_str})"
     
     def _build_database_engine_filter(
@@ -207,18 +242,27 @@ class AthenaCURTemplates:
         """
         Build filter for RDS database engines (MySQL, PostgreSQL, etc.).
         Uses product_database_engine column.
+
+        Security: All engine values are validated and LIKE wildcards are escaped.
         """
         if not database_engines:
             return ""
-        
-        # Normalize to lowercase for case-insensitive matching
-        normalized = [engine.lower() for engine in database_engines]
-        
-        # Build LIKE conditions for partial matching (e.g., "mysql" matches "MySQL 8.0")
+
+        # Validate and build safe LIKE conditions
         conditions = []
-        for engine in normalized:
-            conditions.append(f"LOWER(product_database_engine) LIKE '%{engine}%'")
-        
+        for engine in database_engines:
+            try:
+                validated_engine = validate_database_engine(engine)
+                # Escape LIKE wildcards to prevent injection via wildcard manipulation
+                escaped_engine = escape_like_pattern(validated_engine)
+                conditions.append(f"LOWER(product_database_engine) LIKE '%{escaped_engine}%'")
+            except ValidationError as e:
+                logger.warning("Invalid database engine filter skipped", engine=engine[:50], error=str(e))
+                continue
+
+        if not conditions:
+            return ""
+
         if len(conditions) == 1:
             return f"AND {conditions[0]}"
         else:
@@ -268,8 +312,16 @@ class AthenaCURTemplates:
         line_item_type_clause = self._line_item_type_clause()
         line_item_type_clause = self._line_item_type_clause()
         
-        instance_filter = f"AND {self._col('product_instance_type')} = '{instance_type}'" if instance_type else ""
-        
+        # Validate instance type if provided
+        instance_filter = ""
+        if instance_type:
+            try:
+                validated_instance_type = validate_instance_type(instance_type)
+                instance_filter = f"AND {self._col('product_instance_type')} = '{validated_instance_type}'"
+            except ValidationError as e:
+                logger.warning("Invalid instance type filter", instance_type=instance_type[:50], error=str(e))
+                # Continue without filter rather than failing
+
         query = f"""
 SELECT
   {self._col('product_instance_type')} AS instance_type,
@@ -298,7 +350,14 @@ ORDER BY cost_usd DESC;
         partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
         effective_cost = self._effective_cost_expr()
         line_item_type_clause = self._line_item_type_clause()
-        
+
+        # Validate instance type
+        try:
+            validated_instance_type = validate_instance_type(instance_type)
+        except ValidationError as e:
+            logger.error("Invalid instance type for region drilldown", instance_type=instance_type[:50], error=str(e))
+            raise ValueError(f"Invalid instance type: {instance_type}")
+
         query = f"""
 SELECT
   product_region AS region,
@@ -306,7 +365,7 @@ SELECT
   ROUND(SUM({effective_cost}) * 100.0 / SUM(SUM({effective_cost})) OVER (), 2) AS share_of_instance
 FROM {self.full_table}
 WHERE product_product_name = 'AmazonEC2'
-  AND product_instance_type = '{instance_type}'
+  AND product_instance_type = '{validated_instance_type}'
   AND CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
   AND {partition_filter}
   {line_item_type_clause}
@@ -459,13 +518,27 @@ ORDER BY delta_usd DESC;
         
         service_filter = ""
         if include_services:
-            # Filter to ONLY these services
-            services_str = ", ".join(f"'{s}'" for s in include_services)
-            service_filter = f"AND line_item_product_code IN ({services_str})"
+            # Filter to ONLY these services - validate each service code
+            validated_services = []
+            for s in include_services:
+                try:
+                    validated_services.append(validate_service_code(s))
+                except ValidationError as e:
+                    logger.warning("Invalid service filter skipped", service=s[:50], error=str(e))
+            if validated_services:
+                services_str = ", ".join(f"'{s}'" for s in validated_services)
+                service_filter = f"AND line_item_product_code IN ({services_str})"
         elif exclude_services:
-            # Exclude specific services
-            services_str = ", ".join(f"'{s}'" for s in exclude_services)
-            service_filter = f"AND line_item_product_code NOT IN ({services_str})"
+            # Exclude specific services - validate each service code
+            validated_services = []
+            for s in exclude_services:
+                try:
+                    validated_services.append(validate_service_code(s))
+                except ValidationError as e:
+                    logger.warning("Invalid service exclusion filter skipped", service=s[:50], error=str(e))
+            if validated_services:
+                services_str = ", ".join(f"'{s}'" for s in validated_services)
+                service_filter = f"AND line_item_product_code NOT IN ({services_str})"
         
         # Exclude/Include specific line item types (e.g., Tax, Fee, Credit)
         line_item_type_clause = self._line_item_type_clause(exclude_line_item_types, include_line_item_types)
@@ -617,10 +690,14 @@ LIMIT 10;
         effective_cost = self._effective_cost_expr()
         line_item_type_clause = self._line_item_type_clause()
         
-        # Service filter if specific service requested
+        # Service filter if specific service requested - validate service code
         service_filter = ""
         if service:
-            service_filter = f"AND {self._col('line_item_product_code')} = '{service}'"
+            try:
+                validated_service = validate_service_code(service)
+                service_filter = f"AND {self._col('line_item_product_code')} = '{validated_service}'"
+            except ValidationError as e:
+                logger.warning("Invalid service filter in MoM query", service=service[:50], error=str(e))
         
         top_filter = ""
         if top_services_only and not service:  # Don't apply top filter if specific service requested
@@ -731,18 +808,33 @@ ORDER BY dt_total_usd DESC;
         partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
         effective_cost = self._effective_cost_expr()
         line_item_type_clause = self._line_item_type_clause()
-        
+
+        # Validate tag key for safe column name construction
+        try:
+            validated_tag_key = validate_tag_key(tag_key)
+        except ValidationError as e:
+            logger.error("Invalid tag key for cost_by_tag", tag_key=tag_key[:50], error=str(e))
+            raise ValueError(f"Invalid tag key: {tag_key}")
+
         tag_filter = ""
         if tag_values:
-            values_str = ", ".join(f"'{v}'" for v in tag_values)
-            tag_filter = f"AND resource_tags_user_{tag_key} IN ({values_str})"
-        
+            # Validate all tag values
+            validated_values = []
+            for v in tag_values:
+                try:
+                    validated_values.append(validate_tag_value(v))
+                except ValidationError as e:
+                    logger.warning("Invalid tag value skipped", value=v[:50], error=str(e))
+            if validated_values:
+                values_str = ", ".join(f"'{v}'" for v in validated_values)
+                tag_filter = f"AND resource_tags_user_{validated_tag_key} IN ({values_str})"
+
         query = f"""
 SELECT
-  COALESCE(NULLIF(resource_tags_user_{tag_key}, ''), 'UNSPECIFIED') AS tag_value,
+  COALESCE(NULLIF(resource_tags_user_{validated_tag_key}, ''), 'UNSPECIFIED') AS tag_value,
   product_product_name AS service,
   ROUND(SUM({effective_cost}), 2) AS cost_usd,
-  ROUND(SUM({effective_cost}) * 100.0 / SUM(SUM({effective_cost})) OVER (PARTITION BY resource_tags_user_{tag_key}), 2) AS share_of_tag
+  ROUND(SUM({effective_cost}) * 100.0 / SUM(SUM({effective_cost})) OVER (PARTITION BY resource_tags_user_{validated_tag_key}), 2) AS share_of_tag
 FROM {self.full_table}
 WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
   AND {partition_filter}
@@ -767,7 +859,17 @@ ORDER BY tag_value, cost_usd DESC;
         partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
         effective_cost = self._effective_cost_expr()
         line_item_type_clause = self._line_item_type_clause()
-        
+
+        # Validate tag key for safe column name construction
+        try:
+            validated_tag_key = validate_tag_key(tag_key)
+        except ValidationError as e:
+            logger.error("Invalid tag key for top_untagged_resources", tag_key=tag_key[:50], error=str(e))
+            raise ValueError(f"Invalid tag key: {tag_key}")
+
+        # Validate limit is reasonable
+        validated_limit = max(1, min(limit, 1000))
+
         query = f"""
 SELECT
   COALESCE(line_item_resource_id, CONCAT(product_product_name, ':', line_item_usage_type)) AS resource_key,
@@ -777,10 +879,10 @@ FROM {self.full_table}
 WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
   AND {partition_filter}
   {line_item_type_clause}
-  AND (resource_tags_user_{tag_key} IS NULL OR resource_tags_user_{tag_key} = '')
+  AND (resource_tags_user_{validated_tag_key} IS NULL OR resource_tags_user_{validated_tag_key} = '')
 GROUP BY 1, 2
 ORDER BY est_monthly_cost DESC
-LIMIT {limit};
+LIMIT {validated_limit};
 """
         return query.strip()
     
@@ -821,8 +923,15 @@ ORDER BY dt;
         effective_cost = self._effective_cost_expr()
         line_item_type_clause = self._line_item_type_clause()
         
-        service_filter = f"AND product_product_name = '{service}'" if service else ""
-        
+        # Validate service if provided
+        service_filter = ""
+        if service:
+            try:
+                validated_service = validate_service_code(service)
+                service_filter = f"AND product_product_name = '{validated_service}'"
+            except ValidationError as e:
+                logger.warning("Invalid service filter in anomaly detection", service=service[:50], error=str(e))
+
         query = f"""
 WITH daily_costs AS (
   SELECT
@@ -876,10 +985,25 @@ ORDER BY dt DESC, ABS(z_score) DESC NULLS LAST;
         partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
         effective_cost = self._effective_cost_expr()
         line_item_type_clause = self._line_item_type_clause()
-        
+
+        # Validate tag key for safe column name construction
+        try:
+            validated_tag_key = validate_tag_key(tag_key)
+        except ValidationError as e:
+            logger.error("Invalid tag key for environment_comparison", tag_key=tag_key[:50], error=str(e))
+            raise ValueError(f"Invalid tag key: {tag_key}")
+
+        # Validate environment values
+        try:
+            validated_env1 = validate_tag_value(env1)
+            validated_env2 = validate_tag_value(env2)
+        except ValidationError as e:
+            logger.error("Invalid environment value", error=str(e))
+            raise ValueError(f"Invalid environment value")
+
         query = f"""
 SELECT
-  resource_tags_user_{tag_key} AS env,
+  resource_tags_user_{validated_tag_key} AS env,
   product_product_name AS service,
   ROUND(SUM(line_item_usage_amount), 2) AS usage_hours,
   ROUND(SUM({effective_cost}), 2) AS cost_usd
@@ -887,7 +1011,7 @@ FROM {self.full_table}
 WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
   AND {partition_filter}
   {line_item_type_clause}
-  AND resource_tags_user_{tag_key} IN ('{env1}', '{env2}')
+  AND resource_tags_user_{validated_tag_key} IN ('{validated_env1}', '{validated_env2}')
 GROUP BY 1, 2
 ORDER BY env, cost_usd DESC;
 """
@@ -984,9 +1108,16 @@ ORDER BY env, cost_usd DESC;
         dim_col = dimension_map.get(dimension, self._col("product_region"))
         
         # Log what we're querying for debugging
+        # Validate service code
+        try:
+            validated_service = validate_service_code(service)
+        except ValidationError as e:
+            logger.error("Invalid service for cost breakdown", service=service[:50], error=str(e))
+            raise ValueError(f"Invalid service: {service}")
+
         logger.info(
             "Generating service cost breakdown query",
-            service=service,
+            service=validated_service,
             dimension=dimension,
             dimension_column=dim_col,
             start_date=start_date,
@@ -996,14 +1127,14 @@ ORDER BY env, cost_usd DESC;
             platforms=platforms,
             database_engines=database_engines
         )
-        
+
         query = f"""
 SELECT
   COALESCE(NULLIF(TRIM({dim_col}), ''), 'Unspecified') AS dimension_value,
   ROUND(SUM({effective_cost}), 2) AS cost_usd,
   ROUND(SUM({effective_cost}) * 100.0 / SUM(SUM({effective_cost})) OVER (), 2) AS pct_of_service
 FROM {self.full_table}
-WHERE {self._col('line_item_product_code')} = '{service}'
+WHERE {self._col('line_item_product_code')} = '{validated_service}'
   AND CAST({self._col('line_item_usage_start_date')} AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
   AND {partition_filter}
   {line_item_type_clause}
@@ -1305,14 +1436,27 @@ ORDER BY current_period_cost DESC NULLS LAST;
         """
         Get cost for specific resource by resource ID.
         Useful for ARN-based queries.
+
+        Security: Resource ID and service are validated before use.
         """
         partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
         effective_cost = self._effective_cost_expr()
-        
+
+        # Validate resource ID
+        try:
+            validated_resource_id = validate_resource_id(resource_id)
+        except ValidationError as e:
+            logger.error("Invalid resource ID", resource_id=resource_id[:100], error=str(e))
+            raise ValueError(f"Invalid resource ID: {resource_id[:100]}")
+
         service_filter = ""
         if service:
-            service_filter = f"AND product_product_name = '{service}'"
-        
+            try:
+                validated_service = validate_service_code(service)
+                service_filter = f"AND product_product_name = '{validated_service}'"
+            except ValidationError as e:
+                logger.warning("Invalid service filter skipped", service=service[:50], error=str(e))
+
         if group_by_day:
             query = f"""
 SELECT
@@ -1324,7 +1468,7 @@ SELECT
 FROM {self.full_table}
 WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
   AND {partition_filter}
-  AND line_item_resource_id = '{resource_id}'
+  AND line_item_resource_id = '{validated_resource_id}'
   {service_filter}
 GROUP BY 1, 2, 3, 4
 ORDER BY usage_date
@@ -1341,7 +1485,7 @@ SELECT
 FROM {self.full_table}
 WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
   AND {partition_filter}
-  AND line_item_resource_id = '{resource_id}'
+  AND line_item_resource_id = '{validated_resource_id}'
   {service_filter}
 GROUP BY 1, 2, 3
 ORDER BY {COST_USD} DESC
@@ -1357,41 +1501,54 @@ ORDER BY {COST_USD} DESC
         """
         Find related resources when an ARN returns no direct cost data.
         Uses pattern matching to discover child resources, tasks, or related services.
-        
+
         Example: arn:aws:ecs:us-east-1:123:cluster/my-cluster
         Finds: arn:aws:ecs:us-east-1:123:task/my-cluster/...
+
+        Security: ARN components are validated and escaped before use in queries.
         """
         partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
         effective_cost = self._effective_cost_expr()
-        
-        # Parse ARN components
+
+        # Validate ARN format first
+        try:
+            validated_arn = validate_resource_id(arn)
+        except ValidationError as e:
+            logger.error("Invalid ARN for pattern search", arn=arn[:100], error=str(e))
+            raise ValueError(f"Invalid ARN: {arn[:100]}")
+
+        # Parse ARN components safely
         # Format: arn:aws:SERVICE:REGION:ACCOUNT:RESOURCE
-        parts = arn.split(':')
+        parts = validated_arn.split(':')
         if len(parts) >= 6:
-            service = parts[2]  # e.g., 'ecs', 's3', 'rds'
-            region = parts[3]
-            account = parts[4]
+            service = escape_like_pattern(parts[2])  # e.g., 'ecs', 's3', 'rds'
+            region = escape_like_pattern(parts[3])
+            account = escape_like_pattern(parts[4])
             resource_part = ':'.join(parts[5:])  # Everything after account
-            
+
             # Extract resource name for pattern matching
             # Handle formats: resource-type/name, resource-type:name, or just name
             if '/' in resource_part:
-                resource_name = resource_part.split('/')[-1]  # Get last segment
+                resource_name = escape_like_pattern(resource_part.split('/')[-1])  # Get last segment
             elif ':' in resource_part:
-                resource_name = resource_part.split(':')[-1]
+                resource_name = escape_like_pattern(resource_part.split(':')[-1])
             else:
-                resource_name = resource_part
-            
-            # Build flexible LIKE patterns
+                resource_name = escape_like_pattern(resource_part)
+
+            # Build flexible LIKE patterns with escaped components
             # Pattern 1: Same service + resource name fragment
             service_pattern = f"%{service}%{resource_name}%"
             # Pattern 2: Same service + region + account (broader)
             broad_pattern = f"%{service}%{region}%{account}%"
         else:
             # Fallback for unusual ARN formats
-            service_pattern = f"%{arn.split(':')[2] if len(arn.split(':')) > 2 else 'unknown'}%"
+            fallback_service = escape_like_pattern(validated_arn.split(':')[2]) if len(validated_arn.split(':')) > 2 else 'unknown'
+            service_pattern = f"%{fallback_service}%"
             broad_pattern = service_pattern
-        
+
+        # Escape the ARN for the != comparison
+        escaped_arn = escape_sql_string(validated_arn)
+
         # Standardized ARN fallback output using column constants
         query = f"""
 SELECT
@@ -1400,7 +1557,7 @@ SELECT
   COALESCE(product_region, 'global') AS {REGION},
   ROUND(SUM({effective_cost}), 2) AS {COST_USD},
   COUNT(DISTINCT DATE(line_item_usage_start_date)) AS {DAYS_WITH_USAGE},
-  CASE 
+  CASE
     WHEN line_item_resource_id LIKE '%:task/%' THEN 'ECS Task'
     WHEN line_item_resource_id LIKE '%:service/%' THEN 'ECS Service'
     WHEN line_item_resource_id LIKE '%:instance/%' THEN 'EC2 Instance'
@@ -1417,7 +1574,7 @@ WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND D
     line_item_resource_id LIKE '{service_pattern}'
     OR line_item_resource_id LIKE '{broad_pattern}'
   )
-  AND line_item_resource_id != '{arn}'
+  AND line_item_resource_id != '{escaped_arn}'
   AND {effective_cost} > 0
 GROUP BY 1, 2, 3, 6
 HAVING SUM({effective_cost}) > 0

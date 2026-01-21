@@ -24,6 +24,12 @@ from backend.services.response_formatter import response_formatter
 from backend.services.chart_recommendation import chart_engine
 from backend.services.chart_data_builder import chart_data_builder
 from backend.config.settings import get_settings
+from backend.utils.sql_validation import (
+    validate_service_code,
+    validate_resource_id,
+    validate_date,
+    ValidationError,
+)
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -246,25 +252,41 @@ SELECT
 FROM cost_usage_db.cur_data
 WHERE 1=1
 """
-                # Add service filter if we have it
+                # Add service filter if we have it - VALIDATE to prevent SQL injection
                 if original_service_name:
-                    drill_down_sql += f"\n  AND line_item_product_code = '{original_service_name}'"
-                
-                # Add resource filter if we have it
+                    try:
+                        validated_service = validate_service_code(str(original_service_name))
+                        drill_down_sql += f"\n  AND line_item_product_code = '{validated_service}'"
+                    except ValidationError as e:
+                        logger.warning("Invalid service name in drill-down, skipping filter", service=str(original_service_name)[:50], error=str(e))
+
+                # Add resource filter if we have it - VALIDATE to prevent SQL injection
                 if original_resource_id:
-                    drill_down_sql += f"\n  AND line_item_resource_id = '{original_resource_id}'"
-                
+                    try:
+                        validated_resource = validate_resource_id(str(original_resource_id))
+                        drill_down_sql += f"\n  AND line_item_resource_id = '{validated_resource}'"
+                    except ValidationError as e:
+                        logger.warning("Invalid resource ID in drill-down, skipping filter", resource=str(original_resource_id)[:50], error=str(e))
+
                 # Extract time range from original SQL (simple pattern matching)
                 import re
                 date_match = re.search(r"line_item_usage_start_date.*?>=.*?DATE '(\d{4}-\d{2}-\d{2})'", sql_query, re.IGNORECASE)
                 if date_match:
-                    start_date = date_match.group(1)
-                    drill_down_sql += f"\n  AND CAST(line_item_usage_start_date AS DATE) >= DATE '{start_date}'"
-                
+                    extracted_start_date = date_match.group(1)
+                    try:
+                        validated_start = validate_date(extracted_start_date)
+                        drill_down_sql += f"\n  AND CAST(line_item_usage_start_date AS DATE) >= DATE '{validated_start}'"
+                    except ValidationError as e:
+                        logger.warning("Invalid start date in drill-down", date=extracted_start_date, error=str(e))
+
                 date_match = re.search(r"line_item_usage_start_date.*?<=.*?DATE '(\d{4}-\d{2}-\d{2})'", sql_query, re.IGNORECASE)
                 if date_match:
-                    end_date = date_match.group(1)
-                    drill_down_sql += f"\n  AND CAST(line_item_usage_start_date AS DATE) <= DATE '{end_date}'"
+                    extracted_end_date = date_match.group(1)
+                    try:
+                        validated_end = validate_date(extracted_end_date)
+                        drill_down_sql += f"\n  AND CAST(line_item_usage_start_date AS DATE) <= DATE '{validated_end}'"
+                    except ValidationError as e:
+                        logger.warning("Invalid end date in drill-down", date=extracted_end_date, error=str(e))
                 
                 drill_down_sql += """
 GROUP BY line_item_usage_type

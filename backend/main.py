@@ -17,11 +17,13 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, His
 
 from config.settings import get_settings
 from api import chat, health, reports, analytics, athena_queries
-from api import saved_views, organizations, scope
+from api import saved_views, organizations, scope, opportunities, auth
 from services.vector_store import VectorStoreService
 from services.database import DatabaseService
 from middleware.account_scoping import AccountScopingMiddleware
+from middleware.authentication import AuthenticationMiddleware
 from utils.logging import setup_logging
+from utils.auth import initialize_authenticator
 
 # Setup structured logging
 logger = structlog.get_logger(__name__)
@@ -38,11 +40,40 @@ async def lifespan(app: FastAPI):
     # Startup
     setup_logging(settings.log_level)
     logger.info("Starting FinOps AI Cost Intelligence Platform", environment=settings.environment)
-    
+
+    # Validate security configuration
+    security_issues = settings.validate_security_configuration()
+    if security_issues:
+        for issue in security_issues:
+            if issue.startswith("CRITICAL"):
+                logger.error("security_configuration_issue", issue=issue)
+            else:
+                logger.warning("security_configuration_issue", issue=issue)
+
+        if settings.is_production and any("CRITICAL" in i for i in security_issues):
+            logger.error(
+                "CRITICAL security issues detected in production. "
+                "Fix these issues before deploying to production."
+            )
+            # In production, you might want to raise an exception here
+            # to prevent startup with insecure configuration
+
+    # Initialize JWT authenticator
+    try:
+        initialize_authenticator(
+            secret_key=settings.secret_key,
+            access_token_expiry_minutes=settings.jwt_access_token_expiry_minutes,
+            refresh_token_expiry_days=settings.jwt_refresh_token_expiry_days,
+        )
+        logger.info("JWT authenticator initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize JWT authenticator: {e}", exc_info=True)
+        raise  # Cannot start without authentication
+
     # Initialize services
     db_service = None
     vector_service = None
-    
+
     try:
         # Initialize database connection in the background to avoid blocking startup
         logger.info("Scheduling database service initialization (non-blocking)...")
@@ -124,7 +155,13 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Add account scoping middleware for multi-tenant support
+# NOTE: Order matters! AccountScopingMiddleware runs AFTER AuthenticationMiddleware
+# (middleware is executed in reverse order of how they're added)
 app.add_middleware(AccountScopingMiddleware)
+
+# Add JWT authentication middleware
+# This validates tokens and attaches auth_user to request.state
+app.add_middleware(AuthenticationMiddleware)
 
 
 @app.middleware("http")
@@ -200,6 +237,12 @@ app.include_router(athena_queries.router, prefix="/api/v1/athena", tags=["Athena
 app.include_router(saved_views.router, prefix="/api/v1", tags=["Saved Views"])
 app.include_router(organizations.router, prefix="/api/v1", tags=["Organizations"])
 app.include_router(scope.router, prefix="/api/v1", tags=["Scope"])
+
+# Optimization opportunities router
+app.include_router(opportunities.router, prefix="/api/v1", tags=["Opportunities"])
+
+# Authentication router (no prefix - already has /api/auth in router)
+app.include_router(auth.router, tags=["Authentication"])
 
 
 @app.get("/metrics")

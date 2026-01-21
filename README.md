@@ -11,6 +11,14 @@ Enterprise-grade AWS cost intelligence platform powered by AI agents, featuring 
 - 📊 **Intelligent Visualizations**: Intent-based chart recommendations with responsive layouts and AWS service label normalization
 - 🔍 **Deep Cost Breakdowns**: Drill down from services → usage types → operations with automatic dimension inference
 
+### Optimization Opportunities (NEW)
+- 💰 **AWS Optimization Signals**: Integration with Cost Explorer, Trusted Advisor, and Compute Optimizer
+- 📋 **Opportunities Dashboard**: Filterable, sortable table of optimization recommendations with status tracking
+- 🔎 **Evidence Panel**: Deep-dive view with API trace, deep links, CUR validation SQL, and utilization metrics
+- 🤖 **LLM-Powered Intent Detection**: Robust understanding of optimization queries with typo tolerance and semantic matching
+- 📊 **Savings Analytics**: Track potential monthly/annual savings by category and service
+- ✅ **Status Management**: Mark opportunities as open/accepted/dismissed with bulk actions and export
+
 ### Data & Integration
 - 📈 **Complete CUR Access**: 15+ optimized Athena SQL templates with partition pruning and effective cost calculations
 - ⚡ **Async Query Execution**: Non-blocking Athena queries with automatic result parsing and retry logic

@@ -45,3 +45,64 @@ Then try an ARN grouping query in the app (ensure deployment includes `RESOURCE_
 ## Notes
 - To ingest all regions, edit `ec2_inventory_ingest.py` to use `describe_regions` and set `regions = all_regions`.
 - Extend similarly for other services (RDS, Lambda, ECS) by mapping their ARNs and resource IDs.
+
+---
+
+# Optimization Opportunities Ingestion
+
+The `opportunities_ingest.py` script fetches optimization recommendations from AWS services and stores them in the database.
+
+## Prerequisites
+- AWS credentials with permissions:
+  - `ce:GetRightsizingRecommendation` (Cost Explorer)
+  - `support:DescribeTrustedAdvisorCheckResult` (Trusted Advisor - requires Business/Enterprise Support)
+  - `compute-optimizer:GetEC2InstanceRecommendations` (Compute Optimizer - requires opt-in)
+- Database connection string in `DATABASE_URL` environment variable
+
+## Usage
+
+### Dry Run (preview without storing)
+```bash
+python3 scripts/setup/opportunities_ingest.py --dry-run
+```
+
+### Full Ingestion
+```bash
+export DATABASE_URL="postgresql://user:pass@host:5432/dbname"
+python3 scripts/setup/opportunities_ingest.py
+```
+
+### Filter by Account IDs
+```bash
+python3 scripts/setup/opportunities_ingest.py --account-ids 123456789012,234567890123
+```
+
+### Select Specific Sources
+```bash
+# Only Cost Explorer and Compute Optimizer (skip Trusted Advisor)
+python3 scripts/setup/opportunities_ingest.py --sources cost-explorer,compute-optimizer
+```
+
+## Output
+The script will:
+1. Fetch recommendations from selected AWS services
+2. Display summary of findings and potential savings
+3. Store new opportunities in the database
+4. Update existing opportunities (matched by source_id)
+
+## Scheduled Ingestion
+For production, set up a cron job or AWS EventBridge rule to run daily:
+
+```bash
+# Example cron entry (runs at 2 AM UTC daily)
+0 2 * * * /path/to/venv/bin/python /path/to/scripts/setup/opportunities_ingest.py >> /var/log/opportunities-ingest.log 2>&1
+```
+
+## Verification
+After ingestion, verify opportunities in the app:
+```bash
+curl "http://localhost:8000/api/v1/opportunities?page=1&page_size=10" | jq
+```
+
+Or via chat:
+> "Show me optimization opportunities"

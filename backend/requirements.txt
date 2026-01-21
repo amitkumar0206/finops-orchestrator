@@ -66,6 +66,10 @@ structlog==24.4.0
 pytest==8.3.4
 pytest-asyncio==0.24.0
 pytest-cov==6.0.0
+freezegun==1.4.0
+
+# Timezone support
+pytz==2024.2
 
 # Development
 black==24.10.0

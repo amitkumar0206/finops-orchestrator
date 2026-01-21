@@ -178,7 +178,7 @@ scripts/
 ---
 
 ### `verify-deployment-env.sh`
-**Purpose:** Validate `deployment.env` file has required variables  
+**Purpose:** Validate `deployment.env` file has required variables
 **Usage:**
 ```bash
 ./scripts/setup/verify-deployment-env.sh
@@ -194,6 +194,63 @@ scripts/
 - Before running `deploy.sh`
 - Troubleshooting deployment failures
 - After manual `deployment.env` edits
+
+---
+
+### `opportunities_ingest.py`
+**Purpose:** Ingest optimization recommendations from AWS services into the opportunities database
+**Usage:**
+```bash
+# Dry run (preview without storing)
+python scripts/setup/opportunities_ingest.py --dry-run
+
+# Full ingestion with all sources
+python scripts/setup/opportunities_ingest.py
+
+# Filter by account IDs
+python scripts/setup/opportunities_ingest.py --account-ids 123456789012,234567890123
+
+# Select specific sources
+python scripts/setup/opportunities_ingest.py --sources cost-explorer,compute-optimizer
+```
+
+**What it does:**
+1. Fetches rightsizing recommendations from AWS Cost Explorer
+2. Fetches cost optimization checks from AWS Trusted Advisor
+3. Fetches EC2 recommendations from AWS Compute Optimizer
+4. Stores recommendations in the `opportunities` database table
+5. Updates existing recommendations, creates new ones
+
+**Sources:**
+- **Cost Explorer**: EC2 rightsizing recommendations
+- **Trusted Advisor**: Low utilization EC2, idle load balancers, underutilized EBS, idle RDS, etc.
+- **Compute Optimizer**: EC2 instance optimization based on CPU/memory utilization
+
+**Required AWS Permissions:**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": "ce:GetRightsizingRecommendation", "Resource": "*"},
+    {"Effect": "Allow", "Action": "support:DescribeTrustedAdvisorCheckResult", "Resource": "*"},
+    {"Effect": "Allow", "Action": "compute-optimizer:GetEC2InstanceRecommendations", "Resource": "*"}
+  ]
+}
+```
+
+**Environment Variables:**
+- `DATABASE_URL`: PostgreSQL connection string (required for non-dry-run)
+- `AWS_REGION`: AWS region for API calls (default: us-east-1)
+
+**When to Use:**
+- Initial setup to populate optimization opportunities
+- Scheduled cron job for regular updates (e.g., daily)
+- After enabling new AWS accounts in the organization
+
+**Notes:**
+- Trusted Advisor requires Business or Enterprise Support plan
+- Compute Optimizer requires opt-in (enable in AWS Console first)
+- Run with `--dry-run` first to preview recommendations
 
 ---
 

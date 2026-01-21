@@ -1,7 +1,14 @@
 """
 Account Scoping Middleware
-Extracts user identity, loads organization and saved view context,
-and attaches RequestContext to each request for account-level scoping.
+
+Loads organization and saved view context from the database based on
+the authenticated user, and attaches RequestContext to each request
+for account-level scoping.
+
+NOTE: This middleware runs AFTER the AuthenticationMiddleware, which
+validates the JWT token and attaches the authenticated user info to
+request.state.auth_user. This middleware uses that authenticated user
+to load the full context from the database.
 """
 
 from typing import Optional
@@ -19,16 +26,21 @@ from backend.services.request_context import (
     create_empty_context,
 )
 from backend.services.database import DatabaseService
+from backend.middleware.authentication import AuthenticatedUser, AnonymousUser
 
 logger = structlog.get_logger(__name__)
 
 
 class AccountScopingMiddleware(BaseHTTPMiddleware):
     """
-    Middleware that extracts user identity and loads account scoping context.
+    Middleware that loads account scoping context from the database.
+
+    This middleware runs AFTER AuthenticationMiddleware and uses the
+    authenticated user (from request.state.auth_user) to load the full
+    context from the database.
 
     Flow:
-    1. Extract user email from X-User-Email header (or other auth mechanism)
+    1. Get authenticated user from request.state.auth_user (set by AuthenticationMiddleware)
     2. Load user from database
     3. Load user's organization and active saved view
     4. Compute effective account scope
@@ -45,6 +57,9 @@ class AccountScopingMiddleware(BaseHTTPMiddleware):
         '/redoc',
         '/openapi.json',
         '/',
+        '/api/auth/login',
+        '/api/auth/register',
+        '/api/auth/refresh',
     }
 
     def __init__(self, app, db_service: Optional[DatabaseService] = None):
@@ -52,7 +67,7 @@ class AccountScopingMiddleware(BaseHTTPMiddleware):
         self.db_service = db_service
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Skip scoping for health/metrics endpoints
+        # Skip scoping for health/metrics/auth endpoints
         if request.url.path in self.SKIP_PATHS:
             return await call_next(request)
 
@@ -60,11 +75,20 @@ class AccountScopingMiddleware(BaseHTTPMiddleware):
         request_id = uuid4()
 
         try:
-            # Extract user email from header
-            user_email = request.headers.get('X-User-Email', '').strip()
+            # Get authenticated user from AuthenticationMiddleware
+            auth_user = getattr(request.state, 'auth_user', None)
+
+            # If no auth_user or anonymous, attach empty context
+            if not auth_user or isinstance(auth_user, AnonymousUser) or not auth_user.is_authenticated:
+                request.state.context = create_empty_context()
+                request.state.request_id = request_id
+                return await call_next(request)
+
+            # Get user email from authenticated user (validated by JWT)
+            user_email = auth_user.email
 
             if not user_email:
-                # No user header - attach empty context for anonymous access
+                # This shouldn't happen with valid JWT, but handle defensively
                 request.state.context = create_empty_context()
                 request.state.request_id = request_id
                 return await call_next(request)
@@ -77,6 +101,7 @@ class AccountScopingMiddleware(BaseHTTPMiddleware):
             logger.debug(
                 "request_context_loaded",
                 user_email=user_email,
+                auth_type=auth_user.token_type,
                 organization_id=str(context.organization_id) if context.organization_id else None,
                 account_count=len(context.allowed_account_ids),
                 has_active_view=context.active_saved_view is not None,

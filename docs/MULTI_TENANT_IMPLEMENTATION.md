@@ -189,6 +189,30 @@ Tracks which saved view each user has selected.
 | GET | `/scope/current` | Get effective scope |
 | GET | `/scope/accounts` | List allowed accounts |
 
+### Opportunities API (`/api/v1/opportunities`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/opportunities` | List opportunities (filterable, paginated) |
+| GET | `/opportunities/{id}` | Get opportunity details with evidence |
+| PATCH | `/opportunities/{id}/status` | Update opportunity status |
+| POST | `/opportunities/bulk-status` | Bulk update opportunity statuses |
+| POST | `/opportunities/ingest` | Trigger AWS signals ingestion |
+| POST | `/opportunities/export` | Export opportunities (CSV/JSON) |
+| GET | `/opportunities/stats` | Get aggregated stats for dashboard |
+
+**Query Parameters for List:**
+- `category`: Filter by category (rightsizing, idle_resources, etc.)
+- `service`: Filter by AWS service (EC2, RDS, S3, etc.)
+- `status`: Filter by status (open, accepted, dismissed)
+- `account_id`: Filter by AWS account ID
+- `min_savings`: Filter by minimum estimated savings
+- `max_savings`: Filter by maximum estimated savings
+- `sort`: Sort field (savings_desc, savings_asc, created_desc, etc.)
+- `page`, `page_size`: Pagination
+
+**Note:** All opportunities endpoints respect organization scoping and account filters from saved views.
+
 ---
 
 ## Backend Services

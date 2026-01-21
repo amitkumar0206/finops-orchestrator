@@ -28,6 +28,29 @@ class Settings(BaseSettings):
         default='["http://localhost:3000","http://127.0.0.1:3000"]',
         env="ALLOWED_ORIGINS"
     )
+
+    # JWT Authentication
+    jwt_access_token_expiry_minutes: int = Field(
+        default=15,
+        env="JWT_ACCESS_TOKEN_EXPIRY_MINUTES",
+        description="Access token expiration in minutes"
+    )
+    jwt_refresh_token_expiry_days: int = Field(
+        default=7,
+        env="JWT_REFRESH_TOKEN_EXPIRY_DAYS",
+        description="Refresh token expiration in days"
+    )
+    jwt_issuer: str = Field(
+        default="finops-platform",
+        env="JWT_ISSUER",
+        description="JWT token issuer identifier"
+    )
+    # Allow legacy header-based auth for backward compatibility during migration
+    allow_legacy_header_auth: bool = Field(
+        default=False,
+        env="ALLOW_LEGACY_HEADER_AUTH",
+        description="Allow X-User-Email header auth (INSECURE - for migration only)"
+    )
     
     # Database
     postgres_host: str = Field(default="localhost", env="POSTGRES_HOST")
@@ -194,6 +217,21 @@ class Settings(BaseSettings):
     def cur_s3_location(self) -> str:
         """Full S3 path to CUR data"""
         return f"s3://{self.cur_s3_bucket}/{self.cur_s3_prefix}/"
+
+    @property
+    def is_secret_key_secure(self) -> bool:
+        """Check if secret key meets security requirements"""
+        insecure_defaults = [
+            "dev-secret-key-change-in-production",
+            "secret",
+            "changeme",
+            "password",
+            "123456",
+        ]
+        return (
+            len(self.secret_key) >= 32 and
+            self.secret_key.lower() not in [s.lower() for s in insecure_defaults]
+        )
     
     def validate_cur_configuration(self) -> list[str]:
         """
@@ -223,7 +261,37 @@ class Settings(BaseSettings):
         
         if "${AWS_ACCOUNT_ID}" in self.athena_output_location:
             issues.append("ATHENA_OUTPUT_LOCATION contains unreplaced placeholder ${AWS_ACCOUNT_ID}")
-        
+
+        return issues
+
+    def validate_security_configuration(self) -> list[str]:
+        """
+        Validate security-related configuration.
+        Returns list of issues (empty if all valid).
+
+        CRITICAL: In production, this MUST return empty list before deployment.
+        """
+        issues = []
+
+        if self.is_production:
+            # Production security requirements
+            if not self.is_secret_key_secure:
+                issues.append(
+                    "CRITICAL: SECRET_KEY is insecure. Set a secure random key "
+                    "(at least 32 characters) via SECRET_KEY environment variable"
+                )
+
+            if self.allow_legacy_header_auth:
+                issues.append(
+                    "CRITICAL: ALLOW_LEGACY_HEADER_AUTH is enabled in production. "
+                    "This allows authentication bypass via header spoofing"
+                )
+
+            if self.debug:
+                issues.append(
+                    "WARNING: DEBUG mode is enabled in production"
+                )
+
         return issues
 
 

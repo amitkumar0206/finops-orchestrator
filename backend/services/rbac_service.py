@@ -10,6 +10,7 @@ from fastapi import HTTPException, Request, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from backend.services.database import DatabaseService
+from backend.utils.pii_masking import mask_email, hash_identifier
 
 logger = structlog.get_logger(__name__)
 security = HTTPBearer()
@@ -47,7 +48,7 @@ class RBACService:
                 RETURNING id, email, full_name, is_active, is_admin
             """
             user = await self.db.execute(query, email, full_name)
-            logger.info("user_created", email=email)
+            logger.info("user_created", user=hash_identifier(email, "user"))
         
         return user
     
@@ -128,9 +129,9 @@ class RBACService:
         
         logger.info(
             "role_assigned",
-            user_id=user_id,
+            user_id=hash_identifier(user_id, "user"),
             role=role_name,
-            granted_by=granted_by
+            granted_by=hash_identifier(granted_by, "user")
         )
     
     async def create_role(
@@ -200,7 +201,7 @@ def require_permission(permission: str):
             if not has_permission:
                 logger.warning(
                     "permission_denied",
-                    user_email=user_email,
+                    user=hash_identifier(user_email, "user"),
                     permission=permission
                 )
                 raise HTTPException(
@@ -239,7 +240,7 @@ def require_any_permission(*permissions: str):
             if not has_any and not user['is_admin']:
                 logger.warning(
                     "permission_denied",
-                    user_email=user_email,
+                    user=hash_identifier(user_email, "user"),
                     required_permissions=permissions
                 )
                 raise HTTPException(
