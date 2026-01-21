@@ -9,11 +9,15 @@ import time
 import csv
 import json
 import io
-from typing import Any, Dict, List, Optional, Tuple
+import re
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta, date
 import structlog
 
 from backend.config.settings import get_settings
+
+if TYPE_CHECKING:
+    from backend.services.request_context import RequestContext
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -476,6 +480,163 @@ ORDER BY
         except Exception as e:
             logger.error(f"Error exporting to JSON: {e}")
             return "{}", "error.json"
+
+
+    async def execute_query_with_scoping(
+        self,
+        sql_query: str,
+        context: "RequestContext",
+        wait_for_completion: bool = True,
+        max_wait_seconds: int = 60
+    ) -> Dict[str, Any]:
+        """
+        Execute Athena query with account scoping validation.
+
+        This method:
+        1. Validates the SQL doesn't access unauthorized accounts
+        2. Injects account filter if missing
+        3. Executes the query
+        4. Adds scope metadata to results
+
+        Args:
+            sql_query: SQL query to execute
+            context: RequestContext with user's allowed accounts
+            wait_for_completion: Whether to wait for query completion
+            max_wait_seconds: Maximum time to wait
+
+        Returns:
+            Dict with query results and scope information
+        """
+        # Validate and enforce account scoping
+        if context.allowed_account_ids and not context.is_admin:
+            sql_query, was_enforced = self._enforce_account_filter(
+                sql_query,
+                context.allowed_account_ids
+            )
+
+            # Validate no unauthorized accounts in query
+            is_valid, error = self._validate_account_scope(
+                sql_query,
+                context.allowed_account_ids
+            )
+            if not is_valid:
+                logger.warning(
+                    "query_scope_violation",
+                    user_email=context.user_email,
+                    error=error,
+                )
+                return {
+                    "status": "denied",
+                    "error": error,
+                    "scope": context.to_scope_dict()
+                }
+
+            if was_enforced:
+                logger.info(
+                    "account_filter_enforced_on_execution",
+                    user_email=context.user_email,
+                    account_count=len(context.allowed_account_ids),
+                )
+
+        # Execute the query
+        result = await self.execute_query(
+            sql_query=sql_query,
+            wait_for_completion=wait_for_completion,
+            max_wait_seconds=max_wait_seconds
+        )
+
+        # Add scope metadata to result
+        result['scope'] = context.to_scope_dict()
+        result['scoped_sql'] = sql_query
+
+        return result
+
+    def _enforce_account_filter(
+        self,
+        sql: str,
+        allowed_account_ids: List[str]
+    ) -> Tuple[str, bool]:
+        """
+        Inject account filter if missing from SQL.
+
+        Returns:
+            Tuple of (modified_sql, was_modified)
+        """
+        sql_upper = sql.upper()
+
+        # Check if account filter already present
+        if 'LINE_ITEM_USAGE_ACCOUNT_ID' in sql_upper:
+            return sql, False
+
+        # No account filter - inject one
+        # Validate account IDs to prevent SQL injection (AWS account IDs are 12 digits)
+        validated_ids = [acc for acc in allowed_account_ids if re.match(r'^[0-9]{12}$', str(acc))]
+        if not validated_ids:
+            logger.warning("no_valid_account_ids_for_filter")
+            return sql, False
+
+        account_list = ', '.join(f"'{acc}'" for acc in validated_ids)
+        account_filter = f"line_item_usage_account_id IN ({account_list})"
+
+        # Find WHERE clause and inject
+        where_match = re.search(r'\bWHERE\b', sql, re.IGNORECASE)
+        if where_match:
+            where_end = where_match.end()
+            sql = f"{sql[:where_end]} {account_filter} AND {sql[where_end:]}"
+        else:
+            # No WHERE - add after FROM
+            from_match = re.search(
+                r'\bFROM\s+[\w\.]+(?:\s+AS\s+\w+)?',
+                sql,
+                re.IGNORECASE
+            )
+            if from_match:
+                from_end = from_match.end()
+                sql = f"{sql[:from_end]} WHERE {account_filter} {sql[from_end:]}"
+
+        return sql, True
+
+    def _validate_account_scope(
+        self,
+        sql: str,
+        allowed_account_ids: List[str]
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Validate SQL doesn't access unauthorized accounts.
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        # Extract 12-digit account IDs from the query
+        account_pattern = r"'(\d{12})'"
+        mentioned_accounts = set(re.findall(account_pattern, sql))
+
+        if not mentioned_accounts:
+            # No explicit accounts - check for filter
+            if 'LINE_ITEM_USAGE_ACCOUNT_ID' not in sql.upper():
+                return False, "Query must include account filter"
+            return True, None
+
+        # Check all mentioned accounts are allowed
+        allowed_set = set(allowed_account_ids)
+        unauthorized = mentioned_accounts - allowed_set
+
+        if unauthorized:
+            return False, f"Access denied to accounts: {', '.join(sorted(unauthorized))}"
+
+        return True, None
+
+    def inject_account_filter(
+        self,
+        sql: str,
+        allowed_account_ids: List[str]
+    ) -> str:
+        """
+        Public method to inject account filter into SQL.
+        Use this when you need to scope a query before execution.
+        """
+        modified_sql, _ = self._enforce_account_filter(sql, allowed_account_ids)
+        return modified_sql
 
 
 # Global Athena service instance

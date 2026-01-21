@@ -18,6 +18,7 @@ from services.conversation_manager import conversation_manager
 from fastapi import Request
 from agents.multi_agent_workflow import execute_multi_agent_query
 from config.settings import get_settings
+from backend.services.request_context import get_context_from_request
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -31,20 +32,30 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
     """
     Main chat endpoint for natural language cost analysis.
     Uses the Multi-Agent system (default) for intelligent routing and better follow-ups.
+    Includes account scoping based on user's organization and saved view.
     """
-    
+
+    # Get request context for account scoping
+    request_context = get_context_from_request(http_request)
+    scope_info = request_context.to_scope_dict() if request_context else None
+
     # Ensure a persistent conversation thread exists (maps to DB thread_id)
     conversation_id = request.conversation_id or None
     if not conversation_id:
-        client_ip = http_request.client.host if http_request and http_request.client else None
-        user_id = f"ip:{client_ip}" if client_ip else f"anon:{str(uuid4())}"
+        if request_context:
+            user_id = str(request_context.user_id)
+        else:
+            client_ip = http_request.client.host if http_request and http_request.client else None
+            user_id = f"ip:{client_ip}" if client_ip else f"anon:{str(uuid4())}"
         conversation_id = conversation_manager.create_thread(user_id=user_id, title=None)
     start_time = datetime.utcnow()
-    
+
     logger.info(
         "Processing chat request with Multi-Agent System",
         conversation_id=conversation_id,
-        message_length=len(request.message)
+        message_length=len(request.message),
+        has_scope=scope_info is not None,
+        account_count=len(request_context.allowed_account_ids) if request_context else 0
     )
     
     try:
@@ -99,6 +110,11 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
             charts_count=len(charts)
         )
 
+        # Merge scope info into metadata
+        response_metadata = response.get("metadata", {})
+        if scope_info:
+            response_metadata['scope'] = scope_info
+
         chat_response = ChatResponse(
             message=message_text,
             conversation_id=conversation_id,
@@ -115,7 +131,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
             structuredInsights=response.get("insights", []),  # Structured insights
             recommendations=response.get("recommendations", []),  # Structured recommendations
             results=response.get("results", []),  # Data table
-            metadata=response.get("metadata", {}),  # Query metadata
+            metadata=response_metadata,  # Query metadata with scope
             execution_time=execution_time,
             timestamp=datetime.utcnow()
         )

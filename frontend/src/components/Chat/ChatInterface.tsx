@@ -260,6 +260,18 @@ interface Message {
     filters?: string;
     status?: 'ok' | 'needs_clarification' | 'llm_error' | 'unsupported';
     clarification?: string[];
+    // Multi-tenant scope info
+    scope_info?: {
+      organization_id?: string;
+      organization_name?: string;
+      allowed_account_ids?: string[];
+      account_count?: number;
+      active_view?: {
+        id?: string;
+        name?: string;
+        expires_at?: string;
+      };
+    };
   };
 }
 
@@ -393,7 +405,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
         summary: data.summary || '',
         structuredInsights: data.structuredInsights || [],  // Changed from data.insights
         recommendations: data.recommendations || [],
-        metadata: data.metadata || undefined  // Changed from data.context
+        metadata: {
+          ...data.metadata,
+          // Extract scope info from metadata.scope if present (backend adds it there)
+          scope_info: data.metadata?.scope || undefined
+        }
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -1308,8 +1324,28 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
 
                           {/* 4. Scope/Time Period Section */}
                           {message.metadata && (
-                            (message.metadata.time_period || message.metadata.scope || message.metadata.filters) && (
+                            (message.metadata.time_period || message.metadata.scope || message.metadata.filters || message.metadata.scope_info) && (
                               <Box sx={{ width: '100%', mt: 2, p: 1.5, bgcolor: 'rgba(102, 126, 234, 0.06)', borderRadius: 1, border: '1px solid rgba(102, 126, 234, 0.2)' }}>
+                                {/* Multi-tenant scope info */}
+                                {message.metadata.scope_info && (
+                                  <Box sx={{ mb: 1, pb: 1, borderBottom: message.metadata.time_period || message.metadata.scope ? '1px solid rgba(102, 126, 234, 0.2)' : 'none' }}>
+                                    {message.metadata.scope_info.organization_name && (
+                                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                        <strong>Organization:</strong> {message.metadata.scope_info.organization_name}
+                                      </Typography>
+                                    )}
+                                    {message.metadata.scope_info.active_view?.name && (
+                                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                        <strong>View:</strong> {message.metadata.scope_info.active_view.name}
+                                      </Typography>
+                                    )}
+                                    {message.metadata.scope_info.account_count !== undefined && (
+                                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                        <strong>Accounts:</strong> {message.metadata.scope_info.account_count} account{message.metadata.scope_info.account_count !== 1 ? 's' : ''}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                )}
                                 {message.metadata.time_period && (
                                   <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
                                     <strong>Period:</strong> {message.metadata.time_period}

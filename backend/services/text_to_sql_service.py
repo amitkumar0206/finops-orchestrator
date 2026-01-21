@@ -5,16 +5,33 @@ Replaces the hybrid parameter extraction + template generation approach
 The LLM directly generates complete, executable Athena SQL queries from natural language.
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta
 import json
+import re
 import structlog
 
 from backend.services.llm_service import llm_service
 from backend.config.settings import get_settings
 
+if TYPE_CHECKING:
+    from backend.services.request_context import RequestContext
+
 logger = structlog.get_logger(__name__)
 settings = get_settings()
+
+
+# Account scoping instructions to inject into the prompt
+ACCOUNT_SCOPING_CONTEXT = """
+**CRITICAL - Account Scoping:**
+The user only has access to the following AWS account IDs: {allowed_accounts}
+
+You MUST include a filter for these accounts in your WHERE clause:
+`AND line_item_usage_account_id IN ({account_filter})`
+
+If the user asks about accounts outside this list, inform them they don't have access.
+Never return data from accounts not in this list.
+"""
 
 
 # CUR Schema Documentation for LLM
@@ -878,6 +895,183 @@ class TextToSQLService:
             filters.append(f"Account: {account_match.group(1)}")
         
         return ", ".join(filters) if filters else "None"
+
+
+    async def generate_sql_with_scoping(
+        self,
+        user_query: str,
+        context: "RequestContext",
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        previous_context: Optional[Dict[str, Any]] = None
+    ) -> Tuple[str, Dict[str, Any]]:
+        """
+        Generate Athena SQL query with account scoping enforcement.
+
+        This method wraps generate_sql() and:
+        1. Injects account scope into the LLM prompt
+        2. Post-processes SQL to validate/enforce account filter
+        3. Adds scope metadata to response
+
+        Args:
+            user_query: Natural language query from user
+            context: RequestContext with user's allowed accounts
+            conversation_history: Previous conversation messages
+            previous_context: Context from previous query
+
+        Returns:
+            Tuple of (sql_query, metadata) with scope information
+        """
+        from backend.services.request_context import RequestContext
+
+        # Build enhanced context with account scoping
+        enhanced_context = previous_context.copy() if previous_context else {}
+
+        # Add account scoping context if user has restrictions
+        scoping_prompt_addition = ""
+        if context.allowed_account_ids and not context.is_admin:
+            account_list = ', '.join(f"'{acc}'" for acc in context.allowed_account_ids)
+            scoping_prompt_addition = ACCOUNT_SCOPING_CONTEXT.format(
+                allowed_accounts=', '.join(context.allowed_account_ids),
+                account_filter=account_list
+            )
+            enhanced_context['allowed_accounts'] = context.allowed_account_ids
+
+        # Apply effective time range from saved view if available
+        if context.effective_time_range:
+            enhanced_context['default_time_range'] = context.effective_time_range
+
+        # Apply effective filters from saved view if available
+        if context.effective_filters:
+            enhanced_context['default_filters'] = context.effective_filters
+
+        # Prepend scoping instructions to query if needed
+        scoped_query = user_query
+        if scoping_prompt_addition:
+            # We inject scoping as a context hint rather than modifying the user query
+            enhanced_context['account_scoping_instructions'] = scoping_prompt_addition
+
+        # Generate SQL using base method
+        sql_query, metadata = await self.generate_sql(
+            user_query=scoped_query,
+            conversation_history=conversation_history,
+            previous_context=enhanced_context
+        )
+
+        # Post-process: validate and enforce account filter
+        if sql_query and context.allowed_account_ids and not context.is_admin:
+            sql_query, was_modified = self._enforce_account_filter(
+                sql_query,
+                context.allowed_account_ids
+            )
+            if was_modified:
+                metadata['account_filter_enforced'] = True
+                logger.info(
+                    "account_filter_enforced",
+                    user_email=context.user_email,
+                    account_count=len(context.allowed_account_ids),
+                )
+
+        # Add scope metadata to response
+        metadata['scope'] = {
+            'organization_id': str(context.organization_id) if context.organization_id else None,
+            'organization_name': context.organization_name,
+            'allowed_account_ids': context.allowed_account_ids,
+            'account_count': len(context.allowed_account_ids),
+            'active_view_id': str(context.active_saved_view.id) if context.active_saved_view else None,
+            'active_view_name': context.active_saved_view.name if context.active_saved_view else None,
+            'effective_time_range': context.effective_time_range,
+            'effective_filters': context.effective_filters,
+        }
+
+        return sql_query, metadata
+
+    def _enforce_account_filter(
+        self,
+        sql: str,
+        allowed_account_ids: List[str]
+    ) -> Tuple[str, bool]:
+        """
+        Validate and inject account filter if missing.
+        Defense-in-depth: ensures account scoping even if LLM didn't include it.
+
+        Returns:
+            Tuple of (modified_sql, was_modified)
+        """
+        sql_upper = sql.upper()
+
+        # Check if account filter already present
+        if 'LINE_ITEM_USAGE_ACCOUNT_ID' in sql_upper:
+            # Validate it includes our allowed accounts
+            # For now, trust the LLM included the right accounts
+            # Could add stricter validation here
+            return sql, False
+
+        # No account filter found - inject one
+        # Validate account IDs to prevent SQL injection (AWS account IDs are 12 digits)
+        validated_ids = [acc for acc in allowed_account_ids if re.match(r'^[0-9]{12}$', str(acc))]
+        if not validated_ids:
+            logger.warning("no_valid_account_ids_for_filter")
+            return sql, False
+
+        account_list = ', '.join(f"'{acc}'" for acc in validated_ids)
+        account_filter = f"line_item_usage_account_id IN ({account_list})"
+
+        # Find WHERE clause and inject filter
+        where_match = re.search(r'\bWHERE\b', sql, re.IGNORECASE)
+        if where_match:
+            # Insert after WHERE
+            where_end = where_match.end()
+            sql = f"{sql[:where_end]} {account_filter} AND {sql[where_end:]}"
+        else:
+            # No WHERE clause - need to add one
+            # Find position after FROM clause
+            from_match = re.search(
+                r'\bFROM\s+[\w\.]+(?:\s+AS\s+\w+)?',
+                sql,
+                re.IGNORECASE
+            )
+            if from_match:
+                from_end = from_match.end()
+                sql = f"{sql[:from_end]} WHERE {account_filter} {sql[from_end:]}"
+
+        logger.debug(
+            "account_filter_injected",
+            account_count=len(allowed_account_ids),
+        )
+
+        return sql, True
+
+    def validate_sql_scope(
+        self,
+        sql: str,
+        allowed_account_ids: List[str]
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Validate that SQL doesn't access unauthorized accounts.
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        sql_upper = sql.upper()
+
+        # Extract any account IDs mentioned in the query
+        account_pattern = r"'(\d{12})'"
+        mentioned_accounts = set(re.findall(account_pattern, sql))
+
+        if not mentioned_accounts:
+            # No explicit accounts mentioned - need to ensure filter is present
+            if 'LINE_ITEM_USAGE_ACCOUNT_ID' not in sql_upper:
+                return False, "Query must include account filter"
+            return True, None
+
+        # Check if all mentioned accounts are allowed
+        allowed_set = set(allowed_account_ids)
+        unauthorized = mentioned_accounts - allowed_set
+
+        if unauthorized:
+            return False, f"Access denied to accounts: {', '.join(unauthorized)}"
+
+        return True, None
 
 
 # Global instance

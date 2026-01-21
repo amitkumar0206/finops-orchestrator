@@ -17,8 +17,10 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, His
 
 from config.settings import get_settings
 from api import chat, health, reports, analytics, athena_queries
+from api import saved_views, organizations, scope
 from services.vector_store import VectorStoreService
 from services.database import DatabaseService
+from middleware.account_scoping import AccountScopingMiddleware
 from utils.logging import setup_logging
 
 # Setup structured logging
@@ -121,6 +123,9 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# Add account scoping middleware for multi-tenant support
+app.add_middleware(AccountScopingMiddleware)
+
 
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
@@ -190,6 +195,11 @@ app.include_router(chat.router, prefix="/api/v1", tags=["Chat"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["Analytics"])
 app.include_router(athena_queries.router, prefix="/api/v1/athena", tags=["Athena Queries"])
+
+# Multi-tenant support routers
+app.include_router(saved_views.router, prefix="/api/v1", tags=["Saved Views"])
+app.include_router(organizations.router, prefix="/api/v1", tags=["Organizations"])
+app.include_router(scope.router, prefix="/api/v1", tags=["Scope"])
 
 
 @app.get("/metrics")

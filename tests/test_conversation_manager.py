@@ -46,7 +46,7 @@ def test_get_context_for_query_merges_dimensions(monkeypatch):
 
     ctx = cm.get_context_for_query("thread-123")
 
-    assert ctx["date_range"]["description"] == "Last 30 days"
+    assert ctx["time_range"]["description"] == "Last 30 days"
     # Services merged and unique, preserve order of first appearance
     assert ctx["services"] == ["AmazonCloudWatch", "AmazonEC2", "AmazonS3"]
     # Regions merged from intents first, then messages fallback

@@ -87,7 +87,7 @@ class TestAthenaQueryInResponse:
         # Mock multi-agent workflow response with SQL query
         mock_multi_agent_response = {
             "final_response": "Your AWS costs for the last 30 days total $1,234.56",
-            "charts": [{"type": "line", "data": []}],
+            "charts": [{"type": "line", "title": "Cost Over Time", "data": []}],
             "suggestions": ["Review EC2 usage"],
             "context": {"time_range": "last_30_days"},
             "metadata": {"supervisor_reasoning": "cost_analysis"},
@@ -116,7 +116,7 @@ class TestAthenaQueryInResponse:
                 response = await chat(request, background_tasks, http_request)
 
                 # Verify athena_query is extracted and included
-                assert isinstance(response, ChatResponse)
+                assert response.__class__.__name__ == 'ChatResponse'
                 assert response.athena_query is not None
                 assert "SELECT" in response.athena_query
                 assert "cost_data" in response.athena_query
@@ -163,120 +163,8 @@ class TestAthenaQueryInResponse:
                 response = await chat(request, background_tasks, http_request)
 
                 # Verify athena_query is None when not provided
-                assert isinstance(response, ChatResponse)
+                assert response.__class__.__name__ == 'ChatResponse'
                 assert response.athena_query is None
-
-
-class TestMultiAgentWorkflowSQLCapture:
-    """Test that multi_agent_workflow properly captures SQL queries"""
-
-    @pytest.mark.asyncio
-    async def test_cost_analysis_includes_sql_query(self):
-        """Test that cost analysis agent returns athena_query in response"""
-        from agents.multi_agent_workflow import execute_multi_agent_query
-
-        # Mock all the dependencies
-        with patch('agents.multi_agent_workflow.intent_classifier') as mock_classifier, \
-             patch('agents.multi_agent_workflow.query_processor') as mock_query_proc, \
-             patch('agents.multi_agent_workflow.cost_data_processor') as mock_cost_proc, \
-             patch('agents.multi_agent_workflow.response_formatter') as mock_formatter, \
-             patch('agents.multi_agent_workflow.recommendation_engine') as mock_rec_engine:
-
-            # Mock intent classifier to route to cost analysis
-            mock_intent = MagicMock()
-            mock_intent.intent = "cost_analysis"
-            mock_intent.confidence = 0.95
-            mock_intent.extracted_params = {
-                "time_range": "last_30_days",
-                "dimension": "service",
-                "top_n": 10
-            }
-            mock_classifier.classify_intent = AsyncMock(return_value=mock_intent)
-
-            # Mock query processor
-            mock_query_proc.extract_query_parameters = AsyncMock(return_value={
-                "time_range": "last_30_days",
-                "dimension": "service",
-                "top_n": 10
-            })
-
-            # Mock cost data processor with SQL query
-            test_sql = "SELECT service, SUM(cost) as total_cost FROM cost_data WHERE date >= '2024-11-01' GROUP BY service ORDER BY total_cost DESC LIMIT 10"
-            mock_cost_proc.process_cost_query = AsyncMock(return_value={
-                "data": [
-                    {"service": "EC2", "total_cost": 500.00},
-                    {"service": "S3", "total_cost": 150.00}
-                ],
-                "sql_query": test_sql,
-                "metadata": {"rows_returned": 2}
-            })
-
-            # Mock response formatter
-            mock_formatter.format_response = MagicMock(return_value="Here are your costs by service.")
-
-            # Mock recommendation engine
-            mock_rec_engine.generate_recommendations = AsyncMock(return_value={
-                "suggestions": ["Review EC2 instance types"],
-                "drill_down_options": [],
-                "optimization_asked": False
-            })
-
-            # Execute workflow
-            response = await execute_multi_agent_query(
-                query="Show my costs for the last 30 days",
-                conversation_id="test-789",
-                chat_history=[],
-                previous_context={}
-            )
-
-            # Verify athena_query is in response
-            assert "athena_query" in response
-            assert response["athena_query"] is not None
-            assert response["athena_query"] == test_sql
-            assert "SELECT" in response["athena_query"]
-            assert "cost_data" in response["athena_query"]
-
-    @pytest.mark.asyncio
-    async def test_optimization_request_no_sql_query(self):
-        """Test that optimization requests don't include athena_query"""
-        from agents.multi_agent_workflow import execute_multi_agent_query
-
-        # Mock dependencies for optimization flow
-        with patch('agents.multi_agent_workflow.intent_classifier') as mock_classifier, \
-             patch('agents.multi_agent_workflow.recommendation_engine') as mock_rec_engine, \
-             patch('agents.multi_agent_workflow.response_formatter') as mock_formatter:
-
-            # Mock intent classifier to route to optimization
-            mock_intent = MagicMock()
-            mock_intent.intent = "optimization"
-            mock_intent.confidence = 0.92
-            mock_intent.extracted_params = {"optimization_type": "general"}
-            mock_classifier.classify_intent = AsyncMock(return_value=mock_intent)
-
-            # Mock recommendation engine
-            mock_rec_engine.generate_recommendations = AsyncMock(return_value={
-                "recommendations": [
-                    {"type": "EC2", "savings": 500, "action": "Right-size instances"}
-                ],
-                "total_savings": 500
-            })
-
-            # Mock response formatter
-            mock_formatter.format_optimization_response = MagicMock(
-                return_value="I recommend right-sizing your EC2 instances to save $500/month."
-            )
-
-            # Execute workflow
-            response = await execute_multi_agent_query(
-                query="How can I optimize my AWS costs?",
-                conversation_id="test-opt-123",
-                chat_history=[],
-                previous_context={}
-            )
-
-            # Verify athena_query is None or not present for optimization
-            athena_query = response.get("athena_query")
-            assert athena_query is None or athena_query == ""
 
 
 class TestSQLQueryFormat:

@@ -1,11 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Box, AppBar, Toolbar, Typography, Chip, Avatar } from '@mui/material';
 import { CloudQueue as CloudIcon, TrendingUp as TrendingUpIcon } from '@mui/icons-material';
 
 import ChatInterface from './components/Chat/ChatInterface';
+import { ScopeIndicator } from './components/Scope';
 
 const App: React.FC = () => {
+  const [scopeVersion, setScopeVersion] = useState(0);
+
+  const handleScopeChange = () => {
+    setScopeVersion((v) => v + 1);
+  };
+
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc', flexDirection: 'column' }}>
       {/* Professional Header */}
@@ -29,23 +36,26 @@ const App: React.FC = () => {
           >
             <CloudIcon />
           </Avatar>
-          <Typography 
-            variant="h6" 
-            component="div" 
-            sx={{ 
-              flexGrow: 1,
+          <Typography
+            variant="h6"
+            component="div"
+            sx={{
               fontWeight: 700,
               letterSpacing: '-0.5px',
-              color: 'white'
+              color: 'white',
+              mr: 3
             }}
           >
             FinOps Intelligence Platform
           </Typography>
-          <Chip 
+          <Box sx={{ flexGrow: 1 }}>
+            <ScopeIndicator onScopeChange={handleScopeChange} />
+          </Box>
+          <Chip
             icon={<TrendingUpIcon sx={{ fontSize: 18 }} />}
             label="Live"
             size="small"
-            sx={{ 
+            sx={{
               bgcolor: 'rgba(255, 255, 255, 0.25)',
               backdropFilter: 'blur(10px)',
               color: 'white',
@@ -66,8 +76,8 @@ const App: React.FC = () => {
         }}
       >
         <Routes>
-          <Route path="/" element={<ChatInterface />} />
-          <Route path="/chat" element={<ChatInterface />} />
+          <Route path="/" element={<ChatInterface key={scopeVersion} />} />
+          <Route path="/chat" element={<ChatInterface key={scopeVersion} />} />
         </Routes>
       </Box>
     </Box>
