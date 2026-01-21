@@ -448,6 +448,366 @@ sql, metadata = await text_to_sql_service.generate_sql_with_scoping(
 
 ---
 
+## AWS Data Infrastructure
+
+### S3 Bucket Structure for Multi-Account CUR Data
+
+The Cost and Usage Report (CUR) data from multiple AWS accounts is stored in S3 with the following structure:
+
+```
+s3://finops-intelligence-platform-data-{management-account-id}/
+├── cur/
+│   └── finops-cost-report/
+│       └── finops-cost-report/
+│           ├── year=2024/
+│           │   ├── month=1/
+│           │   │   ├── finops-cost-report-00001.snappy.parquet
+│           │   │   ├── finops-cost-report-00002.snappy.parquet
+│           │   │   └── ...
+│           │   ├── month=2/
+│           │   └── ...
+│           └── year=2025/
+│               └── ...
+│
+├── athena-results/
+│   └── query-results/
+│       └── {query-execution-id}.csv
+│
+└── metadata/
+    └── cost-report-Manifest.json
+```
+
+#### Key Fields for Multi-Tenant Filtering
+
+Each CUR parquet file contains data from ALL linked accounts in the AWS Organization. The critical field for multi-tenant filtering is:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `line_item_usage_account_id` | 12-digit AWS account ID where usage occurred | `123456789012` |
+| `bill_payer_account_id` | Management/payer account ID | `999888777666` |
+| `line_item_usage_start_date` | Usage period start | `2024-01-01T00:00:00Z` |
+| `line_item_product_code` | AWS service code | `AmazonEC2` |
+| `line_item_unblended_cost` | Cost before discounts | `12.50` |
+
+#### Multi-Account Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        AWS Organization                                   │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐         │
+│  │ Account A       │  │ Account B       │  │ Account C       │         │
+│  │ 123456789012    │  │ 234567890123    │  │ 345678901234    │         │
+│  │ (Production)    │  │ (Staging)       │  │ (Development)   │         │
+│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘         │
+│           │                    │                    │                   │
+│           ▼                    ▼                    ▼                   │
+│  ┌──────────────────────────────────────────────────────────────┐      │
+│  │              Management Account (999888777666)                │      │
+│  │                        CUR Export                             │      │
+│  │   - Consolidates ALL account usage                           │      │
+│  │   - Exports to S3 daily/hourly                               │      │
+│  └──────────────────────────────────────────────────────────────┘      │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │
+                                    ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                              S3 Bucket                                     │
+│  s3://finops-intelligence-platform-data-999888777666/cur/                 │
+│                                                                            │
+│  Each Parquet file contains rows for ALL accounts:                        │
+│  ┌────────────────────────────┬──────────────┬─────────┬────────────┐    │
+│  │ line_item_usage_account_id │ product_code │ cost    │ date       │    │
+│  ├────────────────────────────┼──────────────┼─────────┼────────────┤    │
+│  │ 123456789012               │ AmazonEC2    │ 1500.00 │ 2024-01-01 │    │
+│  │ 234567890123               │ AmazonS3     │ 250.00  │ 2024-01-01 │    │
+│  │ 345678901234               │ AmazonRDS    │ 800.00  │ 2024-01-01 │    │
+│  │ 123456789012               │ AmazonS3     │ 100.00  │ 2024-01-01 │    │
+│  └────────────────────────────┴──────────────┴─────────┴────────────┘    │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### AWS Glue Integration
+
+#### Glue Crawler Configuration
+
+The Glue Crawler automatically discovers CUR data schema and creates/updates the table:
+
+```yaml
+Crawler Name: finops-cur-crawler
+Database: cost_usage_db
+S3 Target: s3://finops-intelligence-platform-data-{account}/cur/finops-cost-report/finops-cost-report/
+Schedule: Daily at 6:00 AM UTC
+Table Prefix: cur_
+Partition Keys:
+  - year (string)
+  - month (string)
+```
+
+#### Glue Table Schema (cur_data)
+
+```sql
+CREATE EXTERNAL TABLE cost_usage_db.cur_data (
+  -- Identity columns
+  identity_line_item_id STRING,
+  identity_time_interval STRING,
+
+  -- Bill columns
+  bill_invoice_id STRING,
+  bill_billing_entity STRING,
+  bill_bill_type STRING,
+  bill_payer_account_id STRING,      -- Management account
+  bill_billing_period_start_date TIMESTAMP,
+  bill_billing_period_end_date TIMESTAMP,
+
+  -- Line item columns (KEY FOR MULTI-TENANT)
+  line_item_usage_account_id STRING,  -- << CRITICAL: Account being billed
+  line_item_line_item_type STRING,
+  line_item_usage_start_date TIMESTAMP,
+  line_item_usage_end_date TIMESTAMP,
+  line_item_product_code STRING,
+  line_item_usage_type STRING,
+  line_item_operation STRING,
+  line_item_availability_zone STRING,
+  line_item_resource_id STRING,
+  line_item_usage_amount DOUBLE,
+  line_item_normalization_factor DOUBLE,
+  line_item_normalized_usage_amount DOUBLE,
+  line_item_currency_code STRING,
+  line_item_unblended_rate STRING,
+  line_item_unblended_cost DOUBLE,
+  line_item_blended_rate STRING,
+  line_item_blended_cost DOUBLE,
+  line_item_line_item_description STRING,
+
+  -- Product columns
+  product_product_name STRING,
+  product_product_family STRING,
+  product_region STRING,
+  product_instance_type STRING,
+  product_instance_family STRING,
+  product_operating_system STRING,
+  product_tenancy STRING,
+  product_database_engine STRING,
+
+  -- Pricing columns
+  pricing_term STRING,
+  pricing_unit STRING,
+
+  -- Reservation columns
+  reservation_reservation_a_r_n STRING,
+  reservation_effective_cost DOUBLE,
+  reservation_unused_quantity DOUBLE,
+  reservation_unused_normalized_unit_quantity DOUBLE,
+
+  -- Savings Plan columns
+  savings_plan_savings_plan_a_r_n STRING,
+  savings_plan_savings_plan_rate DOUBLE,
+  savings_plan_savings_plan_effective_cost DOUBLE,
+
+  -- Resource tags (user-defined)
+  resource_tags_user_environment STRING,
+  resource_tags_user_project STRING,
+  resource_tags_user_cost_center STRING,
+  resource_tags_user_team STRING
+
+  -- ... additional tag columns as needed
+)
+PARTITIONED BY (year STRING, month STRING)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS PARQUET
+LOCATION 's3://finops-intelligence-platform-data-{account}/cur/finops-cost-report/finops-cost-report/'
+TBLPROPERTIES ('parquet.compression'='SNAPPY');
+```
+
+#### Partition Management
+
+After crawler runs, repair partitions:
+```sql
+MSCK REPAIR TABLE cost_usage_db.cur_data;
+```
+
+Or add partitions manually:
+```sql
+ALTER TABLE cost_usage_db.cur_data ADD
+  PARTITION (year='2024', month='1')
+  LOCATION 's3://finops-intelligence-platform-data-{account}/cur/.../year=2024/month=1/';
+```
+
+---
+
+### Athena Query Execution with Multi-Tenant Scoping
+
+#### How Account Scoping Works in Athena
+
+When a user queries cost data, the platform enforces account-level isolation through SQL filtering:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        User Query Flow                                   │
+│                                                                          │
+│  User: "Show me EC2 costs for last month"                               │
+│  User's Allowed Accounts: ['123456789012', '234567890123']              │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────┐    │
+│  │  1. Text-to-SQL Generation                                      │    │
+│  │     LLM Prompt includes:                                        │    │
+│  │     "CRITICAL: Filter by line_item_usage_account_id IN          │    │
+│  │      ('123456789012', '234567890123')"                          │    │
+│  └────────────────────────────────────────────────────────────────┘    │
+│                              │                                          │
+│                              ▼                                          │
+│  ┌────────────────────────────────────────────────────────────────┐    │
+│  │  2. Post-Processing Validation                                  │    │
+│  │     - Check if account filter exists in SQL                     │    │
+│  │     - Inject filter if missing                                  │    │
+│  │     - Validate no unauthorized accounts                         │    │
+│  └────────────────────────────────────────────────────────────────┘    │
+│                              │                                          │
+│                              ▼                                          │
+│  ┌────────────────────────────────────────────────────────────────┐    │
+│  │  3. Final SQL Sent to Athena                                    │    │
+│  │                                                                  │    │
+│  │  SELECT                                                          │    │
+│  │    line_item_product_code,                                       │    │
+│  │    SUM(line_item_unblended_cost) AS total_cost                  │    │
+│  │  FROM cost_usage_db.cur_data                                    │    │
+│  │  WHERE year = '2024' AND month = '12'                           │    │
+│  │    AND line_item_product_code = 'AmazonEC2'                     │    │
+│  │    AND line_item_usage_account_id IN                            │    │
+│  │        ('123456789012', '234567890123')  << ENFORCED            │    │
+│  │  GROUP BY line_item_product_code                                │    │
+│  └────────────────────────────────────────────────────────────────┘    │
+│                              │                                          │
+│                              ▼                                          │
+│  ┌────────────────────────────────────────────────────────────────┐    │
+│  │  4. Athena Executes Query                                       │    │
+│  │     - Scans only partitions needed (year/month)                 │    │
+│  │     - Filters rows by account at storage level                  │    │
+│  │     - Returns only authorized data                              │    │
+│  └────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Example Scoped Queries
+
+**User in Organization A** (accounts: 123456789012, 234567890123):
+```sql
+-- Total cost by service
+SELECT
+  line_item_product_code AS service,
+  SUM(line_item_unblended_cost) AS cost
+FROM cost_usage_db.cur_data
+WHERE year = '2024' AND month = '12'
+  AND line_item_usage_account_id IN ('123456789012', '234567890123')
+GROUP BY line_item_product_code
+ORDER BY cost DESC;
+```
+
+**User in Organization B** (accounts: 345678901234):
+```sql
+-- Same query structure, different account filter
+SELECT
+  line_item_product_code AS service,
+  SUM(line_item_unblended_cost) AS cost
+FROM cost_usage_db.cur_data
+WHERE year = '2024' AND month = '12'
+  AND line_item_usage_account_id IN ('345678901234')
+GROUP BY line_item_product_code
+ORDER BY cost DESC;
+```
+
+#### Athena Workgroup Configuration
+
+```yaml
+Workgroup: finops-workgroup
+Settings:
+  Output Location: s3://finops-intelligence-platform-data-{account}/athena-results/
+  Enforce Workgroup Configuration: true
+  Data Scanned Limit: 10 GB per query
+  Query Timeout: 30 minutes
+  Encryption: SSE-S3
+```
+
+#### Query Performance Optimization
+
+1. **Partition Pruning**: Always include `year` and `month` in WHERE clause
+2. **Column Projection**: Select only needed columns (Parquet is columnar)
+3. **Account Filter Early**: Place account filter early in WHERE for predicate pushdown
+
+```sql
+-- Optimized query pattern
+SELECT columns_needed
+FROM cost_usage_db.cur_data
+WHERE
+  year = '2024'                                           -- Partition prune
+  AND month = '12'                                        -- Partition prune
+  AND line_item_usage_account_id IN ('123456789012')     -- Early filter
+  AND line_item_product_code = 'AmazonEC2'               -- Additional filter
+```
+
+---
+
+### Security Considerations
+
+#### Account ID Validation
+
+All account IDs are validated before SQL inclusion to prevent injection:
+
+```python
+# From request_context.py
+import re
+validated_ids = []
+for acc in self.allowed_account_ids:
+    if re.match(r'^[0-9]{12}$', str(acc)):
+        validated_ids.append(f"'{acc}'")
+    else:
+        logger.warning("invalid_account_id_skipped", account_id=str(acc)[:20])
+```
+
+#### IAM Permissions for Athena
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:GetQueryResults",
+        "athena:StopQueryExecution"
+      ],
+      "Resource": "arn:aws:athena:*:*:workgroup/finops-workgroup"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::finops-intelligence-platform-data-*",
+        "arn:aws:s3:::finops-intelligence-platform-data-*/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetTable",
+        "glue:GetPartitions",
+        "glue:GetDatabase"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+---
+
 ## Future Enhancements
 
 1. **SSO Integration**: SAML/OIDC for enterprise auth
@@ -455,3 +815,4 @@ sql, metadata = await text_to_sql_service.generate_sql_with_scoping(
 3. **Scheduled Reports**: Views for automated reports
 4. **Cost Allocation Tags**: Tag-based scoping
 5. **Cross-Org Sharing**: Share views between organizations
+6. **Federated Queries**: Query across multiple AWS Organizations
