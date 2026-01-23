@@ -58,7 +58,30 @@ class Settings(BaseSettings):
     postgres_db: str = Field(default="finops", env="POSTGRES_DB")
     postgres_user: str = Field(default="finops", env="POSTGRES_USER")
     postgres_password: str = Field(default="finops", env="POSTGRES_PASSWORD")
-    
+
+    # Database SSL Configuration
+    # SECURITY: SSL is required for production/RDS connections
+    postgres_ssl_mode: str = Field(
+        default="prefer",
+        env="POSTGRES_SSL_MODE",
+        description="SSL mode: disable, allow, prefer, require, verify-ca, verify-full"
+    )
+    postgres_ssl_ca_cert_path: Optional[str] = Field(
+        default=None,
+        env="POSTGRES_SSL_CA_CERT_PATH",
+        description="Path to CA certificate bundle (e.g., AWS RDS global-bundle.pem)"
+    )
+    postgres_ssl_cert_path: Optional[str] = Field(
+        default=None,
+        env="POSTGRES_SSL_CERT_PATH",
+        description="Path to client certificate (for mutual TLS)"
+    )
+    postgres_ssl_key_path: Optional[str] = Field(
+        default=None,
+        env="POSTGRES_SSL_KEY_PATH",
+        description="Path to client private key (for mutual TLS)"
+    )
+
     # Valkey
     valkey_host: str = Field(default="localhost", env="VALKEY_HOST")
     valkey_port: int = Field(default=6379, env="VALKEY_PORT")
@@ -322,7 +345,87 @@ class Settings(BaseSettings):
             len(self.secret_key) >= 32 and
             self.secret_key.lower() not in self.INSECURE_SECRET_KEYS
         )
-    
+
+    @property
+    def is_rds_database(self) -> bool:
+        """Check if database host is AWS RDS"""
+        return "rds.amazonaws.com" in self.postgres_host.lower()
+
+    @property
+    def requires_ssl_verification(self) -> bool:
+        """
+        Determine if SSL certificate verification is required.
+
+        Returns True if:
+        - Environment is production, OR
+        - Database host is AWS RDS, OR
+        - SSL mode is verify-ca or verify-full
+        """
+        strict_modes = {"verify-ca", "verify-full"}
+        return (
+            self.is_production or
+            self.is_rds_database or
+            self.postgres_ssl_mode.lower() in strict_modes
+        )
+
+    @property
+    def ssl_mode_requires_cert(self) -> bool:
+        """Check if the SSL mode requires a CA certificate"""
+        return self.postgres_ssl_mode.lower() in {"verify-ca", "verify-full"}
+
+    def validate_database_ssl_configuration(self) -> list[str]:
+        """
+        Validate database SSL configuration.
+        Returns list of issues (empty if all valid).
+        """
+        issues = []
+
+        valid_ssl_modes = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+        if self.postgres_ssl_mode.lower() not in valid_ssl_modes:
+            issues.append(
+                f"Invalid POSTGRES_SSL_MODE: '{self.postgres_ssl_mode}'. "
+                f"Must be one of: {', '.join(sorted(valid_ssl_modes))}"
+            )
+
+        # Check CA cert requirement
+        if self.ssl_mode_requires_cert and not self.postgres_ssl_ca_cert_path:
+            issues.append(
+                f"POSTGRES_SSL_CA_CERT_PATH is required when SSL mode is "
+                f"'{self.postgres_ssl_mode}'. Download the AWS RDS CA bundle from: "
+                f"https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem"
+            )
+
+        # Check if CA cert file exists when specified
+        if self.postgres_ssl_ca_cert_path:
+            import os
+            if not os.path.isfile(self.postgres_ssl_ca_cert_path):
+                issues.append(
+                    f"SSL CA certificate file not found: {self.postgres_ssl_ca_cert_path}"
+                )
+
+        # Warn about insecure configurations in production
+        if self.is_production:
+            if self.postgres_ssl_mode.lower() == "disable":
+                issues.append(
+                    "CRITICAL: SSL is disabled in production. "
+                    "Set POSTGRES_SSL_MODE to 'verify-full' for secure connections."
+                )
+            elif self.postgres_ssl_mode.lower() in {"allow", "prefer", "require"}:
+                issues.append(
+                    f"WARNING: SSL mode '{self.postgres_ssl_mode}' does not verify certificates. "
+                    f"Consider using 'verify-full' for production to prevent MITM attacks."
+                )
+
+        # RDS-specific checks
+        if self.is_rds_database:
+            if self.postgres_ssl_mode.lower() not in {"verify-ca", "verify-full"}:
+                issues.append(
+                    f"WARNING: AWS RDS detected but SSL mode is '{self.postgres_ssl_mode}'. "
+                    f"Recommend 'verify-full' with AWS RDS CA bundle for secure connections."
+                )
+
+        return issues
+
     def validate_cur_configuration(self) -> list[str]:
         """
         Validate CUR-related configuration and return list of issues.
@@ -386,6 +489,10 @@ class Settings(BaseSettings):
                     "WARNING: SECRET_KEY is not secure. For development this is acceptable, "
                     "but ensure a secure key is set for production."
                 )
+
+        # Include database SSL validation issues
+        ssl_issues = self.validate_database_ssl_configuration()
+        issues.extend(ssl_issues)
 
         return issues
 

@@ -170,15 +170,29 @@ class TestSecurityConfigurationValidation:
         clear_settings_cache()
 
     def test_production_with_secure_config_returns_empty(self):
-        """Test that production with secure config has no issues"""
-        os.environ['SECRET_KEY'] = 'secure-key-that-is-at-least-32-characters-long-for-production'
-        os.environ['ENVIRONMENT'] = 'production'
-        os.environ['DEBUG'] = 'false'
+        """Test that production with fully secure config has no issues"""
+        import tempfile
 
-        settings = Settings()
-        issues = settings.validate_security_configuration()
+        # Create a temporary CA cert file for the test
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False) as f:
+            f.write("# Test CA cert placeholder\n")
+            temp_ca_path = f.name
 
-        assert len(issues) == 0
+        try:
+            os.environ['SECRET_KEY'] = 'secure-key-that-is-at-least-32-characters-long-for-production'
+            os.environ['ENVIRONMENT'] = 'production'
+            os.environ['DEBUG'] = 'false'
+            # Use verify-full SSL mode for secure production configuration
+            os.environ['POSTGRES_SSL_MODE'] = 'verify-full'
+            os.environ['POSTGRES_SSL_CA_CERT_PATH'] = temp_ca_path
+
+            settings = Settings()
+            issues = settings.validate_security_configuration()
+
+            # Should have no critical issues with fully secure config
+            assert len(issues) == 0, f"Unexpected issues: {issues}"
+        finally:
+            os.unlink(temp_ca_path)
 
     def test_production_with_debug_mode_warns(self):
         """Test that production with DEBUG=true generates warning"""
