@@ -143,13 +143,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add middleware
+# Add CORS middleware with explicit configuration
+# SECURITY: Explicitly define allowed methods and headers instead of using wildcards
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=settings.cors_allow_methods,
+    allow_headers=settings.cors_allow_headers,
+    max_age=settings.cors_max_age,
 )
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)

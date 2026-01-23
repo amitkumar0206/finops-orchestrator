@@ -33,6 +33,29 @@ class Settings(BaseSettings):
         env="ALLOWED_ORIGINS"
     )
 
+    # CORS Security Configuration
+    # Explicitly define allowed methods and headers to prevent overly permissive CORS
+    cors_allow_methods_str: str = Field(
+        default='["GET","POST","PUT","PATCH","DELETE","OPTIONS"]',
+        env="CORS_ALLOW_METHODS",
+        description="Allowed HTTP methods for CORS (JSON array or comma-separated)"
+    )
+    cors_allow_headers_str: str = Field(
+        default='["Authorization","Content-Type","Accept","Origin","X-Requested-With"]',
+        env="CORS_ALLOW_HEADERS",
+        description="Allowed HTTP headers for CORS (JSON array or comma-separated)"
+    )
+    cors_allow_credentials: bool = Field(
+        default=True,
+        env="CORS_ALLOW_CREDENTIALS",
+        description="Allow credentials (cookies, authorization headers) in CORS requests"
+    )
+    cors_max_age: int = Field(
+        default=600,
+        env="CORS_MAX_AGE",
+        description="Max age (seconds) for CORS preflight cache"
+    )
+
     # JWT Authentication
     jwt_access_token_expiry_minutes: int = Field(
         default=15,
@@ -304,7 +327,44 @@ class Settings(BaseSettings):
         
         # Default fallback
         return ["http://localhost:3000", "http://127.0.0.1:3000"]
-    
+
+    def _parse_string_list(self, value: str, default: List[str]) -> List[str]:
+        """Parse a string into a list (JSON array or comma-separated)"""
+        if isinstance(value, list):
+            return value
+
+        if isinstance(value, str):
+            raw = value.strip()
+
+            # Try JSON parsing first
+            if raw.startswith('[') and raw.endswith(']'):
+                try:
+                    return json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+            # Fall back to comma-separated
+            if ',' in raw:
+                return [item.strip() for item in raw.split(",") if item.strip()]
+
+            # Single value
+            if raw:
+                return [raw]
+
+        return default
+
+    @property
+    def cors_allow_methods(self) -> List[str]:
+        """Parse and return CORS allowed methods as a list"""
+        default = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+        return self._parse_string_list(self.cors_allow_methods_str, default)
+
+    @property
+    def cors_allow_headers(self) -> List[str]:
+        """Parse and return CORS allowed headers as a list"""
+        default = ["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"]
+        return self._parse_string_list(self.cors_allow_headers_str, default)
+
     @property
     def database_url(self) -> str:
         """Construct PostgreSQL database URL with SSL support for RDS"""
@@ -490,9 +550,59 @@ class Settings(BaseSettings):
                     "but ensure a secure key is set for production."
                 )
 
+        # Include CORS validation issues
+        cors_issues = self.validate_cors_configuration()
+        issues.extend(cors_issues)
+
         # Include database SSL validation issues
         ssl_issues = self.validate_database_ssl_configuration()
         issues.extend(ssl_issues)
+
+        return issues
+
+    def validate_cors_configuration(self) -> list[str]:
+        """
+        Validate CORS configuration.
+        Returns list of issues (empty if all valid).
+        """
+        issues = []
+
+        # Check for overly permissive origins
+        origins = self.allowed_origins
+        if "*" in origins:
+            if self.is_production:
+                issues.append(
+                    "CRITICAL: CORS allows all origins ('*') in production. "
+                    "This is a security risk. Set specific origins via ALLOWED_ORIGINS."
+                )
+            else:
+                issues.append(
+                    "WARNING: CORS allows all origins ('*'). "
+                    "This should not be used in production."
+                )
+
+        # Check for credentials with wildcard origin
+        if "*" in origins and self.cors_allow_credentials:
+            issues.append(
+                "CRITICAL: CORS allows credentials with wildcard origin. "
+                "This is blocked by browsers and indicates misconfiguration."
+            )
+
+        # Validate HTTP methods
+        valid_methods = {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"}
+        for method in self.cors_allow_methods:
+            if method.upper() not in valid_methods:
+                issues.append(f"WARNING: Unknown HTTP method in CORS config: {method}")
+
+        # Production-specific checks
+        if self.is_production:
+            # Warn about localhost origins in production
+            for origin in origins:
+                if "localhost" in origin.lower() or "127.0.0.1" in origin:
+                    issues.append(
+                        f"WARNING: Localhost origin '{origin}' in production CORS config. "
+                        f"This may indicate development configuration in production."
+                    )
 
         return issues
 
