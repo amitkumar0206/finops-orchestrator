@@ -56,6 +56,53 @@ class Settings(BaseSettings):
         description="Max age (seconds) for CORS preflight cache"
     )
 
+    # Security Headers Configuration
+    security_headers_enabled: bool = Field(
+        default=True,
+        env="SECURITY_HEADERS_ENABLED",
+        description="Enable security headers middleware"
+    )
+    hsts_enabled: bool = Field(
+        default=False,
+        env="HSTS_ENABLED",
+        description="Enable HTTP Strict Transport Security (only for HTTPS)"
+    )
+    hsts_max_age: int = Field(
+        default=31536000,
+        env="HSTS_MAX_AGE",
+        description="HSTS max-age in seconds (default: 1 year)"
+    )
+    hsts_include_subdomains: bool = Field(
+        default=True,
+        env="HSTS_INCLUDE_SUBDOMAINS",
+        description="Include subdomains in HSTS policy"
+    )
+    hsts_preload: bool = Field(
+        default=False,
+        env="HSTS_PRELOAD",
+        description="Enable HSTS preload (requires preload list submission)"
+    )
+    csp_enabled: bool = Field(
+        default=True,
+        env="CSP_ENABLED",
+        description="Enable Content-Security-Policy header"
+    )
+    csp_policy: Optional[str] = Field(
+        default=None,
+        env="CSP_POLICY",
+        description="Custom Content-Security-Policy (uses default if not set)"
+    )
+    x_frame_options: str = Field(
+        default="DENY",
+        env="X_FRAME_OPTIONS",
+        description="X-Frame-Options header value (DENY, SAMEORIGIN)"
+    )
+    x_content_type_options: str = Field(
+        default="nosniff",
+        env="X_CONTENT_TYPE_OPTIONS",
+        description="X-Content-Type-Options header value"
+    )
+
     # JWT Authentication
     jwt_access_token_expiry_minutes: int = Field(
         default=15,

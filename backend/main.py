@@ -22,6 +22,7 @@ from services.vector_store import VectorStoreService
 from services.database import DatabaseService
 from middleware.account_scoping import AccountScopingMiddleware
 from middleware.authentication import AuthenticationMiddleware
+from middleware.security_headers import SecurityHeadersMiddleware, get_default_csp, get_default_permissions_policy
 from utils.logging import setup_logging
 from utils.auth import initialize_authenticator
 
@@ -155,6 +156,28 @@ app.add_middleware(
 )
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Add security headers middleware
+# SECURITY: Adds X-Frame-Options, X-Content-Type-Options, CSP, HSTS, etc.
+if settings.security_headers_enabled:
+    # Determine CSP policy
+    csp_policy = settings.csp_policy
+    if settings.csp_enabled and not csp_policy:
+        csp_policy = get_default_csp(is_production=settings.is_production)
+
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        x_frame_options=settings.x_frame_options,
+        x_content_type_options=settings.x_content_type_options,
+        x_xss_protection="1; mode=block",
+        enable_hsts=settings.hsts_enabled,
+        hsts_max_age=settings.hsts_max_age,
+        hsts_include_subdomains=settings.hsts_include_subdomains,
+        hsts_preload=settings.hsts_preload,
+        content_security_policy=csp_policy if settings.csp_enabled else None,
+        referrer_policy="strict-origin-when-cross-origin",
+        permissions_policy=get_default_permissions_policy(),
+    )
 
 # Add account scoping middleware for multi-tenant support
 # NOTE: Order matters! AccountScopingMiddleware runs AFTER AuthenticationMiddleware
