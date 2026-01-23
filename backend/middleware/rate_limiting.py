@@ -61,8 +61,10 @@ class RateLimiter:
         else:
             client_ip = request.client.host if request.client else "unknown"
 
-        # Include user email if available for more granular limiting
-        user_email = request.headers.get("X-User-Email", "anonymous")
+        # Get user email from authenticated user (set by AuthenticationMiddleware)
+        # SECURITY: Never trust X-User-Email header - use authenticated user only
+        auth_user = getattr(request.state, 'auth_user', None)
+        user_email = auth_user.email if (auth_user and auth_user.is_authenticated) else "anonymous"
 
         return f"rate_limit:{endpoint}:{client_ip}:{user_email}"
 

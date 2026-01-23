@@ -181,12 +181,13 @@ def require_permission(permission: str):
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(*args, request: Request = None, **kwargs):
-            # Extract user from request (would integrate with auth system)
-            user_email = request.headers.get('X-User-Email')
-            
-            if not user_email:
+            # Extract user from authenticated request state (set by AuthenticationMiddleware)
+            auth_user = getattr(request.state, 'auth_user', None)
+
+            if not auth_user or not auth_user.is_authenticated:
                 raise HTTPException(status_code=401, detail="Not authenticated")
-            
+
+            user_email = auth_user.email
             user = await rbac_service.get_user_by_email(user_email)
             
             if not user:
@@ -218,15 +219,17 @@ def require_permission(permission: str):
 
 def require_any_permission(*permissions: str):
     """Decorator to require any of the specified permissions"""
-    
+
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(*args, request: Request = None, **kwargs):
-            user_email = request.headers.get('X-User-Email')
-            
-            if not user_email:
+            # Extract user from authenticated request state (set by AuthenticationMiddleware)
+            auth_user = getattr(request.state, 'auth_user', None)
+
+            if not auth_user or not auth_user.is_authenticated:
                 raise HTTPException(status_code=401, detail="Not authenticated")
-            
+
+            user_email = auth_user.email
             user = await rbac_service.get_user_by_email(user_email)
             
             if not user:
@@ -258,14 +261,15 @@ async def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Dict[str, Any]:
-    """Dependency to get current authenticated user"""
-    
-    # In production, would validate JWT token here
-    user_email = request.headers.get('X-User-Email')
-    
-    if not user_email:
+    """Dependency to get current authenticated user from JWT token"""
+
+    # User is authenticated by AuthenticationMiddleware which validates JWT
+    auth_user = getattr(request.state, 'auth_user', None)
+
+    if not auth_user or not auth_user.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
+    user_email = auth_user.email
     user = await rbac_service.get_or_create_user(user_email)
     
     if not user or not user['is_active']:

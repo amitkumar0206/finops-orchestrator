@@ -16,25 +16,39 @@ from backend.middleware.rate_limiting import (
 
 
 @pytest.fixture
-def mock_request():
-    """Create a mock FastAPI request"""
+def mock_auth_user():
+    """Create a mock authenticated user"""
+    auth_user = Mock()
+    auth_user.email = "test@example.com"
+    auth_user.is_authenticated = True
+    return auth_user
+
+
+@pytest.fixture
+def mock_request(mock_auth_user):
+    """Create a mock FastAPI request with authenticated user"""
     request = Mock()
     request.client = Mock()
     request.client.host = "127.0.0.1"
-    request.headers = {"X-User-Email": "test@example.com"}
+    request.headers = {}
+    # Set up authenticated user in request state (as AuthenticationMiddleware does)
+    request.state = Mock()
+    request.state.auth_user = mock_auth_user
     return request
 
 
 @pytest.fixture
-def mock_request_with_forwarded():
-    """Create a mock request with X-Forwarded-For header"""
+def mock_request_with_forwarded(mock_auth_user):
+    """Create a mock request with X-Forwarded-For header and authenticated user"""
     request = Mock()
     request.client = Mock()
     request.client.host = "10.0.0.1"
     request.headers = {
-        "X-User-Email": "test@example.com",
         "X-Forwarded-For": "203.0.113.1, 10.0.0.1",
     }
+    # Set up authenticated user in request state
+    request.state = Mock()
+    request.state.auth_user = mock_auth_user
     return request
 
 

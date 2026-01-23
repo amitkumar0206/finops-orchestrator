@@ -555,13 +555,15 @@ class AuditLoggingMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        
+
         request = Request(scope, receive)
-        
-        # Extract user info
-        user_email = request.headers.get('X-User-Email', 'anonymous')
+
+        # Get user email from authenticated user if available (set by AuthenticationMiddleware)
+        # SECURITY: Never trust X-User-Email header - use authenticated user only
+        auth_user = getattr(request.state, 'auth_user', None)
+        user_email = auth_user.email if (auth_user and getattr(auth_user, 'is_authenticated', False)) else 'anonymous'
         request_id = uuid4()
-        
+
         # Log request
         logger.info(
             "api_request",
@@ -571,6 +573,6 @@ class AuditLoggingMiddleware:
             request_id=str(request_id),
             ip=request.client.host
         )
-        
+
         # Process request
         await self.app(scope, receive, send)

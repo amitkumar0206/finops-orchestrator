@@ -4,11 +4,13 @@ Uses Pydantic Settings for environment variable handling and validation
 """
 
 from functools import lru_cache
-from typing import List, Optional, Any
-from pydantic import Field, field_validator
+from typing import ClassVar, FrozenSet, List, Optional, Any
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 import os
 import json
+import secrets
+import warnings
 
 
 class Settings(BaseSettings):
@@ -23,7 +25,9 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, env="PORT")
     
     # Security
-    secret_key: str = Field(default="dev-secret-key-change-in-production", env="SECRET_KEY")
+    # SECURITY: No default value - must be set via SECRET_KEY environment variable
+    # In production, the application will fail to start without a secure secret key
+    secret_key: Optional[str] = Field(default=None, env="SECRET_KEY")
     allowed_origins_str: str = Field(
         default='["http://localhost:3000","http://127.0.0.1:3000"]',
         env="ALLOWED_ORIGINS"
@@ -45,12 +49,8 @@ class Settings(BaseSettings):
         env="JWT_ISSUER",
         description="JWT token issuer identifier"
     )
-    # Allow legacy header-based auth for backward compatibility during migration
-    allow_legacy_header_auth: bool = Field(
-        default=False,
-        env="ALLOW_LEGACY_HEADER_AUTH",
-        description="Allow X-User-Email header auth (INSECURE - for migration only)"
-    )
+    # SECURITY: Legacy header-based auth (X-User-Email) has been REMOVED
+    # JWT tokens are now the ONLY supported authentication method
     
     # Database
     postgres_host: str = Field(default="localhost", env="POSTGRES_HOST")
@@ -138,7 +138,102 @@ class Settings(BaseSettings):
         case_sensitive=False,
         env_parse_none_str="null"
     )
-    
+
+    # List of known insecure secret key values that must be rejected
+    INSECURE_SECRET_KEYS: ClassVar[FrozenSet[str]] = frozenset([
+        "dev-secret-key-change-in-production",
+        "secret",
+        "changeme",
+        "password",
+        "123456",
+        "your-secret-key",
+        "change-me",
+        "test-secret",
+    ])
+
+    @model_validator(mode='after')
+    def validate_and_set_secret_key(self) -> 'Settings':
+        """
+        Validate and set secret key based on environment.
+
+        SECURITY POLICY:
+        - Production: MUST have a secure SECRET_KEY env var (32+ chars, not in insecure list)
+        - Development: Auto-generates temporary key with warning if not set
+        - Testing (PYTEST): Auto-generates temporary key for tests
+
+        This prevents:
+        1. Running production with hardcoded/default secrets
+        2. Accidentally deploying with insecure configuration
+        """
+        # Check if running in test mode (pytest sets this)
+        is_testing = (
+            os.environ.get("PYTEST_CURRENT_TEST") is not None or
+            os.environ.get("TESTING", "").lower() in ("1", "true", "yes")
+        )
+
+        # Determine if we're in production (check both self.environment and env var)
+        env_from_var = os.environ.get("ENVIRONMENT", "").lower()
+        is_production = (
+            self.environment.lower() == "production" or
+            env_from_var == "production"
+        )
+
+        if self.secret_key is None:
+            if is_production:
+                raise ValueError(
+                    "CRITICAL SECURITY ERROR: SECRET_KEY environment variable is required "
+                    "in production. Generate a secure key with: "
+                    "python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+                )
+            else:
+                # Development or testing: generate temporary key
+                generated_key = secrets.token_urlsafe(64)
+                object.__setattr__(self, 'secret_key', generated_key)
+
+                if not is_testing:
+                    warnings.warn(
+                        "\n" + "=" * 70 + "\n"
+                        "WARNING: No SECRET_KEY set. Using auto-generated temporary key.\n"
+                        "This key will change on every restart, invalidating all tokens.\n"
+                        "Set SECRET_KEY environment variable for persistent sessions.\n"
+                        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\"\n"
+                        + "=" * 70,
+                        UserWarning,
+                        stacklevel=2
+                    )
+        else:
+            # Secret key was provided - validate it
+            if self.secret_key.lower() in self.INSECURE_SECRET_KEYS:
+                if is_production:
+                    raise ValueError(
+                        f"CRITICAL SECURITY ERROR: SECRET_KEY is set to a known insecure value. "
+                        f"Generate a secure key with: "
+                        f"python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+                    )
+                elif not is_testing:
+                    warnings.warn(
+                        f"WARNING: Using insecure SECRET_KEY. This must be changed for production.",
+                        UserWarning,
+                        stacklevel=2
+                    )
+
+            if len(self.secret_key) < 32:
+                if is_production:
+                    raise ValueError(
+                        f"CRITICAL SECURITY ERROR: SECRET_KEY must be at least 32 characters. "
+                        f"Current length: {len(self.secret_key)}. "
+                        f"Generate a secure key with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+                    )
+                elif not is_testing:
+                    warnings.warn(
+                        f"WARNING: SECRET_KEY is too short ({len(self.secret_key)} chars). "
+                        f"Use at least 32 characters for production.",
+                        UserWarning,
+                        stacklevel=2
+                    )
+
+        return self
+
     @classmethod
     def settings_customise_sources(
         cls,
@@ -221,16 +316,11 @@ class Settings(BaseSettings):
     @property
     def is_secret_key_secure(self) -> bool:
         """Check if secret key meets security requirements"""
-        insecure_defaults = [
-            "dev-secret-key-change-in-production",
-            "secret",
-            "changeme",
-            "password",
-            "123456",
-        ]
+        if not self.secret_key:
+            return False
         return (
             len(self.secret_key) >= 32 and
-            self.secret_key.lower() not in [s.lower() for s in insecure_defaults]
+            self.secret_key.lower() not in self.INSECURE_SECRET_KEYS
         )
     
     def validate_cur_configuration(self) -> list[str]:
@@ -269,27 +359,32 @@ class Settings(BaseSettings):
         Validate security-related configuration.
         Returns list of issues (empty if all valid).
 
-        CRITICAL: In production, this MUST return empty list before deployment.
+        NOTE: In production, insecure SECRET_KEY will cause startup to fail
+        via the model_validator. This method provides additional warnings.
         """
         issues = []
 
         if self.is_production:
             # Production security requirements
+            # Note: Insecure secret key will have already failed in model_validator
+            # This is a secondary check for runtime validation
             if not self.is_secret_key_secure:
                 issues.append(
                     "CRITICAL: SECRET_KEY is insecure. Set a secure random key "
-                    "(at least 32 characters) via SECRET_KEY environment variable"
-                )
-
-            if self.allow_legacy_header_auth:
-                issues.append(
-                    "CRITICAL: ALLOW_LEGACY_HEADER_AUTH is enabled in production. "
-                    "This allows authentication bypass via header spoofing"
+                    "(at least 32 characters) via SECRET_KEY environment variable. "
+                    "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
                 )
 
             if self.debug:
                 issues.append(
                     "WARNING: DEBUG mode is enabled in production"
+                )
+        else:
+            # Non-production warnings
+            if not self.is_secret_key_secure:
+                issues.append(
+                    "WARNING: SECRET_KEY is not secure. For development this is acceptable, "
+                    "but ensure a secure key is set for production."
                 )
 
         return issues
@@ -302,3 +397,12 @@ def get_settings() -> Settings:
     Uses lru_cache to avoid reading environment variables multiple times
     """
     return Settings()
+
+
+def clear_settings_cache() -> None:
+    """
+    Clear the settings cache. Used primarily for testing.
+    After calling this, the next call to get_settings() will
+    create a new Settings instance with fresh environment variables.
+    """
+    get_settings.cache_clear()

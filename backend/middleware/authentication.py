@@ -2,14 +2,16 @@
 JWT Authentication Middleware
 
 Validates JWT tokens on incoming requests and attaches authenticated
-user information to the request state. This replaces the insecure
-header-based authentication.
+user information to the request state.
 
 Security Features:
 - Validates JWT signature and expiration
 - Rejects requests with invalid/expired tokens
-- Supports optional legacy header auth for migration (disabled by default)
+- JWT is the ONLY supported authentication method (no header spoofing)
 - Logs authentication failures for security monitoring
+
+SECURITY NOTE: Legacy X-User-Email header authentication has been REMOVED
+to prevent authentication bypass via header spoofing attacks.
 """
 
 from typing import Optional, Set
@@ -29,7 +31,6 @@ from backend.utils.auth import (
     extract_token_from_header,
     get_authenticator,
 )
-from backend.config.settings import get_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -69,10 +70,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     """
     Middleware that validates JWT tokens and attaches user info to requests.
 
-    Configuration:
+    Security:
     - Public paths are accessible without authentication
-    - Optional legacy header auth for backward compatibility (INSECURE)
-    - All other paths require valid JWT token
+    - All protected paths require valid JWT token in Authorization header
+    - NO fallback to header-based authentication (prevents spoofing attacks)
     """
 
     # Paths that don't require authentication
@@ -106,7 +107,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         """
         super().__init__(app)
         self._authenticator = authenticator
-        self._settings = get_settings()
 
     @property
     def authenticator(self) -> JWTAuthenticator:
@@ -136,27 +136,15 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         try:
-            # Try JWT authentication first
+            # Authenticate via JWT token in Authorization header
             auth_user = await self._authenticate_jwt(request)
 
             if auth_user:
                 request.state.auth_user = auth_user
                 return await call_next(request)
 
-            # Try legacy header authentication if enabled (migration support)
-            if self._settings.allow_legacy_header_auth:
-                legacy_user = self._authenticate_legacy_header(request)
-                if legacy_user:
-                    logger.warning(
-                        "legacy_header_auth_used",
-                        email=legacy_user.email,
-                        path=path,
-                        message="Legacy header authentication is deprecated and insecure"
-                    )
-                    request.state.auth_user = legacy_user
-                    return await call_next(request)
-
-            # No valid authentication found
+            # No valid JWT token found - reject the request
+            # SECURITY: No fallback to header-based auth (prevents spoofing attacks)
             logger.debug("authentication_required", path=path)
             return self._unauthorized_response("Authentication required")
 
@@ -217,41 +205,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             is_admin=payload.is_admin,
             organization_id=payload.organization_id,
             token_type=payload.token_type.value,
-        )
-
-    def _authenticate_legacy_header(self, request: Request) -> Optional[AuthenticatedUser]:
-        """
-        Attempt legacy header-based authentication (INSECURE).
-
-        This is only for backward compatibility during migration.
-        MUST be disabled in production via ALLOW_LEGACY_HEADER_AUTH=false
-
-        Args:
-            request: The incoming request
-
-        Returns:
-            AuthenticatedUser based on X-User-Email header, or None
-        """
-        user_email = request.headers.get('X-User-Email', '').strip()
-
-        if not user_email:
-            return None
-
-        # Basic email format validation
-        if '@' not in user_email or len(user_email) > 254:
-            logger.warning(
-                "invalid_legacy_email_header",
-                email_preview=user_email[:20] if user_email else ""
-            )
-            return None
-
-        # Create a limited user - legacy auth doesn't provide admin status
-        return AuthenticatedUser(
-            user_id="legacy",  # Marker that this is legacy auth
-            email=user_email,
-            is_admin=False,  # Legacy auth users are never admin
-            organization_id=None,
-            token_type="legacy_header",
         )
 
     def _unauthorized_response(
