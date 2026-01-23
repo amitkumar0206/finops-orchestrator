@@ -346,3 +346,6 @@ deployment.env.backup
 # Archived files
 archive/
 
+
+# Claude Code local config
+.claude/
