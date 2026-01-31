@@ -333,3 +333,99 @@ class TestRequireAdminDependency:
             require_admin(request)
 
         assert exc_info.value.status_code == 403
+
+
+class TestTokenBlacklist:
+    """Test token blacklist checking in authentication middleware"""
+
+    @pytest.mark.asyncio
+    async def test_blacklisted_token_rejected(self, authenticator, valid_access_token):
+        """Test that blacklisted tokens are rejected"""
+        from backend.services.cache_service import CacheService
+
+        app = Mock()
+        middleware = AuthenticationMiddleware(app, authenticator=authenticator)
+
+        request = Mock()
+        request.url = Mock()
+        request.url.path = "/api/v1/protected"
+        request.headers = {"Authorization": f"Bearer {valid_access_token}"}
+        request.state = Mock()
+        request.client = Mock()
+        request.client.host = "127.0.0.1"
+
+        call_next = AsyncMock()
+
+        # Mock the cache service to return True for blacklist check
+        mock_cache = Mock(spec=CacheService)
+        mock_cache.is_access_token_blacklisted = AsyncMock(return_value=True)
+
+        with patch('backend.middleware.authentication.get_cache_service', return_value=mock_cache):
+            response = await middleware.dispatch(request, call_next)
+
+        # Token should be rejected with 401
+        assert response.status_code == 401
+        call_next.assert_not_called()
+
+        # Verify response contains revoked error code
+        import json
+        response_body = json.loads(response.body.decode())
+        assert response_body.get("error") == "TOKEN_REVOKED"
+
+    @pytest.mark.asyncio
+    async def test_non_blacklisted_token_allowed(self, authenticator, valid_access_token):
+        """Test that non-blacklisted tokens are allowed"""
+        from backend.services.cache_service import CacheService
+
+        app = Mock()
+        middleware = AuthenticationMiddleware(app, authenticator=authenticator)
+
+        request = Mock()
+        request.url = Mock()
+        request.url.path = "/api/v1/protected"
+        request.headers = {"Authorization": f"Bearer {valid_access_token}"}
+        request.state = Mock()
+
+        call_next = AsyncMock(return_value=Mock())
+
+        # Mock the cache service to return False for blacklist check
+        mock_cache = Mock(spec=CacheService)
+        mock_cache.is_access_token_blacklisted = AsyncMock(return_value=False)
+
+        with patch('backend.middleware.authentication.get_cache_service', return_value=mock_cache):
+            response = await middleware.dispatch(request, call_next)
+
+        # Should have called the next handler
+        call_next.assert_called_once()
+
+        # Auth user should be set
+        auth_user = request.state.auth_user
+        assert isinstance(auth_user, AuthenticatedUser)
+        assert auth_user.email == "test@example.com"
+
+    @pytest.mark.asyncio
+    async def test_blacklist_check_failure_allows_token(self, authenticator, valid_access_token):
+        """Test that cache failures don't block valid tokens (fail open)"""
+        app = Mock()
+        middleware = AuthenticationMiddleware(app, authenticator=authenticator)
+
+        request = Mock()
+        request.url = Mock()
+        request.url.path = "/api/v1/protected"
+        request.headers = {"Authorization": f"Bearer {valid_access_token}"}
+        request.state = Mock()
+
+        call_next = AsyncMock(return_value=Mock())
+
+        # Mock cache service to raise an exception
+        async def raise_error():
+            raise Exception("Cache unavailable")
+
+        with patch('backend.middleware.authentication.get_cache_service', side_effect=raise_error):
+            response = await middleware.dispatch(request, call_next)
+
+        # Should still allow the request (fail open)
+        call_next.assert_called_once()
+
+        auth_user = request.state.auth_user
+        assert isinstance(auth_user, AuthenticatedUser)

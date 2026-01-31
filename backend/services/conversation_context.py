@@ -13,7 +13,7 @@ import json
 import re
 import structlog
 
-from utils.date_parser import date_parser
+from backend.utils.date_parser import date_parser
 from backend.services.database import DatabaseService
 from backend.models.database_models import Conversation
 from backend.services.column_constants import CHARGE_TYPE_SYNONYMS
@@ -175,7 +175,7 @@ class ConversationContext:
         # Re-extract time range from query if not already in new_params (for follow-ups)
         if "time_range" not in new_params:
             try:
-                from utils.date_parser import date_parser
+                from backend.utils.date_parser import date_parser
                 start_date, end_date, metadata = date_parser.parse_time_range(query)
                 new_params["time_range"] = {
                     "start_date": start_date,

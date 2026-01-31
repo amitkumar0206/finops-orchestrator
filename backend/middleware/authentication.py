@@ -6,6 +6,7 @@ user information to the request state.
 
 Security Features:
 - Validates JWT signature and expiration
+- Checks token blacklist for revoked tokens
 - Rejects requests with invalid/expired tokens
 - JWT is the ONLY supported authentication method (no header spoofing)
 - Logs authentication failures for security monitoring
@@ -31,6 +32,7 @@ from backend.utils.auth import (
     extract_token_from_header,
     get_authenticator,
 )
+from backend.services.cache_service import get_cache_service
 
 logger = structlog.get_logger(__name__)
 
@@ -156,15 +158,19 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             )
 
         except TokenInvalidError as e:
+            error_str = str(e)
+            # Determine if this is a revoked token
+            error_code = "TOKEN_REVOKED" if "revoked" in error_str.lower() else "TOKEN_INVALID"
             logger.warning(
                 "invalid_token",
                 path=path,
-                error=str(e),
+                error=error_str,
+                error_code=error_code,
                 client_ip=request.client.host if request.client else "unknown"
             )
             return self._unauthorized_response(
-                "Invalid authentication token",
-                error_code="TOKEN_INVALID"
+                error_str if error_code == "TOKEN_REVOKED" else "Invalid authentication token",
+                error_code=error_code
             )
 
         except Exception as e:
@@ -188,7 +194,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         Raises:
             TokenExpiredError: If token is expired
-            TokenInvalidError: If token is invalid
+            TokenInvalidError: If token is invalid or revoked
         """
         auth_header = request.headers.get("Authorization")
         token = extract_token_from_header(auth_header)
@@ -198,6 +204,22 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
         # Validate the token
         payload: TokenPayload = self.authenticator.validate_access_token(token)
+
+        # Check if token has been revoked (blacklisted)
+        try:
+            cache = await get_cache_service()
+            if await cache.is_access_token_blacklisted(token):
+                logger.warning(
+                    "revoked_token_used",
+                    user_id=payload.user_id,
+                    email=payload.email,
+                )
+                raise TokenInvalidError("Token has been revoked")
+        except TokenInvalidError:
+            raise
+        except Exception as e:
+            # Log but don't fail if cache is unavailable
+            logger.debug("blacklist_check_skipped", error=str(e))
 
         return AuthenticatedUser(
             user_id=payload.user_id,

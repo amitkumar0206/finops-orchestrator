@@ -8,7 +8,7 @@ from backend.services.athena_query_service import AthenaQueryService
 
 @pytest.fixture
 def executor():
-    with patch('backend.services.athena_executor.boto3'):
+    with patch('backend.services.athena_executor.create_aws_session'):
         executor = EnhancedAthenaQueryExecutor()
         executor.templates = MagicMock()
         return executor
@@ -85,7 +85,7 @@ async def test_comparison_query_generation_with_date_objects(executor):
 
 @pytest.mark.asyncio
 async def test_athena_query_service_filters_removed():
-    with patch('backend.services.athena_query_service.boto3'):
+    with patch('backend.services.athena_query_service.create_aws_session'):
         service = AthenaQueryService()
         time_range = {"start_date": "2023-01-01", "end_date": "2023-01-31"}
         

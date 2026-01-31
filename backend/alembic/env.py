@@ -10,10 +10,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # Import your models here
-from models.database_models import Base
+from backend.models.database_models import Base
 try:
     # Prefer using application settings for DB URL if available
-    from config.settings import get_settings
+    from backend.config.settings import get_settings
     _settings = get_settings()
     _pg_user = _settings.postgres_user
     _pg_pass = _settings.postgres_password

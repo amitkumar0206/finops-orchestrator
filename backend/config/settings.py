@@ -160,8 +160,19 @@ class Settings(BaseSettings):
     
     # AWS Configuration
     aws_region: str = Field(default="us-east-1", env="AWS_REGION")
-    aws_access_key_id: Optional[str] = Field(default=None, env="AWS_ACCESS_KEY_ID")
-    aws_secret_access_key: Optional[str] = Field(default=None, env="AWS_SECRET_ACCESS_KEY")
+    # DEPRECATED: Explicit AWS credentials are insecure and will be ignored.
+    # Use IAM roles for EC2/ECS/Lambda or the default credential chain for local development.
+    # These settings will be removed in a future version.
+    aws_access_key_id: Optional[str] = Field(
+        default=None,
+        env="AWS_ACCESS_KEY_ID",
+        deprecated="Use IAM roles instead. Explicit credentials are ignored for security."
+    )
+    aws_secret_access_key: Optional[str] = Field(
+        default=None,
+        env="AWS_SECRET_ACCESS_KEY",
+        deprecated="Use IAM roles instead. Explicit credentials are ignored for security."
+    )
     aws_s3_bucket: str = Field(default="finops-intelligence-platform-data-${AWS_ACCOUNT_ID}", env="AWS_S3_BUCKET")
     
     # AWS Athena & CUR Configuration

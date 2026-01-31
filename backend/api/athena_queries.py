@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 import structlog
 import io
 
-from services.athena_query_service import athena_service
-from config.settings import get_settings
+from backend.services.athena_query_service import athena_service
+from backend.config.settings import get_settings
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)

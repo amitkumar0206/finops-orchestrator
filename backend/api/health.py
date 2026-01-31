@@ -218,13 +218,14 @@ async def _check_llm_services() -> Dict[str, Any]:
     
     try:
         import time
-        import boto3
         from botocore.exceptions import ClientError
         from config.settings import get_settings
+        from backend.utils.aws_session import create_aws_client
+        from backend.utils.aws_constants import AwsService, DEFAULT_AWS_REGION
         settings = get_settings()
         start = time.time()
-        # Example: Bedrock invoke for model health
-        bedrock = boto3.client("bedrock-runtime", region_name=getattr(settings, "aws_region", "us-east-1"))
+        # Example: Bedrock invoke for model health (using IAM role credentials)
+        bedrock = create_aws_client(AwsService.BEDROCK_RUNTIME, region_name=getattr(settings, "aws_region", DEFAULT_AWS_REGION))
         # Use a lightweight model and minimal input for health check
         payload = {"prompt": "ping", "max_tokens": 1}
         response = bedrock.invoke_model(
@@ -239,7 +240,7 @@ async def _check_llm_services() -> Dict[str, Any]:
             "response_time": latency,
             "details": {
                 "model_id": getattr(settings, "bedrock_model_id", "anthropic.claude-instant-v1"),
-                "region": getattr(settings, "aws_region", "us-east-1"),
+                "region": getattr(settings, "aws_region", DEFAULT_AWS_REGION),
                 "quota": response.get("ConsumedQuota", "N/A")
             }
         }
@@ -254,27 +255,20 @@ async def _check_aws_services() -> Dict[str, Any]:
     """Check AWS service connectivity including CUR data availability"""
     
     try:
-        import boto3
         from botocore.exceptions import ClientError
         from config.settings import get_settings
-        
+        from backend.utils.aws_session import create_aws_session
+        from backend.utils.aws_constants import AwsService
+
         settings = get_settings()
         start_time = datetime.utcnow()
         details = {}
         all_healthy = True
-        
-        # Create AWS clients
-        if settings.aws_access_key_id and settings.aws_secret_access_key:
-            session = boto3.Session(
-                aws_access_key_id=settings.aws_access_key_id,
-                aws_secret_access_key=settings.aws_secret_access_key,
-                region_name=settings.aws_region
-            )
-        else:
-            session = boto3.Session(region_name=settings.aws_region)
-        
-        athena_client = session.client('athena')
-        s3_client = session.client('s3')
+
+        # Create AWS clients using IAM role credentials (default credential chain)
+        session = create_aws_session()
+        athena_client = session.client(AwsService.ATHENA)
+        s3_client = session.client(AwsService.S3)
         
         # Check Athena connectivity
         try:

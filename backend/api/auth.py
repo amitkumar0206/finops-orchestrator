@@ -24,6 +24,7 @@ from backend.utils.auth import (
     extract_token_from_header,
 )
 from backend.services.database import DatabaseService
+from backend.services.cache_service import get_cache_service
 from backend.middleware.authentication import AuthenticatedUser, require_auth
 from backend.config.settings import get_settings
 
@@ -52,6 +53,11 @@ class LoginResponse(BaseModel):
 class RefreshRequest(BaseModel):
     """Token refresh request"""
     refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    """Logout request with optional refresh token for complete revocation"""
+    refresh_token: Optional[str] = None
 
 
 class RefreshResponse(BaseModel):
@@ -239,7 +245,7 @@ async def refresh_token(request: RefreshRequest):
     """
     Refresh an access token using a valid refresh token.
 
-    The refresh token must be valid and not expired.
+    The refresh token must be valid, not expired, and not revoked.
     """
     authenticator = get_authenticator()
     settings = get_settings()
@@ -247,6 +253,26 @@ async def refresh_token(request: RefreshRequest):
     try:
         # Validate the refresh token
         payload = authenticator.validate_refresh_token(request.refresh_token)
+
+        # Check if refresh token has been revoked
+        # Extract jti from the token
+        import jwt as pyjwt
+        decoded = pyjwt.decode(
+            request.refresh_token,
+            settings.secret_key,
+            algorithms=["HS256"],
+            issuer=settings.jwt_issuer,
+        )
+        jti = decoded.get("jti")
+
+        if jti:
+            cache = await get_cache_service()
+            if await cache.is_refresh_token_blacklisted(jti):
+                logger.warning("revoked_refresh_token_used", jti=jti)
+                raise HTTPException(
+                    status_code=401,
+                    detail="Refresh token has been revoked. Please login again."
+                )
 
         # Get current user info from database for latest admin/org status
         db = await get_db()
@@ -342,24 +368,80 @@ async def get_current_user(request: Request, user: AuthenticatedUser = Depends(r
 
 
 @router.post("/logout")
-async def logout(request: Request, user: AuthenticatedUser = Depends(require_auth)):
+async def logout(
+    request: Request,
+    logout_request: Optional[LogoutRequest] = None,
+    user: AuthenticatedUser = Depends(require_auth),
+):
     """
-    Logout the current user.
+    Logout the current user and revoke tokens.
 
-    Note: JWT tokens are stateless, so this endpoint primarily serves as
-    a signal to the client to discard tokens. For true token revocation,
-    implement a token blacklist with Redis/Valkey.
+    Blacklists the current access token and optionally the refresh token
+    to prevent further use. Tokens are stored in cache with TTL matching
+    their expiration to automatically clean up.
+
+    Args:
+        logout_request: Optional request body containing refresh_token
     """
+    authenticator = get_authenticator()
+    cache = await get_cache_service()
+    blacklisted_access = False
+    blacklisted_refresh = False
+
+    # Blacklist the access token
+    auth_header = request.headers.get("Authorization")
+    access_token = extract_token_from_header(auth_header)
+
+    if access_token:
+        try:
+            payload = authenticator.validate_access_token(access_token)
+            blacklisted_access = await cache.blacklist_access_token(
+                token=access_token,
+                expires_at=payload.expires_at,
+            )
+        except Exception as e:
+            logger.warning("access_token_blacklist_failed", error=str(e))
+
+    # Blacklist the refresh token if provided
+    if logout_request and logout_request.refresh_token:
+        try:
+            # Decode refresh token to get jti and expiration
+            import jwt
+            settings = get_settings()
+            payload = jwt.decode(
+                logout_request.refresh_token,
+                settings.secret_key,
+                algorithms=["HS256"],
+                issuer=settings.jwt_issuer,
+            )
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+
+            if jti and exp:
+                from datetime import datetime, timezone
+                expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+                blacklisted_refresh = await cache.blacklist_refresh_token(
+                    jti=jti,
+                    expires_at=expires_at,
+                )
+        except Exception as e:
+            logger.warning("refresh_token_blacklist_failed", error=str(e))
+
     logger.info(
         "user_logout",
         user_id=user.user_id,
         email=user.email,
+        access_token_revoked=blacklisted_access,
+        refresh_token_revoked=blacklisted_refresh,
     )
 
-    # TODO: Add token to blacklist for true revocation
-    # This would require storing the token's jti in Redis with TTL
-
-    return {"message": "Logged out successfully"}
+    return {
+        "message": "Logged out successfully",
+        "tokens_revoked": {
+            "access_token": blacklisted_access,
+            "refresh_token": blacklisted_refresh,
+        }
+    }
 
 
 @router.post("/validate")

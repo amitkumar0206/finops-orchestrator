@@ -15,16 +15,16 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram
 
-from config.settings import get_settings
-from api import chat, health, reports, analytics, athena_queries
-from api import saved_views, organizations, scope, opportunities, auth
-from services.vector_store import VectorStoreService
-from services.database import DatabaseService
-from middleware.account_scoping import AccountScopingMiddleware
-from middleware.authentication import AuthenticationMiddleware
-from middleware.security_headers import SecurityHeadersMiddleware, get_default_csp, get_default_permissions_policy
-from utils.logging import setup_logging
-from utils.auth import initialize_authenticator
+from backend.config.settings import get_settings
+from backend.api import chat, health, reports, analytics, athena_queries
+from backend.api import saved_views, organizations, scope, opportunities, auth
+from backend.services.vector_store import VectorStoreService
+from backend.services.database import DatabaseService
+from backend.middleware.account_scoping import AccountScopingMiddleware
+from backend.middleware.authentication import AuthenticationMiddleware
+from backend.middleware.security_headers import SecurityHeadersMiddleware, get_default_csp, get_default_permissions_policy
+from backend.utils.logging import setup_logging
+from backend.utils.auth import initialize_authenticator
 
 # Setup structured logging
 logger = structlog.get_logger(__name__)

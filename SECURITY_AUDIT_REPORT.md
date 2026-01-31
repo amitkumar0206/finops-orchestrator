@@ -23,7 +23,7 @@ This security audit is an **update** to the previous report dated 2026-01-21. **
 | Severity | Previous Count | Fixed | Remaining | New Found |
 |----------|----------------|-------|-----------|-----------|
 | CRITICAL | 8 | 6 | 0 | 0 |
-| HIGH | 12 | 4 | 5 | 3 |
+| HIGH | 12 | 7 | 2 | 3 |
 | MEDIUM | 15 | 2 | 8 | 5 |
 | LOW | 6 | 1 | 3 | 2 |
 
@@ -38,6 +38,9 @@ This security audit is an **update** to the previous report dated 2026-01-21. **
 | Security Headers Missing | **FIXED** | Full middleware implemented |
 | Exposed Token in .claude/ | **FIXED** | Removed from git tracking (commit ac0a3a2) |
 | SQL Injection in Athena | **FIXED** | Service validation using allowlist |
+| Hardcoded Credentials (docker-compose) | **FIXED** | Environment variable references |
+| Token Revocation | **FIXED** | Cache-based blacklist implemented |
+| AWS Credentials in Memory | **FIXED** | IAM role credential chain |
 | Dependency Vulnerabilities | **PARTIALLY FIXED** | Some CVEs remain |
 
 ---
@@ -176,108 +179,84 @@ if services:
 
 ---
 
-### CRIT-2: Hardcoded Credentials in Configuration Files
+### CRIT-2: Hardcoded Credentials in Configuration Files - FIXED
 
 **Severity:** HIGH (downgraded from CRITICAL)
 **CVSS:** 6.5
-**Status:** PARTIALLY FIXED
+**Status:** **FIXED** (2026-01-31)
 
 **Fixed:**
 - `.claude/settings.local.json` - **REMOVED from git tracking** (commit `ac0a3a2`)
   - File is now properly gitignored
   - **Note:** Token still exists in git history - recommend rotating the ANTHROPIC_AUTH_TOKEN
 
-**Remaining Issues:**
+- `docker-compose.yml` - **UPDATED to use environment variable references**
+  - `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finops_password}` (postgres service)
+  - `--requirepass ${VALKEY_PASSWORD:-valkey_password}` (valkey command)
+  - `POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-finops_password}` (backend service)
+  - `VALKEY_PASSWORD=${VALKEY_PASSWORD:-valkey_password}` (backend service)
+  - `SECRET_KEY=${SECRET_KEY:-}` (backend service - no default, uses auto-generated in dev)
 
-1. **File:** `docker-compose.yml`
-   - Line 10: `POSTGRES_PASSWORD: finops_password`
-   - Line 30: `--requirepass valkey_password`
-   - Line 55: `POSTGRES_PASSWORD=finops_password`
-   - Line 58: `VALKEY_PASSWORD=valkey_password`
-   - Line 59: `SECRET_KEY=your-development-secret-key`
-
-**Impact:** These are development defaults - acceptable for local dev but should use environment variables.
-
-#### Remediation
-
-1. **Rotate** the exposed ANTHROPIC_AUTH_TOKEN (exists in git history)
-2. **Optionally** update docker-compose.yml to use environment variable references for production parity
-
-#### Claude Code Instructions
-
-```
-Optional: Update docker-compose.yml to use environment variables:
-
-1. Replace hardcoded passwords with environment variable references:
-
-   BEFORE:
-   POSTGRES_PASSWORD: finops_password
-
-   AFTER:
-   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finops_password}
-
-2. Create .env.example with placeholders for documentation
-```
+**Remaining Action:**
+- **Rotate** the exposed ANTHROPIC_AUTH_TOKEN (exists in git history)
 
 ---
 
 ## HIGH SEVERITY VULNERABILITIES
 
-### HIGH-1: Token Revocation Not Implemented
+### HIGH-1: Token Revocation Not Implemented - FIXED
 
 **Severity:** HIGH
-**Location:** `backend/api/auth.py`, Lines 344-363
+**Status:** **FIXED** (2026-01-31)
 
-**Issue:** The logout endpoint does not actually revoke tokens.
+**Previous Issue:** The logout endpoint did not actually revoke tokens.
 
-```python
-@router.post("/logout")
-async def logout(request: Request, user: AuthenticatedUser = Depends(require_auth)):
-    # TODO: Add token to blacklist for true revocation
-    return {"message": "Logged out successfully"}  # Token still valid!
-```
+**Fix Applied:**
 
-**Impact:** Stolen tokens remain valid for their full lifetime (15 min access, 7 days refresh).
+1. **Created Cache Service** (`backend/services/cache_service.py`):
+   - Async Valkey/Redis client with connection pooling
+   - `blacklist_access_token()` - stores token hash with TTL
+   - `blacklist_refresh_token()` - stores jti with TTL
+   - `is_access_token_blacklisted()` - checks access token blacklist
+   - `is_refresh_token_blacklisted()` - checks refresh token blacklist
 
-#### Remediation
+2. **Updated Authentication Middleware** (`backend/middleware/authentication.py`):
+   - Added blacklist check after token validation (line 200+)
+   - Revoked tokens now receive `TOKEN_REVOKED` error code
+   - Graceful degradation if cache unavailable
 
-Implement token blacklist using Valkey/Redis:
+3. **Updated Logout Endpoint** (`backend/api/auth.py`):
+   - Blacklists current access token using SHA-256 hash
+   - Optionally blacklists refresh token by jti if provided
+   - TTL automatically set to match token expiration
+   - Returns status of revocation in response
 
-```python
-from backend.services.cache import get_cache_client
+4. **Updated Refresh Endpoint** (`backend/api/auth.py`):
+   - Checks if refresh token's jti is blacklisted before issuing new access token
+   - Revoked refresh tokens return 401 with clear message
 
-@router.post("/logout")
-async def logout(request: Request, user: AuthenticatedUser = Depends(require_auth)):
-    # Extract token ID (jti) from current token
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    payload = decode_token(token)
-    jti = payload.get("jti")
-    exp = payload.get("exp")
+**Verification:**
+```bash
+# Login and get tokens
+TOKENS=$(curl -s -X POST "http://localhost:8000/api/auth/login" \
+  -d '{"email":"test@test.com","password":"test"}')
+ACCESS_TOKEN=$(echo $TOKENS | jq -r .access_token)
+REFRESH_TOKEN=$(echo $TOKENS | jq -r .refresh_token)
 
-    if jti and exp:
-        # Add to blacklist with TTL matching token expiration
-        cache = get_cache_client()
-        ttl = exp - int(time.time())
-        await cache.setex(f"blacklist:{jti}", ttl, "revoked")
+# Logout with both tokens
+curl -X POST "http://localhost:8000/api/auth/logout" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -d '{"refresh_token":"'$REFRESH_TOKEN'"}'
 
-    return {"message": "Logged out successfully"}
-```
+# Verify access token is rejected
+curl -X GET "http://localhost:8000/api/v1/opportunities" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+# Expected: 401 TOKEN_REVOKED
 
-#### Claude Code Instructions
-
-```
-Implement token revocation in backend/api/auth.py:
-
-1. Add token blacklist check in middleware/authentication.py:
-   - After decoding token, check if jti is in Redis blacklist
-   - If blacklisted, raise HTTPException 401
-
-2. Update logout endpoint in api/auth.py:
-   - Extract jti from token
-   - Store in Redis with TTL = token expiration
-   - Key format: "blacklist:{jti}"
-
-3. Add same check for refresh token endpoint
+# Verify refresh token is rejected
+curl -X POST "http://localhost:8000/api/auth/refresh" \
+  -d '{"refresh_token":"'$REFRESH_TOKEN'"}'
+# Expected: 401 "Refresh token has been revoked"
 ```
 
 ---
@@ -389,37 +368,65 @@ Fix exception exposure across API files:
 
 ---
 
-### HIGH-4: AWS Credentials in Application Memory
+### HIGH-4: AWS Credentials in Application Memory - FIXED
 
 **Severity:** HIGH
-**Locations:**
+**Status:** **FIXED** (2026-01-31)
+
+**Previous Locations:**
 - `backend/config/settings.py`: Lines 163-164
 - `backend/api/analytics.py`: Lines 47-52, 107-108, 223-224
 - `backend/api/health.py`: Lines 267-272
 - `backend/services/athena_executor.py`: Lines 136-139
 - `backend/services/athena_query_service.py`: Lines 32-35
 
-**Issue:** Explicit AWS credentials are stored in settings and passed to boto3:
+**Previous Issue:** Explicit AWS credentials were stored in settings and passed to boto3.
 
+**Fix Applied:**
+
+1. **Created AWS Session Factory** (`backend/utils/aws_session.py`):
+   - `create_aws_session()` - Creates sessions using default credential chain (NO explicit credentials)
+   - `create_aws_client()` - Creates service clients using IAM roles
+   - `create_aws_resource()` - Creates service resources using IAM roles
+   - `get_default_retry_config()` - Provides standard retry configuration
+   - `verify_aws_credentials()` - Verifies credential chain is working
+
+2. **Updated All Affected Files:**
+   - `backend/api/analytics.py` - Now uses `create_aws_client()` and `create_aws_session()`
+   - `backend/api/health.py` - Now uses `create_aws_session()` and `create_aws_client()`
+   - `backend/services/athena_executor.py` - Now uses `create_aws_session()` and `get_default_retry_config()`
+   - `backend/services/athena_query_service.py` - Now uses `create_aws_session()`
+
+3. **Deprecated Explicit Credential Settings:**
+   - `aws_access_key_id` and `aws_secret_access_key` in settings are now deprecated
+   - Settings issue deprecation warnings if configured
+   - Credentials are IGNORED even if set (security enforcement)
+
+4. **Created AWS Constants Module** (`backend/utils/aws_constants.py`):
+   - `AwsService` class - Centralized AWS service name constants (s3, athena, ce, etc.)
+   - `AwsRegion` class - AWS region constants (us-east-1, eu-west-1, etc.)
+   - `COST_EXPLORER_REGION` - Documents that Cost Explorer API is only available in us-east-1
+   - `DEFAULT_AWS_REGION` - Default fallback region for SaaS multi-client support
+
+**Secure Implementation:**
 ```python
-session = boto3.Session(
-    aws_access_key_id=settings.aws_access_key_id,
-    aws_secret_access_key=settings.aws_secret_access_key,
-    region_name=settings.aws_region
-)
+from backend.utils.aws_session import create_aws_session, create_aws_client
+from backend.utils.aws_constants import AwsService, AwsRegion, COST_EXPLORER_REGION
+
+# Create session using IAM roles (default credential chain)
+session = create_aws_session()
+athena_client = session.client(AwsService.ATHENA)
+
+# Or create client directly with constants (no string literals)
+s3_client = create_aws_client(AwsService.S3)
+ce_client = create_aws_client(AwsService.COST_EXPLORER, region_name=COST_EXPLORER_REGION)
 ```
 
-**Impact:** Credentials in memory can be exposed via memory dumps, logs, or debugging.
-
-#### Remediation
-
-Use IAM roles for AWS deployments:
-
-```python
-# Let boto3 use IAM role automatically
-session = boto3.Session(region_name=settings.aws_region)
-# boto3 will use: EC2 instance profile, ECS task role, or environment credentials
-```
+**Credential Resolution Order (boto3 default chain):**
+1. IAM role credentials (EC2 instance profile, ECS task role, Lambda execution role)
+2. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+3. Shared credentials file (~/.aws/credentials)
+4. AWS config file (~/.aws/config)
 
 ---
 
@@ -677,15 +684,15 @@ The following security measures are correctly implemented:
 
 ### Immediate (Block Production Deployment)
 1. ~~**CRIT-1:** Fix SQL injection in `athena_query_service.py`~~ **FIXED**
-2. ~~**CRIT-2:** Remove/rotate hardcoded credentials~~ **PARTIALLY FIXED** (docker-compose.yml still has dev defaults)
+2. ~~**CRIT-2:** Remove/rotate hardcoded credentials~~ **FIXED** (environment variable references added)
 3. **HIGH-3:** Sanitize exception messages in API responses
 
 **All critical blockers resolved.** Proceed with HIGH severity items.
 
 ### Before GA Release
-4. **HIGH-1:** Implement token revocation
+4. ~~**HIGH-1:** Implement token revocation~~ **FIXED** (cache-based blacklist)
 5. **HIGH-2:** Protect health endpoints
-6. **HIGH-4:** Switch to IAM roles for AWS
+6. ~~**HIGH-4:** Switch to IAM roles for AWS~~ **FIXED** (AWS session factory)
 7. **HIGH-5:** Mask emails in auth logs
 8. **MED-2:** Fail closed on account scoping errors
 
@@ -753,15 +760,21 @@ The FinOps AI Cost Intelligence Platform has made **significant security improve
 - CORS misconfiguration (explicit origins configured)
 - Exposed tokens in git (removed from tracking)
 - **SQL injection in Athena query service (service validation implemented)**
+- **Hardcoded credentials in docker-compose.yml (environment variable references)**
+- **Token revocation (cache-based blacklist with Valkey/Redis)**
+- **AWS credentials in application memory (IAM role credential chain)**
 
-The application is now ready for production deployment from a critical security perspective. However, several HIGH and MEDIUM severity issues should be addressed before GA release to further harden the application.
+The application is now ready for production deployment from a critical security perspective. The remaining HIGH severity issues are:
+- Health endpoint information disclosure (HIGH-2)
+- Exception details in API responses (HIGH-3)
+- Email addresses logged in authentication (HIGH-5)
 
 **Next Steps:**
-1. Address HIGH severity issues (token revocation, health endpoint protection, exception sanitization)
+1. Address remaining HIGH severity issues (health endpoint protection, exception sanitization, IAM roles)
 2. Rotate any credentials that may have been exposed in git history
 3. Schedule external penetration test to validate fixes
 4. Implement monitoring and alerting for security events
 
 ---
 
-*Report updated: 2026-01-31. All critical vulnerabilities remediated. Manual penetration testing recommended before production deployment.*
+*Report updated: 2026-01-31. All critical vulnerabilities remediated. AWS credential handling, token revocation, and hardcoded credentials fixed. Manual penetration testing recommended before production deployment.*

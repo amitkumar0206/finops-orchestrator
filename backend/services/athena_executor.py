@@ -7,11 +7,12 @@ import asyncio
 import time
 import os
 from typing import Dict, List, Any, Optional, Tuple
-import boto3
 from botocore.exceptions import ClientError
 import structlog
 
 from backend.config.settings import get_settings
+from backend.utils.aws_session import create_aws_session, get_default_retry_config
+from backend.utils.aws_constants import AwsService
 from backend.services.athena_cur_templates import AthenaCURTemplates
 from backend.services.service_resolver import ServiceResolver, ResolutionResult
 from backend.agents.intent_classifier import IntentType
@@ -122,28 +123,17 @@ class EnhancedAthenaQueryExecutor:
         """Initialize Athena clients and templates with connection pooling"""
         try:
             # Configure boto3 with retry logic
-            from botocore.config import Config
-            
-            retry_config = Config(
-                region_name=settings.aws_region,
-                retries={
-                    'max_attempts': 3,
-                    'mode': 'adaptive'  # Adaptive retry mode for better handling of throttling
-                },
-                max_pool_connections=50  # Connection pooling
+            # Use IAM role credentials via default credential chain (no explicit credentials)
+            retry_config = get_default_retry_config(
+                max_attempts=3,
+                mode='adaptive',
+                max_pool_connections=50
             )
-            
-            if settings.aws_access_key_id and settings.aws_secret_access_key:
-                session = boto3.Session(
-                    aws_access_key_id=settings.aws_access_key_id,
-                    aws_secret_access_key=settings.aws_secret_access_key,
-                    region_name=settings.aws_region
-                )
-            else:
-                session = boto3.Session(region_name=settings.aws_region)
-            
-            self.athena_client = session.client('athena', config=retry_config)
-            self.s3_client = session.client('s3', config=retry_config)
+
+            # Create session using default credential chain (IAM roles, env vars, etc.)
+            session = create_aws_session()
+            self.athena_client = session.client(AwsService.ATHENA, config=retry_config)
+            self.s3_client = session.client(AwsService.S3, config=retry_config)
             
             # Get database and table from settings (with validation)
             self.database = settings.aws_cur_database

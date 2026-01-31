@@ -4,11 +4,12 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from datetime import datetime, timedelta, date
 from typing import Optional
 from pydantic import BaseModel
-import boto3
 from botocore.exceptions import ClientError
 import structlog
 
-from config.settings import get_settings
+from backend.config.settings import get_settings
+from backend.utils.aws_session import create_aws_session, create_aws_client
+from backend.utils.aws_constants import AwsService, COST_EXPLORER_REGION
 
 router = APIRouter()
 settings = get_settings()
@@ -43,13 +44,9 @@ async def check_historical_data_availability():
     via Cost Explorer API
     """
     try:
-        # Initialize Cost Explorer client
-        session = boto3.Session(
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
-            region_name="us-east-1"  # Cost Explorer only in us-east-1
-        )
-        ce_client = session.client('ce')
+        # Initialize Cost Explorer client using IAM role credentials
+        # Cost Explorer API is only available in us-east-1
+        ce_client = create_aws_client(AwsService.COST_EXPLORER, region_name=COST_EXPLORER_REGION)
         
         # Query for maximum available historical data (13 months)
         end_date = date.today()
@@ -102,13 +99,9 @@ async def _load_historical_data_to_cache(months: int):
     """
     try:
         logger.info(f"Starting historical data cache initialization for {months} months")
-        
-        session = boto3.Session(
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
-            region_name="us-east-1"
-        )
-        ce_client = session.client('ce')
+
+        # Use IAM role credentials via default credential chain
+        ce_client = create_aws_client(AwsService.COST_EXPLORER, region_name=COST_EXPLORER_REGION)
         
         end_date = date.today()
         start_date = end_date - timedelta(days=months * 30)
@@ -219,16 +212,13 @@ async def get_data_sources_info():
     Get information about available cost data sources and their capabilities
     """
     try:
-        session = boto3.Session(
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
-            region_name="us-east-1"
-        )
-        
+        # Use IAM role credentials via default credential chain
+        session = create_aws_session(region_name=COST_EXPLORER_REGION)
+
         # Check Cost Explorer
         ce_available = False
         try:
-            ce_client = session.client('ce', region_name='us-east-1')
+            ce_client = session.client(AwsService.COST_EXPLORER, region_name=COST_EXPLORER_REGION)
             ce_client.get_cost_and_usage(
                 TimePeriod={
                     'Start': (date.today() - timedelta(days=7)).strftime('%Y-%m-%d'),
@@ -242,13 +232,13 @@ async def get_data_sources_info():
         except Exception as ce_error:
             logger.error(f"Cost Explorer check failed: {ce_error}")
             pass
-        
+
         # Check CUR
         cur_available = False
         cur_reports = []
         try:
             # CUR API only available in us-east-1
-            cur_client = session.client('cur', region_name='us-east-1')
+            cur_client = session.client(AwsService.COST_AND_USAGE_REPORTS, region_name=COST_EXPLORER_REGION)
             response = cur_client.describe_report_definitions()
             cur_reports = response.get('ReportDefinitions', [])
             cur_available = len(cur_reports) > 0

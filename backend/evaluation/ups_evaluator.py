@@ -26,7 +26,7 @@ from collections import defaultdict, Counter
 # Force heuristic mode for reproducibility
 os.environ.setdefault("UPS_DISABLE_LLM", "1")
 
-from agents.intent_classifier import intent_classifier  # noqa: E402
+from backend.agents.intent_classifier import intent_classifier  # noqa: E402
 
 SAMPLE_FILE = os.path.join(os.path.dirname(__file__), "sample_queries.json")
 

@@ -14,10 +14,10 @@ from fastapi.responses import StreamingResponse
 import structlog
 
 from backend.models.schemas import ChatRequest, ChatResponse, MessageRole
-from services.conversation_manager import conversation_manager
+from backend.services.conversation_manager import conversation_manager
 from fastapi import Request
-from agents.multi_agent_workflow import execute_multi_agent_query
-from config.settings import get_settings
+from backend.agents.multi_agent_workflow import execute_multi_agent_query
+from backend.config.settings import get_settings
 from backend.services.request_context import get_context_from_request
 
 router = APIRouter()

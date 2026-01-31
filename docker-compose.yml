@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: finops
       POSTGRES_USER: finops
-      POSTGRES_PASSWORD: finops_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finops_password}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8"
     ports:
       - "5432:5432"
@@ -27,7 +27,7 @@ services:
     image: valkey/valkey:latest
     ports:
       - "6379:6379"
-    command: valkey-server --appendonly yes --requirepass valkey_password
+    command: valkey-server --appendonly yes --requirepass ${VALKEY_PASSWORD:-valkey_password}
     volumes:
       - valkey_data:/data
     networks:
@@ -52,11 +52,11 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_DB=finops
       - POSTGRES_USER=finops
-      - POSTGRES_PASSWORD=finops_password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-finops_password}
       - VALKEY_HOST=valkey
       - VALKEY_PORT=6379
-      - VALKEY_PASSWORD=valkey_password
-      - SECRET_KEY=your-development-secret-key
+      - VALKEY_PASSWORD=${VALKEY_PASSWORD:-valkey_password}
+      - SECRET_KEY=${SECRET_KEY:-}
       - AWS_REGION=us-east-1
       - AWS_S3_BUCKET=${AWS_S3_BUCKET:-finops-intelligence-platform-data-${AWS_ACCOUNT_ID}}
       - AWS_CUR_DATABASE=cost_usage_db

@@ -4,7 +4,6 @@ Provides query generation, execution, and result export functionality
 """
 
 import asyncio
-import boto3
 import time
 import csv
 import json
@@ -15,6 +14,8 @@ from datetime import datetime, timedelta, date
 import structlog
 
 from backend.config.settings import get_settings
+from backend.utils.aws_session import create_aws_session
+from backend.utils.aws_constants import AwsService
 from backend.utils.sql_validation import validate_service_code, ValidationError
 from backend.utils.sql_constants import (
     SQL_QUOTED_SEPARATOR,
@@ -31,23 +32,17 @@ settings = get_settings()
 
 class AthenaQueryService:
     """Service for generating and executing Athena SQL queries against CUR data"""
-    
+
     def __init__(self):
-        """Initialize Athena client"""
+        """Initialize Athena client using IAM role credentials"""
         try:
-            if settings.aws_access_key_id and settings.aws_secret_access_key:
-                session = boto3.Session(
-                    aws_access_key_id=settings.aws_access_key_id,
-                    aws_secret_access_key=settings.aws_secret_access_key,
-                    region_name=settings.aws_region
-                )
-            else:
-                session = boto3.Session(region_name=settings.aws_region)
-            
-            self.athena_client = session.client('athena')
-            self.s3_client = session.client('s3')
-            
-            logger.info("Athena Query Service initialized successfully")
+            # Use default credential chain (IAM roles, env vars, etc.)
+            # SECURITY: No explicit credentials stored in memory
+            session = create_aws_session()
+            self.athena_client = session.client(AwsService.ATHENA)
+            self.s3_client = session.client(AwsService.S3)
+
+            logger.info("Athena Query Service initialized successfully (using IAM credentials)")
             
         except Exception as e:
             logger.error(f"Failed to initialize Athena client: {e}")
