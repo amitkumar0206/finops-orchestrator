@@ -26,6 +26,14 @@ from backend.utils.sql_validation import (
     build_safe_in_clause,
     ValidationError,
 )
+from backend.utils.sql_constants import (
+    SQL_VALUE_SEPARATOR,
+    SQL_AND,
+    SQL_OR,
+    SQL_UNION_ALL,
+    build_sql_in_list,
+    join_conditions,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -117,11 +125,11 @@ class AthenaCURTemplates:
         By default returns an empty string so all line item types are included.
         """
         if include_line_item_types:
-            include_types = ", ".join(f"'{t}'" for t in include_line_item_types)
+            include_types = build_sql_in_list(include_line_item_types)
             return f"AND line_item_line_item_type IN ({include_types})"
-        
+
         if exclude_line_item_types:
-            exclude_types = ", ".join(f"'{t}'" for t in exclude_line_item_types)
+            exclude_types = build_sql_in_list(exclude_line_item_types)
             return f"AND line_item_line_item_type NOT IN ({exclude_types})"
         
         return ""
@@ -155,11 +163,11 @@ class AthenaCURTemplates:
         
         if not conditions:
             return ""
-        
+
         # Combine with OR (include any matching purchase option)
-        combined = " OR ".join(conditions)
+        combined = join_conditions(conditions, SQL_OR)
         return f"AND ({combined})"
-    
+
     def _build_tag_filter(
         self,
         tags: Optional[Dict[str, List[str]]] = None
@@ -190,7 +198,7 @@ class AthenaCURTemplates:
                     conditions.append(f"resource_tags_user_{normalized_key} = '{validated_values[0]}'")
                 else:
                     # Multiple values - IN clause
-                    values_str = ", ".join(f"'{v}'" for v in validated_values)
+                    values_str = build_sql_in_list(validated_values)
                     conditions.append(f"resource_tags_user_{normalized_key} IN ({values_str})")
             except ValidationError as e:
                 logger.warning("Invalid tag filter skipped", tag_key=tag_key[:50], error=str(e))
@@ -200,7 +208,7 @@ class AthenaCURTemplates:
             return ""
 
         # Combine with AND (all tag filters must match)
-        combined = " AND ".join(conditions)
+        combined = join_conditions(conditions, SQL_AND)
         return f"AND ({combined})"
     
     def _build_platform_filter(
@@ -232,7 +240,7 @@ class AthenaCURTemplates:
         if len(validated_platforms) == 1:
             return f"AND product_operating_system = '{validated_platforms[0]}'"
         else:
-            platforms_str = ", ".join(f"'{p}'" for p in validated_platforms)
+            platforms_str = build_sql_in_list(validated_platforms)
             return f"AND product_operating_system IN ({platforms_str})"
     
     def _build_database_engine_filter(
@@ -266,9 +274,9 @@ class AthenaCURTemplates:
         if len(conditions) == 1:
             return f"AND {conditions[0]}"
         else:
-            combined = " OR ".join(conditions)
+            combined = join_conditions(conditions, SQL_OR)
             return f"AND ({combined})"
-    
+
     def _build_partition_filter(self, start_date: str, end_date: str) -> Tuple[str, List[str], List[str]]:
         """
         Build partition filter for date range.
@@ -526,7 +534,7 @@ ORDER BY delta_usd DESC;
                 except ValidationError as e:
                     logger.warning("Invalid service filter skipped", service=s[:50], error=str(e))
             if validated_services:
-                services_str = ", ".join(f"'{s}'" for s in validated_services)
+                services_str = build_sql_in_list(validated_services)
                 service_filter = f"AND line_item_product_code IN ({services_str})"
         elif exclude_services:
             # Exclude specific services - validate each service code
@@ -537,7 +545,7 @@ ORDER BY delta_usd DESC;
                 except ValidationError as e:
                     logger.warning("Invalid service exclusion filter skipped", service=s[:50], error=str(e))
             if validated_services:
-                services_str = ", ".join(f"'{s}'" for s in validated_services)
+                services_str = build_sql_in_list(validated_services)
                 service_filter = f"AND line_item_product_code NOT IN ({services_str})"
         
         # Exclude/Include specific line item types (e.g., Tax, Fee, Credit)
@@ -652,7 +660,7 @@ ORDER BY dt.total_cost DESC;
         family_filter = ""
         if families:
             normalized = {family.lower() for family in families}
-            values = ", ".join(f"'{value}'" for value in sorted(normalized))
+            values = build_sql_in_list(sorted(normalized))
             family_filter = f"  AND LOWER(SPLIT_PART(product_instance_type, '.', 1)) IN ({values})\n"
         
         query = f"""
@@ -826,7 +834,7 @@ ORDER BY dt_total_usd DESC;
                 except ValidationError as e:
                     logger.warning("Invalid tag value skipped", value=v[:50], error=str(e))
             if validated_values:
-                values_str = ", ".join(f"'{v}'" for v in validated_values)
+                values_str = build_sql_in_list(validated_values)
                 tag_filter = f"AND resource_tags_user_{validated_tag_key} IN ({values_str})"
 
         query = f"""
@@ -1047,9 +1055,9 @@ ORDER BY env, cost_usd DESC;
             partition_filter, _, _ = self._build_partition_filter(start, end)
             service_filter = ""
             if services:
-                services_str = ", ".join(f"'{s}'" for s in services)
+                services_str = build_sql_in_list(services)
                 service_filter = f"AND product_product_name IN ({services_str})"
-            
+
             union_parts.append(f"""
   SELECT
     '{label}' AS comparison_date,
@@ -1062,8 +1070,8 @@ ORDER BY env, cost_usd DESC;
 	    {service_filter}
 	  GROUP BY 1, 2
 	""")
-        
-        query = "\nUNION ALL\n".join(union_parts) + "\nORDER BY service, comparison_date;"
+
+        query = SQL_UNION_ALL.join(union_parts) + "\nORDER BY service, comparison_date;"
         return query.strip()
     
     def service_cost_breakdown(
@@ -1349,7 +1357,7 @@ LIMIT 20;
         # Build service filter if provided
         service_filter = ""
         if services:
-            services_str = ", ".join(f"'{s}'" for s in services)
+            services_str = build_sql_in_list(services)
             service_filter = f"AND {self._col('line_item_product_code')} IN ({services_str})"
         
         # Build partition filters for both periods

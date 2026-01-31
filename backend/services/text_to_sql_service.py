@@ -13,6 +13,7 @@ import structlog
 
 from backend.services.llm_service import llm_service
 from backend.config.settings import get_settings
+from backend.utils.sql_constants import build_sql_in_list, format_display_list
 
 if TYPE_CHECKING:
     from backend.services.request_context import RequestContext
@@ -929,9 +930,9 @@ class TextToSQLService:
         # Add account scoping context if user has restrictions
         scoping_prompt_addition = ""
         if context.allowed_account_ids and not context.is_admin:
-            account_list = ', '.join(f"'{acc}'" for acc in context.allowed_account_ids)
+            account_list = build_sql_in_list(context.allowed_account_ids)
             scoping_prompt_addition = ACCOUNT_SCOPING_CONTEXT.format(
-                allowed_accounts=', '.join(context.allowed_account_ids),
+                allowed_accounts=format_display_list(context.allowed_account_ids),
                 account_filter=account_list
             )
             enhanced_context['allowed_accounts'] = context.allowed_account_ids
@@ -1013,7 +1014,7 @@ class TextToSQLService:
             logger.warning("no_valid_account_ids_for_filter")
             return sql, False
 
-        account_list = ', '.join(f"'{acc}'" for acc in validated_ids)
+        account_list = build_sql_in_list(validated_ids)
         account_filter = f"line_item_usage_account_id IN ({account_list})"
 
         # Find WHERE clause and inject filter
@@ -1069,7 +1070,7 @@ class TextToSQLService:
         unauthorized = mentioned_accounts - allowed_set
 
         if unauthorized:
-            return False, f"Access denied to accounts: {', '.join(unauthorized)}"
+            return False, f"Access denied to accounts: {format_display_list(unauthorized)}"
 
         return True, None
 

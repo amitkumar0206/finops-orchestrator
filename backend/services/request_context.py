@@ -8,7 +8,10 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 from datetime import datetime
+import re
 import structlog
+
+from backend.utils.sql_constants import SQL_VALUE_SEPARATOR, quote_sql_string
 
 logger = structlog.get_logger(__name__)
 
@@ -91,19 +94,18 @@ class RequestContext:
 
         # Validate and escape account IDs to prevent SQL injection
         # AWS account IDs are 12-digit numbers
-        import re
         validated_ids = []
         for acc in self.allowed_account_ids:
             # Only allow alphanumeric characters (AWS account IDs are 12 digits)
             if re.match(r'^[0-9]{12}$', str(acc)):
-                validated_ids.append(f"'{acc}'")
+                validated_ids.append(quote_sql_string(acc))
             else:
                 logger.warning("invalid_account_id_skipped", account_id=str(acc)[:20])
 
         if not validated_ids:
             return "1=0"  # No valid accounts = deny all
 
-        return f"line_item_usage_account_id IN ({', '.join(validated_ids)})"
+        return f"line_item_usage_account_id IN ({SQL_VALUE_SEPARATOR.join(validated_ids)})"
 
     def to_scope_dict(self) -> Dict[str, Any]:
         """Convert to a dictionary suitable for API responses"""

@@ -14,6 +14,7 @@ import json
 import structlog
 
 from backend.config.settings import get_settings
+from backend.utils.sql_constants import build_sql_placeholders, SQL_VALUE_SEPARATOR
 from backend.models.opportunities import (
     OpportunityStatus,
     OpportunitySource,
@@ -77,37 +78,37 @@ class OpportunitiesService:
 
         # Account IDs
         if filter.account_ids:
-            placeholders = ', '.join(['%s'] * len(filter.account_ids))
+            placeholders = build_sql_placeholders(len(filter.account_ids))
             conditions.append(f"account_id IN ({placeholders})")
             params.extend(filter.account_ids)
 
         # Statuses
         if filter.statuses:
-            placeholders = ', '.join(['%s'] * len(filter.statuses))
+            placeholders = build_sql_placeholders(len(filter.statuses))
             conditions.append(f"status IN ({placeholders})")
             params.extend([s.value for s in filter.statuses])
 
         # Categories
         if filter.categories:
-            placeholders = ', '.join(['%s'] * len(filter.categories))
+            placeholders = build_sql_placeholders(len(filter.categories))
             conditions.append(f"category IN ({placeholders})")
             params.extend([c.value for c in filter.categories])
 
         # Sources
         if filter.sources:
-            placeholders = ', '.join(['%s'] * len(filter.sources))
+            placeholders = build_sql_placeholders(len(filter.sources))
             conditions.append(f"source IN ({placeholders})")
             params.extend([s.value for s in filter.sources])
 
         # Services
         if filter.services:
-            placeholders = ', '.join(['%s'] * len(filter.services))
+            placeholders = build_sql_placeholders(len(filter.services))
             conditions.append(f"service IN ({placeholders})")
             params.extend(filter.services)
 
         # Regions
         if filter.regions:
-            placeholders = ', '.join(['%s'] * len(filter.regions))
+            placeholders = build_sql_placeholders(len(filter.regions))
             conditions.append(f"region IN ({placeholders})")
             params.extend(filter.regions)
 
@@ -122,13 +123,13 @@ class OpportunitiesService:
 
         # Effort levels
         if filter.effort_levels:
-            placeholders = ', '.join(['%s'] * len(filter.effort_levels))
+            placeholders = build_sql_placeholders(len(filter.effort_levels))
             conditions.append(f"effort_level IN ({placeholders})")
             params.extend([e.value for e in filter.effort_levels])
 
         # Risk levels
         if filter.risk_levels:
-            placeholders = ', '.join(['%s'] * len(filter.risk_levels))
+            placeholders = build_sql_placeholders(len(filter.risk_levels))
             conditions.append(f"risk_level IN ({placeholders})")
             params.extend([r.value for r in filter.risk_levels])
 
@@ -512,7 +513,7 @@ class OpportunitiesService:
             cur = conn.cursor()
 
             id_strings = [str(oid) for oid in opportunity_ids]
-            placeholders = ', '.join(['%s'] * len(id_strings))
+            placeholders = build_sql_placeholders(len(id_strings))
 
             query = f"""
                 UPDATE opportunities

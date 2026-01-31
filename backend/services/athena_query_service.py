@@ -16,6 +16,11 @@ import structlog
 
 from backend.config.settings import get_settings
 from backend.utils.sql_validation import validate_service_code, ValidationError
+from backend.utils.sql_constants import (
+    SQL_QUOTED_SEPARATOR,
+    build_sql_in_list,
+    format_display_list,
+)
 
 if TYPE_CHECKING:
     from backend.services.request_context import RequestContext
@@ -81,7 +86,7 @@ class AthenaQueryService:
             elif "daily" in query_lower or "day by day" in query_lower:
                 # Daily cost breakdown
                 sql_query = self._generate_daily_costs_query(time_range, services)
-                description = "Daily cost breakdown" + (f" for {', '.join(services)}" if services else "")
+                description = "Daily cost breakdown" + (f" for {format_display_list(services)}" if services else "")
             
             elif "service breakdown" in query_lower or "by service" in query_lower:
                 # Cost breakdown by service
@@ -186,29 +191,29 @@ LIMIT {limit};
         if services:
             validated_services = self._validate_services(services)
             if validated_services:
-                service_list = "','".join(validated_services)
-                service_filter = f"AND line_item_product_code IN ('{service_list}')"
-        
+                service_list = build_sql_in_list(validated_services)
+                service_filter = f"AND line_item_product_code IN ({service_list})"
+
         query = f"""
-SELECT 
+SELECT
     DATE(line_item_usage_start_date) as usage_date,
     line_item_product_code as service_name,
     SUM(line_item_unblended_cost) as daily_cost
-FROM 
+FROM
     {settings.aws_cur_table or 'cur_table'}
-WHERE 
+WHERE
     line_item_usage_start_date >= DATE '{start_date}'
     AND line_item_usage_start_date <= DATE '{end_date}'
     {service_filter}
-GROUP BY 
+GROUP BY
     DATE(line_item_usage_start_date),
     line_item_product_code
-ORDER BY 
+ORDER BY
     usage_date ASC,
     daily_cost DESC;
 """
         return query.strip()
-    
+
     def _generate_service_breakdown_query(
         self,
         time_range: Dict[str, Any],
@@ -223,8 +228,8 @@ ORDER BY
         if services:
             validated_services = self._validate_services(services)
             if validated_services:
-                service_list = "','".join(validated_services)
-                service_filter = f"AND line_item_product_code IN ('{service_list}')"
+                service_list = build_sql_in_list(validated_services)
+                service_filter = f"AND line_item_product_code IN ({service_list})"
         
         query = f"""
 SELECT 
@@ -309,27 +314,27 @@ ORDER BY
         if services:
             validated_services = self._validate_services(services)
             if validated_services:
-                service_list = "','".join(validated_services)
-                service_filter = f"AND line_item_product_code IN ('{service_list}')"
-        
+                service_list = build_sql_in_list(validated_services)
+                service_filter = f"AND line_item_product_code IN ({service_list})"
+
         query = f"""
-SELECT 
+SELECT
     DATE(line_item_usage_start_date) as usage_date,
     line_item_product_code as service_name,
     product_region as region,
     SUM(line_item_unblended_cost) as cost,
     SUM(line_item_usage_amount) as usage_amount
-FROM 
+FROM
     {settings.aws_cur_table or 'cur_table'}
-WHERE 
+WHERE
     line_item_usage_start_date >= DATE '{start_date}'
     AND line_item_usage_start_date <= DATE '{end_date}'
     {service_filter}
-GROUP BY 
+GROUP BY
     DATE(line_item_usage_start_date),
     line_item_product_code,
     product_region
-ORDER BY 
+ORDER BY
     usage_date DESC,
     cost DESC;
 """
@@ -613,7 +618,7 @@ ORDER BY
             logger.warning("no_valid_account_ids_for_filter")
             return sql, False
 
-        account_list = ', '.join(f"'{acc}'" for acc in validated_ids)
+        account_list = build_sql_in_list(validated_ids)
         account_filter = f"line_item_usage_account_id IN ({account_list})"
 
         # Find WHERE clause and inject
@@ -660,7 +665,7 @@ ORDER BY
         unauthorized = mentioned_accounts - allowed_set
 
         if unauthorized:
-            return False, f"Access denied to accounts: {', '.join(sorted(unauthorized))}"
+            return False, f"Access denied to accounts: {format_display_list(sorted(unauthorized))}"
 
         return True, None
 
