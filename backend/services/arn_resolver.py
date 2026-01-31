@@ -3,7 +3,8 @@ import re
 import json
 from typing import Dict, Optional
 
-import boto3
+from backend.utils.aws_session import create_aws_session
+from backend.utils.aws_constants import AwsService
 
 
 ARN_REGEX = re.compile(r"^arn:(?P<partition>aws|aws-us-gov|aws-cn):(?P<service>[a-z0-9-]+):(?P<region>[a-z0-9-]*):(?P<account>\d{12}):(?P<resource>.+)$")
@@ -28,8 +29,8 @@ def parse_arn(arn: str) -> Optional[Dict[str, str]]:
 
 
 def get_boto3_client(service: str, region: str):
-    session = boto3.session.Session(region_name=region or None)
-    return session.client(service, region_name=region or None)
+    session = create_aws_session(region_name=region or None)
+    return session.client(service)
 
 
 def resolve_ec2_instance(parts: Dict[str, str]) -> Optional[Dict]:
@@ -211,7 +212,7 @@ def resolve_s3_resource(parts: Dict[str, str]) -> Optional[Dict]:
     account = parts.get("account")
     rid = parts.get("resource_id")
     # region may be empty for S3; rely on CUR mapping via service only
-    s3 = boto3.client("s3")
+    s3 = get_boto3_client(AwsService.S3, parts.get("region"))
     bucket = rid
     key = None
     if "/" in rid:

@@ -17,13 +17,13 @@ import structlog
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import asyncio
-import boto3
-
 from backend.services.text_to_sql_service import text_to_sql_service
 from backend.services.response_formatter import response_formatter
 from backend.services.chart_recommendation import chart_engine
 from backend.services.chart_data_builder import chart_data_builder
 from backend.config.settings import get_settings
+from backend.utils.aws_session import create_aws_session
+from backend.utils.aws_constants import AwsService
 from backend.utils.sql_validation import (
     validate_service_code,
     validate_resource_id,
@@ -39,7 +39,7 @@ class AthenaExecutor:
     """Simplified Athena executor for text-to-SQL generated queries"""
     
     def __init__(self):
-        self.athena_client = boto3.client('athena', region_name=settings.aws_region)
+        self.athena_client = create_aws_session().client(AwsService.ATHENA)
         # Extract bucket from athena_output_location setting
         output_loc = settings.athena_output_location
         if not output_loc.endswith('/'):

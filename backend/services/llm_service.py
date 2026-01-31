@@ -8,8 +8,10 @@ import asyncio
 import json
 import structlog
 from typing import Dict, List, Optional, Any, Tuple
-import boto3
 from botocore.exceptions import ClientError, BotoCoreError
+
+from backend.utils.aws_session import create_aws_session
+from backend.utils.aws_constants import AwsService
 
 try:
     from ..config.settings import get_settings
@@ -102,10 +104,8 @@ class BedrockLLMService:
         self.use_converse_api: bool = True
         
         try:
-            self.bedrock_client = boto3.client(
-                service_name='bedrock-runtime',
-                region_name=self.region
-            )
+            session = create_aws_session(region_name=self.region)
+            self.bedrock_client = session.client(AwsService.BEDROCK_RUNTIME)
             self.model_kwargs = self._get_model_kwargs(self.model_id)
             self.use_converse_api = self._should_use_converse_api(self.model_id)
             self.initialized = True

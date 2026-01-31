@@ -147,7 +147,7 @@ def create_aws_client(
     Example:
         athena = create_aws_client('athena')
         s3 = create_aws_client('s3')
-        ce = create_aws_client('ce', region_name='us-east-1')
+        ce = create_aws_client('ce', region_name=COST_EXPLORER_REGION)
     """
     session = create_aws_session(region_name=region_name)
 

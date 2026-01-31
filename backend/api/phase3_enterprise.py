@@ -8,13 +8,16 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from uuid import UUID
 from datetime import datetime
+import structlog
 
+from backend.utils.aws_constants import DEFAULT_AWS_REGION
 from backend.services.scheduled_report_service import scheduled_report_service
 from backend.services.multi_account_service import multi_account_service
 from backend.services.rbac_service import rbac_service, require_permission, get_current_user
 from backend.services.audit_log_service import audit_log_service
 
 router = APIRouter()
+logger = structlog.get_logger(__name__)
 
 
 # ============================================================================
@@ -36,7 +39,7 @@ class ScheduledReportCreate(BaseModel):
 
 
 class AWSAccountCreate(BaseModel):
-    account_id: str = Field(..., regex=r'^\d{12}$')
+    account_id: str = Field(..., pattern=r'^\d{12}$')
     account_name: str = Field(..., max_length=255)
     role_arn: str
     account_email: Optional[str] = None
@@ -46,7 +49,7 @@ class AWSAccountCreate(BaseModel):
     external_id: Optional[str] = None
     cur_database: Optional[str] = None
     cur_table: Optional[str] = None
-    region: str = "us-east-1"
+    region: str = DEFAULT_AWS_REGION
 
 
 class AccountPermissionGrant(BaseModel):
@@ -116,9 +119,10 @@ async def create_scheduled_report(
         )
         
         return {"status": "success", "report": result}
-        
+
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("create_scheduled_report_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
 
 
 @router.get("/reports/scheduled", tags=["Phase 3"])
@@ -183,9 +187,10 @@ async def register_aws_account(
         )
         
         return {"status": "success", "account": result}
-        
+
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("register_aws_account_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
 
 
 @router.get("/accounts", tags=["Phase 3"])
@@ -230,11 +235,12 @@ async def grant_account_permission(
             details={'account_id': account_id, 'user_email': permission.user_email},
             request=request
         )
-        
+
         return {"status": "success"}
-        
+
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("grant_account_permission_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
 
 
 @router.get("/accounts/aggregate-costs", tags=["Phase 3"])
@@ -289,9 +295,10 @@ async def create_role(
         )
         
         return {"status": "success", "role": result}
-        
+
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("create_role_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
 
 
 @router.post("/rbac/assign", tags=["Phase 3"])
@@ -324,11 +331,12 @@ async def assign_role(
             role_name=assignment.role_name,
             request=request
         )
-        
+
         return {"status": "success"}
-        
+
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("assign_role_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
 
 
 @router.get("/rbac/my-permissions", tags=["Phase 3"])

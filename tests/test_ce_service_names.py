@@ -7,10 +7,12 @@ import boto3
 from datetime import datetime, timedelta
 import json
 
+from backend.utils.aws_constants import COST_EXPLORER_REGION
+
 
 def main():
     # Initialize Cost Explorer client
-    ce_client = boto3.client('ce', region_name='us-east-1')
+    ce_client = boto3.client('ce', region_name=COST_EXPLORER_REGION)
 
     # Get 200 days of data
     end_date = datetime.now()

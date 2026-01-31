@@ -137,7 +137,8 @@ async def switch_organization(
         }
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("switch_organization_validation_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
     except Exception as e:
         logger.error("failed_to_switch_organization", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to switch organization")
@@ -211,7 +212,8 @@ async def add_organization_member(
         )
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("add_member_validation_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
     except Exception as e:
         logger.error("failed_to_add_member", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to add member")
@@ -242,7 +244,8 @@ async def update_member_role(
         return {"success": True, "user_id": str(user_id), "new_role": payload.role}
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("update_member_role_validation_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
     except Exception as e:
         logger.error("failed_to_update_member_role", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to update member role")
@@ -267,7 +270,8 @@ async def remove_organization_member(
         return {"success": True, "removed_user_id": str(user_id)}
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("remove_member_validation_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
     except Exception as e:
         logger.error("failed_to_remove_member", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to remove member")

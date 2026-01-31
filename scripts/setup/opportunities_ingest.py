@@ -29,6 +29,10 @@ from uuid import uuid4
 import boto3
 from botocore.exceptions import ClientError
 
+# Trusted Advisor (Support API) is only available in us-east-1 — this is an AWS
+# limitation.  Kept in sync with backend.utils.aws_constants.TRUSTED_ADVISOR_REGION.
+TRUSTED_ADVISOR_REGION = "us-east-1"
+
 
 def getenv(name: str, default: str = None) -> str:
     """Get environment variable with optional default."""
@@ -530,7 +534,7 @@ def main():
 
     # Initialize AWS clients
     ce_client = boto3.client("ce", region_name=args.region)
-    support_client = boto3.client("support", region_name="us-east-1")  # Support API is global
+    support_client = boto3.client("support", region_name=TRUSTED_ADVISOR_REGION)
     co_client = boto3.client("compute-optimizer", region_name=args.region)
 
     # Fetch from Cost Explorer

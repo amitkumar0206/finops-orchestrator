@@ -12,6 +12,8 @@ import json
 import secrets
 import warnings
 
+from backend.utils.aws_constants import DEFAULT_AWS_REGION
+
 
 class Settings(BaseSettings):
     """Application settings with environment variable support"""
@@ -159,7 +161,7 @@ class Settings(BaseSettings):
     valkey_password: Optional[str] = Field(default=None, env="VALKEY_PASSWORD")
     
     # AWS Configuration
-    aws_region: str = Field(default="us-east-1", env="AWS_REGION")
+    aws_region: str = Field(default=DEFAULT_AWS_REGION, env="AWS_REGION")
     # DEPRECATED: Explicit AWS credentials are insecure and will be ignored.
     # Use IAM roles for EC2/ECS/Lambda or the default credential chain for local development.
     # These settings will be removed in a future version.

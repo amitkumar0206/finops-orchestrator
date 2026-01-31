@@ -103,7 +103,8 @@ async def create_saved_view(
         return SavedViewResponse(**result)
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("create_saved_view_validation_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
     except Exception as e:
         logger.error("failed_to_create_saved_view", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to create saved view")
@@ -177,7 +178,8 @@ async def set_active_view(
         return {"success": True, "active_view": SavedViewResponse(**new_view) if new_view else None}
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("set_active_view_validation_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
     except Exception as e:
         logger.error("failed_to_set_active_view", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to set active view")
@@ -262,7 +264,8 @@ async def update_saved_view(
         return SavedViewResponse(**result)
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("update_saved_view_validation_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
     except Exception as e:
         logger.error("failed_to_update_saved_view", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to update saved view")
@@ -294,7 +297,8 @@ async def delete_saved_view(
         return {"success": True, "deleted_id": str(view_id)}
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("delete_saved_view_validation_failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
     except HTTPException:
         raise
     except Exception as e:

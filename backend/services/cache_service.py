@@ -209,18 +209,19 @@ class CacheService:
             True if blacklisted, False otherwise
         """
         if self._client is None:
-            # If cache is unavailable, fail open (allow token)
-            # This is a tradeoff - could also fail closed for more security
-            logger.warning("cache_not_connected_blacklist_check_skipped")
-            return False
+            # SECURITY: Fail closed — deny access when cache is unavailable.
+            # A cache outage must not allow revoked tokens to pass through.
+            logger.error("cache_not_connected_blacklist_check_denied")
+            return True
 
         try:
             key = f"{self.TOKEN_BLACKLIST_PREFIX}{self._hash_token(token)}"
             result = await self._client.exists(key)
             return bool(result)
         except Exception as e:
-            logger.error("blacklist_check_failed", error=str(e))
-            return False
+            # SECURITY: Fail closed on any Valkey error during blacklist check.
+            logger.error("blacklist_check_failed_denied", error=str(e))
+            return True
 
     async def is_refresh_token_blacklisted(self, jti: str) -> bool:
         """
@@ -233,16 +234,19 @@ class CacheService:
             True if blacklisted, False otherwise
         """
         if self._client is None:
-            logger.warning("cache_not_connected_blacklist_check_skipped")
-            return False
+            # SECURITY: Fail closed — deny access when cache is unavailable.
+            # A cache outage must not allow revoked tokens to pass through.
+            logger.error("cache_not_connected_blacklist_check_denied")
+            return True
 
         try:
             key = f"{self.REFRESH_TOKEN_BLACKLIST_PREFIX}{jti}"
             result = await self._client.exists(key)
             return bool(result)
         except Exception as e:
-            logger.error("blacklist_check_failed", error=str(e))
-            return False
+            # SECURITY: Fail closed on any Valkey error during blacklist check.
+            logger.error("blacklist_check_failed_denied", error=str(e))
+            return True
 
     async def set(
         self,

@@ -106,6 +106,8 @@ class TestJWTAuthentication:
     @pytest.mark.asyncio
     async def test_valid_token_authenticates(self, authenticator, valid_access_token):
         """Test that valid JWT token successfully authenticates"""
+        from backend.services.cache_service import CacheService
+
         app = Mock()
         middleware = AuthenticationMiddleware(app, authenticator=authenticator)
 
@@ -117,7 +119,12 @@ class TestJWTAuthentication:
 
         call_next = AsyncMock(return_value=Mock())
 
-        response = await middleware.dispatch(request, call_next)
+        # Mock cache service: token is not blacklisted
+        mock_cache = Mock(spec=CacheService)
+        mock_cache.is_access_token_blacklisted = AsyncMock(return_value=False)
+
+        with patch('backend.middleware.authentication.get_cache_service', return_value=mock_cache):
+            response = await middleware.dispatch(request, call_next)
 
         # Should have called the next handler
         call_next.assert_called_once()

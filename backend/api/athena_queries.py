@@ -84,22 +84,25 @@ async def generate_athena_query(request: AthenaQueryRequest):
         # Execute query if requested
         if request.execute_query:
             execution_result = await athena_service.execute_query(sql_query)
-            
+
+            if execution_result.get("error"):
+                logger.error("athena_inline_execution_error", error=execution_result.get("error"))
+
             response_data.update({
                 "query_execution_id": execution_result.get("query_execution_id"),
                 "status": execution_result.get("status"),
                 "results": execution_result.get("results"),
                 "row_count": execution_result.get("row_count"),
-                "error": execution_result.get("error")
+                "error": "Query execution failed." if execution_result.get("error") else None
             })
         
         return AthenaQueryResponse(**response_data)
         
     except Exception as e:
-        logger.error(f"Error generating Athena query: {e}", exc_info=True)
+        logger.error("athena_query_generation_failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate Athena query: {str(e)}"
+            detail="An internal error occurred. Please try again later."
         )
 
 
@@ -117,10 +120,10 @@ async def get_query_results(query_execution_id: str):
         }
         
     except Exception as e:
-        logger.error(f"Error getting query results: {e}")
+        logger.error("athena_query_results_failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get query results: {str(e)}"
+            detail="An internal error occurred. Please try again later."
         )
 
 
@@ -154,13 +157,14 @@ async def export_results_csv(request: AthenaQueryRequest):
         execution_result = await athena_service.execute_query(sql_query)
         
         if execution_result.get("status") != "success":
+            logger.error("athena_query_execution_failed", error=execution_result.get('error', 'Unknown error'))
             raise HTTPException(
                 status_code=500,
-                detail=f"Query execution failed: {execution_result.get('error', 'Unknown error')}"
+                detail="An internal error occurred. Please try again later."
             )
-        
+
         results = execution_result.get("results", [])
-        
+
         # Export to CSV
         csv_content, filename = await athena_service.export_results_to_csv(results)
         
@@ -176,10 +180,10 @@ async def export_results_csv(request: AthenaQueryRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error exporting to CSV: {e}")
+        logger.error("athena_csv_export_failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to export results: {str(e)}"
+            detail="An internal error occurred. Please try again later."
         )
 
 
@@ -213,13 +217,14 @@ async def export_results_json(request: AthenaQueryRequest):
         execution_result = await athena_service.execute_query(sql_query)
         
         if execution_result.get("status") != "success":
+            logger.error("athena_query_execution_failed", error=execution_result.get('error', 'Unknown error'))
             raise HTTPException(
                 status_code=500,
-                detail=f"Query execution failed: {execution_result.get('error', 'Unknown error')}"
+                detail="An internal error occurred. Please try again later."
             )
-        
+
         results = execution_result.get("results", [])
-        
+
         # Export to JSON
         json_content, filename = await athena_service.export_results_to_json(results)
         
@@ -235,10 +240,10 @@ async def export_results_json(request: AthenaQueryRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error exporting to JSON: {e}")
+        logger.error("athena_json_export_failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to export results: {str(e)}"
+            detail="An internal error occurred. Please try again later."
         )
 
 

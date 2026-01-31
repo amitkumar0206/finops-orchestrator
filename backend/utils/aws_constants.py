@@ -160,6 +160,9 @@ ROUTE53_REGION = AwsRegion.US_EAST_1
 # CloudFront is global
 CLOUDFRONT_REGION = AwsRegion.US_EAST_1
 
+# Trusted Advisor (Support API) is ONLY available in us-east-1
+TRUSTED_ADVISOR_REGION = AwsRegion.US_EAST_1
+
 
 # =============================================================================
 # KNOWN AWS REGIONS SET (for validation)

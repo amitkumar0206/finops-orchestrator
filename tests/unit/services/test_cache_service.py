@@ -87,20 +87,20 @@ class TestCacheServiceWithoutValkey:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_is_access_token_blacklisted_returns_false_when_not_connected(self):
-        """Test that blacklist check returns False when not connected"""
+    async def test_is_access_token_blacklisted_denies_when_not_connected(self):
+        """SECURITY: blacklist check must fail closed (deny) when cache is unavailable"""
         service = CacheService()
         service._client = None
         result = await service.is_access_token_blacklisted("test_token")
-        assert result is False
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_is_refresh_token_blacklisted_returns_false_when_not_connected(self):
-        """Test that refresh blacklist check returns False when not connected"""
+    async def test_is_refresh_token_blacklisted_denies_when_not_connected(self):
+        """SECURITY: refresh blacklist check must fail closed (deny) when cache is unavailable"""
         service = CacheService()
         service._client = None
         result = await service.is_refresh_token_blacklisted("test_jti")
-        assert result is False
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_is_connected_returns_false_when_no_client(self):
@@ -231,6 +231,28 @@ class TestCacheServiceWithMockedValkey:
         )
 
         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_is_access_token_blacklisted_denies_on_valkey_error(self):
+        """SECURITY: blacklist check must fail closed when Valkey raises during exists()"""
+        service = CacheService()
+        service._client = AsyncMock()
+        service._client.exists = AsyncMock(side_effect=Exception("Connection reset"))
+
+        result = await service.is_access_token_blacklisted("some_token")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_is_refresh_token_blacklisted_denies_on_valkey_error(self):
+        """SECURITY: refresh blacklist check must fail closed when Valkey raises during exists()"""
+        service = CacheService()
+        service._client = AsyncMock()
+        service._client.exists = AsyncMock(side_effect=Exception("Connection reset"))
+
+        result = await service.is_refresh_token_blacklisted("some_jti")
+
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_is_connected_returns_true_when_connected(self):

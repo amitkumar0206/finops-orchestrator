@@ -6,6 +6,9 @@ Handles cross-account access, cost aggregation, and account management
 from typing import List, Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
+
+from backend.utils.aws_session import create_aws_session
+from backend.utils.aws_constants import AwsService, DEFAULT_AWS_REGION
 import structlog
 from datetime import datetime
 
@@ -19,7 +22,7 @@ class MultiAccountService:
     
     def __init__(self):
         self.db = DatabaseService()
-        self.sts_client = boto3.client('sts')
+        self.sts_client = create_aws_session().client(AwsService.STS)
     
     async def register_account(
         self,
@@ -34,7 +37,7 @@ class MultiAccountService:
         external_id: Optional[str] = None,
         cur_database: Optional[str] = None,
         cur_table: Optional[str] = None,
-        region: str = 'us-east-1'
+        region: str = DEFAULT_AWS_REGION
     ) -> Dict[str, Any]:
         """Register a new AWS account for cost tracking"""
         

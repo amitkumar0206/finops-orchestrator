@@ -481,7 +481,8 @@ async def validate_token(request: Request):
             detail="Token has expired"
         )
     except TokenInvalidError as e:
+        logger.warning("token_validation_failed", error=str(e))
         raise HTTPException(
             status_code=401,
-            detail=f"Invalid token: {str(e)}"
+            detail="Authentication failed"
         )

@@ -10,8 +10,10 @@ Ingests optimization signals from various AWS sources:
 Converts signals to unified Opportunity format for storage and display.
 """
 
-import boto3
 from botocore.exceptions import ClientError, BotoCoreError
+
+from backend.utils.aws_session import create_aws_session
+from backend.utils.aws_constants import AwsService, TRUSTED_ADVISOR_REGION
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
@@ -84,6 +86,7 @@ class AWSOptimizationSignalsService:
         self.organization_id = organization_id
 
         # Initialize AWS clients
+        self._session = create_aws_session(region_name=self.region)
         self._ce_client = None
         self._ta_client = None
         self._co_client = None
@@ -93,22 +96,22 @@ class AWSOptimizationSignalsService:
     def ce_client(self):
         """Lazy initialization of Cost Explorer client"""
         if self._ce_client is None:
-            self._ce_client = boto3.client('ce', region_name=self.region)
+            self._ce_client = self._session.client(AwsService.COST_EXPLORER)
         return self._ce_client
 
     @property
     def support_client(self):
         """Lazy initialization of Support client for Trusted Advisor"""
         if self._support_client is None:
-            # Trusted Advisor requires us-east-1
-            self._support_client = boto3.client('support', region_name='us-east-1')
+            # Trusted Advisor requires a specific region (see aws_constants)
+            self._support_client = create_aws_session(region_name=TRUSTED_ADVISOR_REGION).client(AwsService.TRUSTED_ADVISOR)
         return self._support_client
 
     @property
     def co_client(self):
         """Lazy initialization of Compute Optimizer client"""
         if self._co_client is None:
-            self._co_client = boto3.client('compute-optimizer', region_name=self.region)
+            self._co_client = self._session.client(AwsService.COMPUTE_OPTIMIZER)
         return self._co_client
 
     def _determine_effort_level(self, description: str, action_type: str = None) -> str:

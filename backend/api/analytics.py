@@ -79,16 +79,16 @@ async def check_historical_data_availability():
         )
         
     except ClientError as e:
-        logger.error(f"AWS Cost Explorer error: {e}")
+        logger.error("cost_explorer_access_failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail=f"Cannot access Cost Explorer API: {str(e)}. Ensure Cost Explorer is enabled in your AWS account."
+            detail="Service temporarily unavailable."
         )
     except Exception as e:
-        logger.error(f"Error checking historical data: {e}")
+        logger.error("historical_data_check_failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to check historical data availability: {str(e)}"
+            detail="An internal error occurred. Please try again later."
         )
 
 
@@ -199,10 +199,10 @@ async def initialize_historical_cache(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error initializing cache: {e}")
+        logger.error("cache_initialization_failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to initialize cache: {str(e)}"
+            detail="An internal error occurred. Please try again later."
         )
 
 
@@ -279,9 +279,9 @@ async def get_data_sources_info():
         }
         
     except Exception as e:
-        logger.error(f"Error getting data sources info: {e}")
+        logger.error("data_sources_info_failed", error=str(e), exc_info=True)
         return {
-            "error": str(e),
+            "error": "Unable to retrieve data source information.",
             "cost_explorer": {"available": False},
             "cur": {"available": False}
         }

@@ -8,6 +8,9 @@ import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+# Platform default region — kept in sync with backend.utils.aws_constants.DEFAULT_AWS_REGION.
+DEFAULT_AWS_REGION = "us-east-1"
+
 
 def getenv(name: str, default: str = None) -> str:
     val = os.getenv(name, default)
@@ -133,7 +136,7 @@ def ensure_glue_table(glue, database: str, table: str, s3_location: str):
 
 def main():
     account_id = boto3.client("sts").get_caller_identity()["Account"]
-    aws_region = getenv("AWS_REGION", "us-east-1")
+    aws_region = getenv("AWS_REGION", DEFAULT_AWS_REGION)
     s3_bucket = getenv("RESOURCE_INVENTORY_S3_BUCKET")
     s3_prefix = getenv("RESOURCE_INVENTORY_S3_PREFIX", "resource-inventory/")
     glue_db = getenv("RESOURCE_INVENTORY_DB", "resource_inventory")

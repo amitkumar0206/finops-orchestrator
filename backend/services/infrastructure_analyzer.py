@@ -3,12 +3,13 @@ Infrastructure Analyzer Service
 Integrates AWS CloudWatch Logs, Metrics, and Compute Optimizer for infrastructure analysis.
 """
 
-import boto3
 import structlog
 import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from backend.config.settings import get_settings
+from backend.utils.aws_session import create_aws_session
+from backend.utils.aws_constants import AwsService
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -27,9 +28,10 @@ class InfrastructureAnalyzer:
     
     def __init__(self):
         """Initialize AWS clients for infrastructure analysis."""
-        self.logs_client = boto3.client('logs', region_name=settings.aws_region)
-        self.cloudwatch_client = boto3.client('cloudwatch', region_name=settings.aws_region)
-        self.compute_optimizer_client = boto3.client('compute-optimizer', region_name=settings.aws_region)
+        session = create_aws_session()
+        self.logs_client = session.client(AwsService.CLOUDWATCH_LOGS)
+        self.cloudwatch_client = session.client(AwsService.CLOUDWATCH)
+        self.compute_optimizer_client = session.client(AwsService.COMPUTE_OPTIMIZER)
         
     async def query_cloudwatch_logs(
         self,
