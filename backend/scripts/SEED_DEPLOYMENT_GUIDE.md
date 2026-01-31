@@ -39,10 +39,10 @@ export PGUSER=finops
 export PGPASSWORD=<your-db-password>
 
 # Run the seed script
-psql -f backend/scripts/seed_optimization_recommendations.sql
+psql -f backend/scripts/seed_all_32_recommendations.sql
 
 # Verify
-psql -c "SELECT COUNT(*) as total FROM optimization_recommendations WHERE is_active = true;"
+psql -c "SELECT COUNT(*) as total FROM optimization_recommendations;"
 ```
 
 ### Option 2: Via AWS Systems Manager Session Manager
@@ -60,14 +60,14 @@ sudo apt-get install -y postgresql-client  # Ubuntu
 
 # 3. Copy seed script to instance
 # (Use S3, scp, or paste content into a file)
-aws s3 cp s3://your-deployment-bucket/seed_optimization_recommendations.sql /tmp/
+aws s3 cp s3://your-deployment-bucket/seed_all_32_recommendations.sql /tmp/
 
 # 4. Run the script
-psql -h <rds-endpoint> -U finops -d finops -f /tmp/seed_optimization_recommendations.sql
+psql -h <rds-endpoint> -U finops -d finops -f /tmp/seed_all_32_recommendations.sql
 
 # 5. Verify
 psql -h <rds-endpoint> -U finops -d finops \
-  -c "SELECT service, COUNT(*) FROM optimization_recommendations WHERE is_active GROUP BY service;"
+  -c "SELECT service, COUNT(*) FROM optimization_recommendations GROUP BY service;"
 ```
 
 ### Option 3: Via ECS Task (Recommended for Production)
@@ -85,7 +85,7 @@ aws ecs run-task \
   --overrides '{
     "containerOverrides": [{
       "name": "backend",
-      "command": ["sh", "-c", "PGPASSWORD=$POSTGRES_PASSWORD psql -h $POSTGRES_HOST -U $POSTGRES_USER -d $POSTGRES_DB -f /app/scripts/seed_optimization_recommendations.sql"]
+      "command": ["sh", "-c", "PGPASSWORD=$POSTGRES_PASSWORD psql -h $POSTGRES_HOST -U $POSTGRES_USER -d $POSTGRES_DB -f /app/scripts/seed_all_32_recommendations.sql"]
     }]
   }'
 ```
@@ -97,7 +97,7 @@ Create a data migration:
 ```bash
 # In backend/ directory
 cd backend
-alembic revision -m "seed_optimization_recommendations"
+alembic revision -m "seed_all_32_recommendations"
 ```
 
 Then edit the generated migration file to execute the SQL script.
@@ -110,15 +110,13 @@ After running the seed script, verify the data:
 
 ```sql
 -- Check total count
-SELECT COUNT(*) as total_recommendations 
-FROM optimization_recommendations 
-WHERE is_active = true;
+SELECT COUNT(*) as total_recommendations
+FROM optimization_recommendations;
 -- Expected: 32
 
 -- Check by service
 SELECT service, COUNT(*) as count, ROUND(AVG(estimated_savings_max_percent), 1) as avg_savings_pct
 FROM optimization_recommendations
-WHERE is_active = true
 GROUP BY service
 ORDER BY count DESC;
 
@@ -135,7 +133,7 @@ ORDER BY count DESC;
 -- Test a sample query
 SELECT strategy_name, estimated_savings_max_percent, implementation_difficulty
 FROM optimization_recommendations
-WHERE service = 'EC2' AND is_active = true
+WHERE service = 'EC2'
 ORDER BY estimated_savings_max_percent DESC
 LIMIT 5;
 ```

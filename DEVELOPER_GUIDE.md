@@ -1238,10 +1238,16 @@ finops-orchestrator/
 │   ├── deployment/                   # Deploy scripts
 │   └── setup/                        # Setup scripts
 │
-└── tests/                         # Test suite
-    ├── test_chat.py
-    ├── test_text_to_sql.py
-    └── test_athena.py
+└── tests/                         # Test suite (631 tests)
+    ├── unit/                      # Unit tests (by layer)
+    │   ├── api/                   #   test_exception_sanitisation, test_health
+    │   ├── config/                #   test_settings_security
+    │   ├── finops/                #   test_time_range
+    │   ├── middleware/            #   test_authentication, test_rate_limiting, test_security_headers
+    │   ├── opportunities/         #   test_opportunities_api, test_optimization_agent
+    │   ├── services/              #   test_cache_service, test_database_ssl, test_iam_migration
+    │   └── utils/                 #   test_auth, test_aws_session, test_errors, test_pii_masking, test_sql_validation
+    └── (integration & e2e)       # 20 cross-layer test files
 ```
 
 ### 10.3 Adding New Features
@@ -1342,29 +1348,56 @@ logger.info("Query results",
 
 ### 11.1 Test Structure
 
+The suite is split into **unit tests** (organised by architectural layer) and **integration / e2e tests** at the root of `tests/`. Configuration lives in `pytest.ini` at the project root (`asyncio_mode = strict`, `asyncio_default_fixture_loop_scope = function`).
+
 ```
 tests/
-├── test_chat.py                   # API endpoint tests
-├── test_text_to_sql.py           # LLM SQL generation tests
-├── test_athena.py                # Athena execution tests
-├── test_conversation_manager.py  # Context tests
-└── test_chart_engine.py          # Chart recommendation tests
+├── unit/
+│   ├── api/                      # API-layer sanitisation & health checks
+│   │   ├── test_exception_sanitisation.py   # 33 tests: AST static + runtime (HIGH-3)
+│   │   └── test_health.py                   # 26 tests: health-endpoint sanitisation (HIGH-2)
+│   ├── config/
+│   │   └── test_settings_security.py        # Secret-key enforcement
+│   ├── finops/
+│   │   └── test_time_range.py               # Time-range parsing logic
+│   ├── middleware/
+│   │   ├── test_authentication.py           # JWT auth, blacklist, fail-closed
+│   │   ├── test_rate_limiting.py            # Sliding-window rate limits
+│   │   └── test_security_headers.py         # CSP, HSTS, X-Frame-Options
+│   ├── opportunities/
+│   │   ├── test_opportunities_api.py        # Opportunities endpoint tests
+│   │   └── test_optimization_agent.py       # Optimization-agent logic
+│   ├── services/
+│   │   ├── test_cache_service.py            # Valkey cache + token blacklist
+│   │   ├── test_database_ssl.py             # PostgreSQL SSL verification
+│   │   └── test_iam_migration.py            # AST + runtime: boto3 migration (HIGH-1)
+│   └── utils/
+│       ├── test_auth.py                     # Password hashing, JWT signing
+│       ├── test_aws_session.py              # IAM-role session factory
+│       ├── test_errors.py                   # Centralised error helpers
+│       ├── test_pii_masking.py              # Email / PII masking
+│       └── test_sql_validation.py           # SQL-injection prevention
+└── (integration & e2e)           # 20 cross-layer test files (filters, tenancy, etc.)
 ```
 
 ### 11.2 Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (from project root)
 pytest
 
-# Run specific test file
-pytest tests/test_chat.py
+# Unit tests only
+pytest tests/unit/
+
+# Single layer
+pytest tests/unit/api/
+pytest tests/unit/middleware/
 
 # Run with coverage
 pytest --cov=backend --cov-report=html
 
-# Run specific test
-pytest tests/test_chat.py::test_simple_query
+# Run a specific test class
+pytest tests/unit/api/test_exception_sanitisation.py::TestStaticAnalysis
 ```
 
 ### 11.3 Writing Tests

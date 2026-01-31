@@ -341,81 +341,96 @@ Once running, visit:
 finops-orchestrator/
 ├── backend/                       # FastAPI backend
 │   ├── agents/                   # Multi-agent orchestration
-│   │   ├── multi_agent_workflow.py       # LangGraph-based multi-agent system (default)
-│   │   ├── enhanced_orchestrator.py      # DEPRECATED: Legacy orchestrator
-│   │   ├── cost_data_processor.py        # Cost data processing
-│   │   ├── external_intelligence.py      # External data sources
-│   │   ├── recommendation_engine.py      # Cost optimization recommendations
-│   │   └── report_generator.py           # Report generation
-│   ├── nodes/                    # LangGraph processing nodes (NEW)
-│   │   ├── analyzer.py                   # Intent analysis with structured output
-│   │   ├── query_rewriter.py             # Conversational query enhancement
-│   │   └── retriever.py                  # Data retrieval with structured plans
-│   ├── orchestrator/             # Orchestration layer (NEW)
-│   │   └── router.py                     # Enum-based semantic routing
-│   ├── state/                    # State management (NEW)
-│   │   └── agent_state.py                # Agent state definition
-│   ├── models/                   # Data models
-│   │   ├── finops_schemas.py             # Pydantic schemas for LLM I/O (NEW)
-│   │   ├── database_models.py            # Database models
-│   │   └── schemas.py                    # Pydantic schemas
-│   ├── services/                 # Core services
-│   │   ├── athena_cur_templates.py       # SQL template library
-│   │   ├── athena_executor.py            # Async Athena client
-│   │   ├── athena_query_service.py       # Athena query service
-│   │   ├── cache_service.py              # Valkey cache + token blacklist
-│   │   ├── response_formatter.py         # FinOps formatting
-│   │   ├── chart_recommendation.py       # Visualization engine
-│   │   ├── chart_data_builder.py         # Chart data builder
-│   │   ├── conversation_manager.py       # Postgres-backed conversation + context
-│   │   ├── conversation_context.py       # In-memory context manager
-│   │   ├── llm_service.py                # Bedrock integration
-│   │   ├── llm_query_refiner.py          # LLM query refinement
-│   │   ├── database.py                   # Database service
-│   │   └── vector_store.py               # Vector store service
-│   ├── api/                      # FastAPI endpoints
-│   │   ├── chat.py                       # Main chat endpoint
-│   │   ├── health.py                     # Health checks
-│   │   ├── analytics.py                  # Analytics endpoints
-│   │   ├── athena_queries.py             # Athena query endpoints
+│   │   ├── multi_agent_workflow.py       # LangGraph supervisor (entry point)
+│   │   ├── intent_classifier.py         # UPS intent → legacy param mapping
+│   │   ├── execute_query_v2.py          # Athena query execution agent
+│   │   └── optimization_agent.py        # Cost-optimization recommendations
+│   ├── api/                      # FastAPI route handlers
+│   │   ├── chat.py                       # Main chat endpoint + SSE streaming
+│   │   ├── health.py                     # Liveness / readiness / detailed checks
+│   │   ├── analytics.py                  # Cost-Explorer analytics
+│   │   ├── athena_queries.py             # Query generation, execution, export
+│   │   ├── auth.py                       # Login, token, password management
+│   │   ├── organizations.py              # Multi-tenant org management
+│   │   ├── saved_views.py                # Saved account-scope views
+│   │   ├── phase3_enterprise.py          # Scheduled reports, RBAC, dashboards
+│   │   ├── opportunities.py              # Optimization opportunities
+│   │   ├── scope.py                      # Account-scope switching
 │   │   └── reports.py                    # Report endpoints
+│   ├── middleware/               # Request-level middleware
+│   │   ├── authentication.py            # JWT-only auth (no header fallback)
+│   │   ├── account_scoping.py           # Multi-tenant context injection
+│   │   ├── rate_limiting.py             # Sliding-window rate limits
+│   │   └── security_headers.py          # CSP, HSTS, X-Frame-Options
+│   ├── models/                   # Data models
+│   │   ├── finops_schemas.py            # Pydantic schemas for LLM I/O
+│   │   ├── database_models.py           # SQLAlchemy ORM models
+│   │   ├── opportunities.py             # Optimization opportunity models
+│   │   └── schemas.py                   # Request/response schemas
+│   ├── services/                 # Core business logic (~40 modules)
+│   │   ├── athena_cur_templates.py      # 15+ optimized SQL templates
+│   │   ├── athena_executor.py           # Async Athena client
+│   │   ├── athena_query_service.py      # Query generation + validation
+│   │   ├── cache_service.py             # Valkey cache + fail-closed blacklist
+│   │   ├── conversation_manager.py      # Postgres-backed chat history
+│   │   ├── llm_service.py               # AWS Bedrock integration
+│   │   ├── optimization_engine.py       # Savings-opportunity analysis
+│   │   ├── rbac_service.py              # Role-based access control
+│   │   ├── organization_service.py      # Multi-tenant org logic
+│   │   ├── saved_views_service.py       # Account-scope view persistence
+│   │   ├── request_context.py           # Per-request tenant context
+│   │   ├── audit_log_service.py         # Compliance audit trail
+│   │   └── ...                          # + 25 additional service modules
 │   ├── config/                   # Configuration
-│   │   └── settings.py                   # Environment settings
-│   ├── utils/                    # Utility functions
-│   │   ├── aws_constants.py              # AWS service/region constants
-│   │   ├── aws_session.py                # Secure AWS session factory (IAM roles)
-│   │   ├── date_parser.py                # Date parsing utilities
-│   │   └── logging.py                    # Logging configuration
-│   ├── graph_workflow.py         # LangGraph workflow definition (NEW)
-│   └── main.py                   # FastAPI application
-├── frontend/                     # React frontend
+│   │   └── settings.py                  # Pydantic env-based settings
+│   ├── utils/                    # Shared utilities
+│   │   ├── aws_session.py               # IAM-role session factory
+│   │   ├── aws_constants.py             # AWS service/region constants
+│   │   ├── sql_validation.py            # SQL injection prevention
+│   │   ├── sql_constants.py             # Centralised SQL string literals
+│   │   ├── errors.py                    # Centralised error codes + helpers
+│   │   ├── pii_masking.py               # Email/PII masking
+│   │   ├── auth.py                      # Auth helpers (password hashing, JWT)
+│   │   ├── date_parser.py               # Date parsing utilities
+│   │   └── logging.py                   # Structlog configuration
+│   ├── evaluation/               # Model-evaluation harness
+│   │   ├── ups_evaluator.py             # Confusion matrix, precision/recall
+│   │   ├── calibrate_thresholds.py      # Per-intent confidence calibration
+│   │   └── drift_monitor.py             # Accuracy drift detection
+│   ├── scripts/                  # Database seed & migration scripts
+│   │   ├── init_database.sh             # Orchestrator (seed + migrate)
+│   │   └── seed_all_32_recommendations.sql  # Optimization-recommendation seed
+│   ├── alembic/                  # Schema migrations (12 versions)
+│   └── main.py                   # FastAPI application entry point
+├── frontend/                     # React + TypeScript frontend
 │   └── src/
-│       └── components/
-│           └── Chat/
-│               └── ChatInterface.tsx     # Main UI
-├── infrastructure/               # AWS infrastructure as code
-│   ├── cloudformation/          # CloudFormation templates
-│   ├── config/                  # Infrastructure configs
-│   └── sql/                     # Database schemas
+│       ├── components/           # Chat, Opportunities, SavedViews, Scope
+│       └── utils/                # Export helpers
+├── infrastructure/               # AWS IaC
+│   ├── cloudformation/          # CloudFormation templates (3)
+│   ├── config/                  # Task definitions, bucket policies, dashboards
+│   └── sql/                     # CUR table definitions
 ├── scripts/                     # Operational scripts
-│   ├── deployment/              # Deployment scripts
-│   ├── setup/                   # Setup and verification scripts
-│   │   ├── setup-cur.sh
-│   │   ├── verify-cur-setup.sh
-│   │   └── verify-deployment-env.sh
-│   └── utilities/               # Utility scripts
-│       └── convert_csv_to_parquet.py
-├── tests/                       # Test suite
-├── docs/                        # Documentation
-│   ├── AWS_DEPLOYMENT_GUIDE.md
-│   ├── DEPLOYMENT_CHECKLIST.md
-│   ├── DEPLOYMENT_STRATEGY.md
-│   ├── DATA_ARCHITECTURE.md
-│   ├── TROUBLESHOOTING.md
-│   └── QUICK_START.md
+│   ├── deployment/              # Deployment helpers
+│   ├── setup/                   # CUR setup & verification
+│   └── utilities/               # Athena-results cleanup
+├── tests/                       # Test suite (631 tests)
+│   ├── unit/                    # Unit tests (organised by layer)
+│   │   ├── api/                 #   API sanitisation & health tests
+│   │   ├── config/              #   Settings-security tests
+│   │   ├── finops/              #   Time-range logic tests
+│   │   ├── middleware/          #   Auth, rate-limit, security-header tests
+│   │   ├── opportunities/       #   Opportunities API & agent tests
+│   │   ├── services/            #   Cache, DB-SSL, IAM-migration tests
+│   │   └── utils/               #   Auth, AWS-session, SQL, PII, error tests
+│   └── (integration & e2e)     # 20 cross-layer test files
+├── docs/                        # Project documentation
+├── pytest.ini                   # pytest + asyncio configuration
 ├── deploy.sh                    # Main deployment script
 ├── docker-compose.yml           # Local development environment
-└── PROJECT_STRUCTURE.md         # This file
+├── SECURITY_AUDIT_REPORT.md     # Security-audit findings & status
+├── DEVELOPER_GUIDE.md           # Developer onboarding guide
+└── README.md                    # This file
 ```
 
 ## Configuration
@@ -468,14 +483,19 @@ See [AWS Deployment Guide](./docs/AWS_DEPLOYMENT_GUIDE.md) for detailed setup.
 
 ### Running Tests
 ```bash
-# Backend tests
-cd backend && pytest
+# All backend tests (631 tests — run from project root)
+pytest
 
-# Frontend tests  
+# Unit tests only
+pytest tests/unit/
+
+# Specific layer
+pytest tests/unit/api/          # API sanitisation & health
+pytest tests/unit/middleware/   # Auth, rate-limiting, security headers
+pytest tests/unit/services/     # Cache, DB-SSL, IAM migration
+
+# Frontend tests
 cd frontend && npm test
-
-# Integration tests
-docker-compose -f docker-compose.test.yml up --abort-on-container-exit
 ```
 
 ### Code Quality
