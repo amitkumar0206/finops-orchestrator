@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, date
 import structlog
 
 from backend.config.settings import get_settings
+from backend.utils.sql_validation import validate_service_code, ValidationError
 
 if TYPE_CHECKING:
     from backend.services.request_context import RequestContext
@@ -119,6 +120,34 @@ class AthenaQueryService:
         elif "top 10" in query or "10" in query:
             return 10
         return 5  # Default
+
+    def _validate_services(self, services: Optional[List[str]]) -> List[str]:
+        """
+        Validate service codes against allowlist to prevent SQL injection.
+
+        Args:
+            services: List of service codes to validate
+
+        Returns:
+            List of validated service codes (invalid ones are filtered out)
+        """
+        if not services:
+            return []
+
+        validated_services = []
+        for service in services:
+            try:
+                validated = validate_service_code(service)
+                validated_services.append(validated)
+            except ValidationError as e:
+                logger.warning(
+                    "Invalid service filter skipped",
+                    service=service[:50] if service else "",
+                    error=str(e)
+                )
+                continue
+
+        return validated_services
     
     def _generate_top_services_query(self, time_range: Dict[str, Any], limit: int = 5) -> str:
         """Generate SQL for top N services by cost"""
@@ -151,11 +180,14 @@ LIMIT {limit};
         """Generate SQL for daily cost breakdown"""
         start_date = time_range.get("start_date")
         end_date = time_range.get("end_date")
-        
+
+        # SECURITY FIX: Validate services to prevent SQL injection
         service_filter = ""
         if services:
-            service_list = "','".join(services)
-            service_filter = f"AND line_item_product_code IN ('{service_list}')"
+            validated_services = self._validate_services(services)
+            if validated_services:
+                service_list = "','".join(validated_services)
+                service_filter = f"AND line_item_product_code IN ('{service_list}')"
         
         query = f"""
 SELECT 
@@ -185,11 +217,14 @@ ORDER BY
         """Generate SQL for service cost breakdown"""
         start_date = time_range.get("start_date")
         end_date = time_range.get("end_date")
-        
+
+        # SECURITY FIX: Validate services to prevent SQL injection
         service_filter = ""
         if services:
-            service_list = "','".join(services)
-            service_filter = f"AND line_item_product_code IN ('{service_list}')"
+            validated_services = self._validate_services(services)
+            if validated_services:
+                service_list = "','".join(validated_services)
+                service_filter = f"AND line_item_product_code IN ('{service_list}')"
         
         query = f"""
 SELECT 
@@ -268,11 +303,14 @@ ORDER BY
         """Generate comprehensive SQL query"""
         start_date = time_range.get("start_date")
         end_date = time_range.get("end_date")
-        
+
+        # SECURITY FIX: Validate services to prevent SQL injection
         service_filter = ""
         if services:
-            service_list = "','".join(services)
-            service_filter = f"AND line_item_product_code IN ('{service_list}')"
+            validated_services = self._validate_services(services)
+            if validated_services:
+                service_list = "','".join(validated_services)
+                service_filter = f"AND line_item_product_code IN ('{service_list}')"
         
         query = f"""
 SELECT 
