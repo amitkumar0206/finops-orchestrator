@@ -193,9 +193,9 @@ AWS_REGION=us-east-1
 AWS_CUR_DATABASE=cost_usage_db
 AWS_CUR_TABLE=cur_dazn_linked
 
-# Either credentials or IAM role
-AWS_ACCESS_KEY_ID=xxx  # OR use IAM role
-AWS_SECRET_ACCESS_KEY=xxx
+# AWS credentials via IAM role (recommended) or default credential chain
+# For local dev: uses ~/.aws/credentials or environment variables
+# For production: uses IAM task role (ECS) or instance profile (EC2)
 
 # Optional (has defaults)
 BEDROCK_MODEL_ID=us.amazon.nova-pro-v1:0

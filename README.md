@@ -363,6 +363,7 @@ finops-orchestrator/
 │   │   ├── athena_cur_templates.py       # SQL template library
 │   │   ├── athena_executor.py            # Async Athena client
 │   │   ├── athena_query_service.py       # Athena query service
+│   │   ├── cache_service.py              # Valkey cache + token blacklist
 │   │   ├── response_formatter.py         # FinOps formatting
 │   │   ├── chart_recommendation.py       # Visualization engine
 │   │   ├── chart_data_builder.py         # Chart data builder
@@ -381,6 +382,8 @@ finops-orchestrator/
 │   ├── config/                   # Configuration
 │   │   └── settings.py                   # Environment settings
 │   ├── utils/                    # Utility functions
+│   │   ├── aws_constants.py              # AWS service/region constants
+│   │   ├── aws_session.py                # Secure AWS session factory (IAM roles)
 │   │   ├── date_parser.py                # Date parsing utilities
 │   │   └── logging.py                    # Logging configuration
 │   ├── graph_workflow.py         # LangGraph workflow definition (NEW)
@@ -422,8 +425,8 @@ finops-orchestrator/
 ```bash
 # AWS Configuration
 AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your_access_key        # Or use IAM role
-AWS_SECRET_ACCESS_KEY=your_secret_key    # Or use IAM role
+# Note: AWS credentials are handled via IAM roles (recommended for production)
+# or the default credential chain (environment vars, ~/.aws/credentials for local dev)
 
 # AWS Bedrock (for LLM insights)
 BEDROCK_MODEL_ID=us.amazon.nova-pro-v1:0
