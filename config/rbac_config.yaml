@@ -1,0 +1,244 @@
+# RBAC Configuration
+# Defines roles, permissions, and their hierarchies for the FinOps platform
+#
+# Permission Format: resource:action:scope
+# - resource: saved_views, organization, account, query, etc.
+# - action: read, write, delete, manage, execute
+# - scope: own, shared, all, org
+
+# Permission Definitions
+permissions:
+  # Saved Views Permissions
+  saved_views:read:all:
+    description: "Read all saved views in organization"
+    resource: "saved_views"
+    action: "read"
+    scope: "all"
+
+  saved_views:read:shared:
+    description: "Read shared and default saved views"
+    resource: "saved_views"
+    action: "read"
+    scope: "shared"
+
+  saved_views:write:all:
+    description: "Create and update any saved view"
+    resource: "saved_views"
+    action: "write"
+    scope: "all"
+
+  saved_views:write:own:
+    description: "Create and update own saved views"
+    resource: "saved_views"
+    action: "write"
+    scope: "own"
+
+  saved_views:delete:all:
+    description: "Delete any saved view in organization"
+    resource: "saved_views"
+    action: "delete"
+    scope: "all"
+
+  saved_views:delete:own:
+    description: "Delete only own saved views"
+    resource: "saved_views"
+    action: "delete"
+    scope: "own"
+
+  # Organization Permissions
+  organization:manage_members:
+    description: "Add or remove organization members"
+    resource: "organization"
+    action: "manage_members"
+    scope: "org"
+
+  organization:change_roles:
+    description: "Change member roles within organization"
+    resource: "organization"
+    action: "change_roles"
+    scope: "org"
+
+  organization:view_members:
+    description: "View organization members"
+    resource: "organization"
+    action: "view_members"
+    scope: "org"
+
+  organization:delete:
+    description: "Delete the organization"
+    resource: "organization"
+    action: "delete"
+    scope: "org"
+
+  # Account Permissions
+  account:read:all:
+    description: "Read all AWS accounts in organization"
+    resource: "account"
+    action: "read"
+    scope: "all"
+
+  account:read:assigned:
+    description: "Read only assigned AWS accounts"
+    resource: "account"
+    action: "read"
+    scope: "assigned"
+
+  account:write:all:
+    description: "Register and update AWS accounts"
+    resource: "account"
+    action: "write"
+    scope: "all"
+
+  # Query Permissions
+  query:execute:all:
+    description: "Execute queries on all accounts"
+    resource: "query"
+    action: "execute"
+    scope: "all"
+
+  query:execute:assigned:
+    description: "Execute queries on assigned accounts only"
+    resource: "query"
+    action: "execute"
+    scope: "assigned"
+
+  # Analytics Permissions
+  analytics:read:all:
+    description: "Read all analytics and cost data"
+    resource: "analytics"
+    action: "read"
+    scope: "all"
+
+  # Audit Permissions
+  audit:read:all:
+    description: "Read audit logs"
+    resource: "audit"
+    action: "read"
+    scope: "all"
+
+# Role Definitions
+roles:
+  # System Administrator - Full access across all organizations
+  system_admin:
+    display_name: "System Administrator"
+    description: "Full system access across all organizations"
+    priority: 1000
+    is_system_role: true
+    permissions:
+      - "*:*:*"  # Wildcard: all permissions
+
+  # Organization Owner - Full control over their organization
+  owner:
+    display_name: "Organization Owner"
+    description: "Full control over organization and all resources"
+    priority: 100
+    is_org_role: true
+    inherits_from: []
+    permissions:
+      # Saved Views
+      - saved_views:read:all
+      - saved_views:write:all
+      - saved_views:delete:all
+      # Organization
+      - organization:manage_members
+      - organization:change_roles
+      - organization:view_members
+      - organization:delete
+      # Accounts
+      - account:read:all
+      - account:write:all
+      # Queries
+      - query:execute:all
+      # Analytics
+      - analytics:read:all
+      # Audit
+      - audit:read:all
+
+  # Organization Admin - Most privileges except changing owner
+  admin:
+    display_name: "Organization Admin"
+    description: "Administrative access within organization"
+    priority: 90
+    is_org_role: true
+    inherits_from: []
+    permissions:
+      # Saved Views
+      - saved_views:read:all
+      - saved_views:write:all
+      - saved_views:delete:all
+      # Organization (cannot delete org or change owner role)
+      - organization:manage_members
+      - organization:view_members
+      # Accounts
+      - account:read:all
+      - account:write:all
+      # Queries
+      - query:execute:all
+      # Analytics
+      - analytics:read:all
+      # Audit
+      - audit:read:all
+
+  # Regular Member - Basic access
+  member:
+    display_name: "Organization Member"
+    description: "Standard member with basic access"
+    priority: 50
+    is_org_role: true
+    inherits_from: []
+    permissions:
+      # Saved Views
+      - saved_views:read:shared
+      - saved_views:write:own
+      - saved_views:delete:own
+      # Organization
+      - organization:view_members
+      # Accounts (only assigned)
+      - account:read:assigned
+      # Queries (only assigned accounts)
+      - query:execute:assigned
+      # Analytics
+      - analytics:read:all
+
+  # Read-Only User - View access only
+  viewer:
+    display_name: "Viewer"
+    description: "Read-only access to organization data"
+    priority: 10
+    is_org_role: true
+    inherits_from: []
+    permissions:
+      # Saved Views
+      - saved_views:read:shared
+      # Organization
+      - organization:view_members
+      # Accounts
+      - account:read:assigned
+      # Analytics
+      - analytics:read:all
+
+# Role Hierarchy Rules
+# Higher priority roles can perform actions on lower priority roles
+role_hierarchy:
+  can_assign_roles:
+    owner:
+      - owner
+      - admin
+      - member
+      - viewer
+    admin:
+      - member
+      - viewer
+    member: []
+    viewer: []
+
+# Default Role
+default_role: "member"
+
+# Special Permissions (bypass checks)
+special_permissions:
+  # System admins bypass all org-level checks
+  system_admin_bypass: true
+
+  # Owners can always access their own organization resources
+  owner_full_access: true

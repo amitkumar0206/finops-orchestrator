@@ -15,6 +15,10 @@ from backend.utils.sql_constants import SQL_VALUE_SEPARATOR, quote_sql_string
 
 logger = structlog.get_logger(__name__)
 
+# Import RBAC service at module level to avoid circular import issues
+# We'll use late binding in the method
+_rbac_service = None
+
 
 @dataclass
 class SavedViewInfo:
@@ -89,7 +93,14 @@ class RequestContext:
         Generate SQL WHERE clause fragment for account filtering.
         Returns empty string if admin or no account restrictions.
         """
-        if self.is_admin or not self.allowed_account_ids:
+        # Use late binding to avoid circular imports
+        global _rbac_service
+        if _rbac_service is None:
+            from backend.services.rbac_permission_service import get_rbac_service
+            _rbac_service = get_rbac_service()
+
+        # Users with query:execute:all permission (admins/owners) can query all accounts
+        if _rbac_service.has_permission(self, "query:execute:all") or not self.allowed_account_ids:
             return ""
 
         # Validate and escape account IDs to prevent SQL injection

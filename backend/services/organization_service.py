@@ -11,6 +11,7 @@ import structlog
 
 from backend.services.database import DatabaseService
 from backend.services.request_context import RequestContext
+from backend.services.rbac_permission_service import get_rbac_service
 
 logger = structlog.get_logger(__name__)
 
@@ -297,10 +298,14 @@ class OrganizationService:
         if not context.organization_id:
             raise ValueError("Organization context required")
 
-        if context.org_role not in ('owner', 'admin') and not context.is_admin:
-            raise ValueError("Admin access required to add members")
+        rbac = get_rbac_service()
+        rbac.require_permission(
+            context,
+            "organization:manage_members",
+            error_message="Admin access required to add members"
+        )
 
-        if role not in ('owner', 'admin', 'member'):
+        if role not in ('owner', 'admin', 'member', 'viewer'):
             raise ValueError("Invalid role")
 
         async with self.db.engine.begin() as conn:
@@ -372,8 +377,12 @@ class OrganizationService:
         if not context.organization_id:
             raise ValueError("Organization context required")
 
-        if context.org_role not in ('owner', 'admin') and not context.is_admin:
-            raise ValueError("Admin access required to remove members")
+        rbac = get_rbac_service()
+        rbac.require_permission(
+            context,
+            "organization:manage_members",
+            error_message="Admin access required to remove members"
+        )
 
         async with self.db.engine.begin() as conn:
             # Cannot remove the last owner
@@ -438,10 +447,14 @@ class OrganizationService:
         if not context.organization_id:
             raise ValueError("Organization context required")
 
-        if context.org_role != 'owner' and not context.is_admin:
-            raise ValueError("Owner access required to change roles")
+        rbac = get_rbac_service()
+        rbac.require_permission(
+            context,
+            "organization:change_roles",
+            error_message="Owner access required to change roles"
+        )
 
-        if new_role not in ('owner', 'admin', 'member'):
+        if new_role not in ('owner', 'admin', 'member', 'viewer'):
             raise ValueError("Invalid role")
 
         async with self.db.engine.begin() as conn:

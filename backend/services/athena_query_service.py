@@ -22,6 +22,7 @@ from backend.utils.sql_constants import (
     build_sql_in_list,
     format_display_list,
 )
+from backend.services.rbac_permission_service import get_rbac_service
 
 if TYPE_CHECKING:
     from backend.services.request_context import RequestContext
@@ -546,7 +547,10 @@ ORDER BY
             Dict with query results and scope information
         """
         # Validate and enforce account scoping
-        if context.allowed_account_ids and not context.is_admin:
+        rbac = get_rbac_service()
+        # Users with query:execute:all permission (admins/owners) can query all accounts
+        # Users with query:execute:assigned permission are restricted to assigned accounts
+        if context.allowed_account_ids and not rbac.has_permission(context, "query:execute:all"):
             sql_query, was_enforced = self._enforce_account_filter(
                 sql_query,
                 context.allowed_account_ids

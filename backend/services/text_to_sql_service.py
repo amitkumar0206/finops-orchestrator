@@ -15,6 +15,7 @@ from backend.services.llm_service import llm_service
 from backend.config.settings import get_settings
 from backend.utils.sql_constants import build_sql_in_list, format_display_list
 from backend.utils.sql_validation import SQL_INJECTION_PATTERNS, ValidationError
+from backend.services.rbac_permission_service import get_rbac_service
 
 if TYPE_CHECKING:
     from backend.services.request_context import RequestContext
@@ -949,8 +950,10 @@ class TextToSQLService:
         enhanced_context = previous_context.copy() if previous_context else {}
 
         # Add account scoping context if user has restrictions
+        rbac = get_rbac_service()
         scoping_prompt_addition = ""
-        if context.allowed_account_ids and not context.is_admin:
+        # Users with query:execute:all permission (admins/owners) can query all accounts
+        if context.allowed_account_ids and not rbac.has_permission(context, "query:execute:all"):
             account_list = build_sql_in_list(context.allowed_account_ids)
             scoping_prompt_addition = ACCOUNT_SCOPING_CONTEXT.format(
                 allowed_accounts=format_display_list(context.allowed_account_ids),
@@ -980,7 +983,8 @@ class TextToSQLService:
         )
 
         # Post-process: validate and enforce account filter
-        if sql_query and context.allowed_account_ids and not context.is_admin:
+        # Users with query:execute:all permission (admins/owners) can query all accounts
+        if sql_query and context.allowed_account_ids and not rbac.has_permission(context, "query:execute:all"):
             sql_query, was_modified = self._enforce_account_filter(
                 sql_query,
                 context.allowed_account_ids

@@ -80,6 +80,9 @@ mypy==1.13.0
 # Environment
 python-dotenv==1.0.0
 
+# Configuration
+PyYAML==6.0.2
+
 # Background Tasks (Note: Using valkey-py which is Redis protocol compatible)
 celery==5.4.0
 

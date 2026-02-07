@@ -11,6 +11,7 @@ import structlog
 
 from backend.services.database import DatabaseService
 from backend.services.request_context import RequestContext, SavedViewInfo
+from backend.services.rbac_permission_service import get_rbac_service
 
 logger = structlog.get_logger(__name__)
 
@@ -547,8 +548,10 @@ class SavedViewsService:
         """
         from fastapi import HTTPException
 
-        # Admins can access any view
-        if context.is_admin or context.org_role in ('owner', 'admin'):
+        rbac = get_rbac_service()
+
+        # Check if user has permission to read all saved views (admins/owners)
+        if rbac.has_permission(context, "saved_views:read:all"):
             return
 
         # Owner can always access their own views
@@ -570,7 +573,9 @@ class SavedViewsService:
         # If it's not a personal view and not explicitly shared, it might be org-shared
         # Non-personal, non-default views can be accessed by org members (legacy behavior)
         if not view.get('is_personal'):
-            return
+            # Check if user has permission to read shared views
+            if rbac.has_permission(context, "saved_views:read:shared"):
+                return
 
         # Deny access to personal views not owned by user
         logger.warning(
@@ -602,12 +607,15 @@ class SavedViewsService:
         """
         from fastapi import HTTPException
 
-        # Admins can modify any view
-        if context.is_admin or context.org_role in ('owner', 'admin'):
+        rbac = get_rbac_service()
+
+        # Check if user has permission to write/modify all saved views (admins/owners)
+        if rbac.has_permission(context, "saved_views:write:all"):
             return
 
-        # Users can only modify views they created
-        if view.get('created_by') and str(view['created_by']) == str(context.user_id):
+        # Check if user has permission to write their own views
+        resource_owner = str(view.get('created_by')) if view.get('created_by') else None
+        if rbac.has_permission(context, "saved_views:write:own", resource_owner):
             return
 
         logger.warning(
