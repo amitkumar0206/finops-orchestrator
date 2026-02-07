@@ -186,6 +186,7 @@ class OpportunityBase(BaseModel):
     id: UUID
     account_id: str
     organization_id: Optional[UUID] = None
+    created_by_user_id: Optional[UUID] = None  # User who created this opportunity
     title: str
     description: str
     category: OpportunityCategory

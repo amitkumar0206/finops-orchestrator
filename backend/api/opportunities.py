@@ -215,15 +215,23 @@ async def get_opportunity(
 ):
     """
     Get full details of a single opportunity including evidence.
+    Requires ownership validation - users can only access their own opportunities.
     """
     try:
         svc = get_service(request)
-        opportunity = svc.get_opportunity(opportunity_id)
+        context = get_context_from_request(request)
+        user_id = context.user_id if context else None
+
+        opportunity = svc.get_opportunity(opportunity_id, user_id=user_id)
 
         if not opportunity:
             raise_not_found("optimization opportunity", str(opportunity_id))
 
-        logger.info(f"Retrieved opportunity: {opportunity_id}")
+        logger.info(
+            "Retrieved opportunity",
+            opportunity_id=str(opportunity_id),
+            user_id=str(user_id) if user_id else None
+        )
         return opportunity
 
     except HTTPException:
@@ -248,10 +256,15 @@ async def create_opportunity(
         # Get user from context
         context = get_context_from_request(request)
         user_email = context.user_email if context else None
+        user_id = context.user_id if context else None
 
         data = body.model_dump(exclude_none=True)
         data['source'] = OpportunitySource.MANUAL.value
         data['status'] = OpportunityStatus.OPEN.value
+
+        # Store creator user_id for ownership validation
+        if user_id:
+            data['created_by_user_id'] = str(user_id)
 
         if body.implementation_steps:
             data['implementation_steps'] = [s.model_dump() for s in body.implementation_steps]
@@ -266,7 +279,8 @@ async def create_opportunity(
             "Created manual opportunity",
             id=str(opportunity.id),
             title=opportunity.title,
-            created_by=hash_identifier(user_email, "user")
+            created_by=hash_identifier(user_email, "user"),
+            created_by_user_id=str(user_id) if user_id else None
         )
 
         return opportunity
@@ -283,21 +297,28 @@ async def update_opportunity(
 ):
     """
     Update an opportunity's details.
+    Requires ownership validation - users can only update their own opportunities.
     """
     try:
         svc = get_service(request)
+        context = get_context_from_request(request)
+        user_id = context.user_id if context else None
 
         data = body.model_dump(exclude_none=True)
 
         if body.implementation_steps:
             data['implementation_steps'] = [s.model_dump() for s in body.implementation_steps]
 
-        opportunity = svc.update_opportunity(opportunity_id, data)
+        opportunity = svc.update_opportunity(opportunity_id, data, user_id=user_id)
 
         if not opportunity:
             raise_not_found("optimization opportunity", str(opportunity_id))
 
-        logger.info(f"Updated opportunity: {opportunity_id}")
+        logger.info(
+            "Updated opportunity",
+            opportunity_id=str(opportunity_id),
+            user_id=str(user_id) if user_id else None
+        )
         return opportunity
 
     except HTTPException:
@@ -315,6 +336,8 @@ async def update_opportunity_status(
     """
     Update an opportunity's status.
 
+    Requires ownership validation - users can only update status of their own opportunities.
+
     Common status transitions:
     - open -> accepted (user accepts recommendation)
     - open -> dismissed (user dismisses recommendation)
@@ -327,12 +350,14 @@ async def update_opportunity_status(
         # Get user from context
         context = get_context_from_request(request)
         user_email = context.user_email if context else None
+        user_id = context.user_id if context else None
 
         opportunity = svc.update_status(
             opportunity_id,
             body.status,
             body.reason,
-            user_email
+            user_email,
+            user_id=user_id
         )
 
         if not opportunity:
@@ -343,7 +368,8 @@ async def update_opportunity_status(
             id=str(opportunity_id),
             new_status=body.status.value,
             reason=body.reason,
-            changed_by=hash_identifier(user_email, "user")
+            changed_by=hash_identifier(user_email, "user"),
+            user_id=str(user_id) if user_id else None
         )
 
         return opportunity
@@ -415,17 +441,24 @@ async def delete_opportunity(
     """
     Delete an opportunity.
 
+    Requires ownership validation - users can only delete their own opportunities.
     Typically used for manually created opportunities.
     """
     try:
         svc = get_service(request)
+        context = get_context_from_request(request)
+        user_id = context.user_id if context else None
 
-        deleted = svc.delete_opportunity(opportunity_id)
+        deleted = svc.delete_opportunity(opportunity_id, user_id=user_id)
 
         if not deleted:
             raise_not_found("optimization opportunity", str(opportunity_id))
 
-        logger.info(f"Deleted opportunity: {opportunity_id}")
+        logger.info(
+            "Deleted opportunity",
+            opportunity_id=str(opportunity_id),
+            user_id=str(user_id) if user_id else None
+        )
         return Response(status_code=204)
 
     except HTTPException:

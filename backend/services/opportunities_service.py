@@ -60,6 +60,67 @@ class OpportunitiesService:
         """Get database connection"""
         return psycopg2.connect(**self.db_config)
 
+    def _validate_ownership(
+        self,
+        opportunity: Dict[str, Any],
+        user_id: Optional[UUID],
+        allow_org_admins: bool = True
+    ) -> None:
+        """
+        Validate that the user has permission to access/modify this opportunity.
+
+        Args:
+            opportunity: Opportunity data dict
+            user_id: User ID to validate (None = admin bypass)
+            allow_org_admins: Whether to allow organization admins access
+
+        Raises:
+            HTTPException: 403 if user doesn't have permission
+        """
+        from fastapi import HTTPException
+
+        if not user_id:
+            # No user_id provided - skip validation (for system operations)
+            return
+
+        created_by = opportunity.get('created_by_user_id')
+
+        # If no creator recorded (legacy data or system-created), allow access
+        if not created_by:
+            return
+
+        # Convert to UUID for comparison if needed
+        if isinstance(created_by, str):
+            try:
+                from uuid import UUID as UUIDClass
+                created_by = UUIDClass(created_by)
+            except (ValueError, AttributeError):
+                pass
+
+        if isinstance(user_id, str):
+            try:
+                from uuid import UUID as UUIDClass
+                user_id = UUIDClass(user_id)
+            except (ValueError, AttributeError):
+                pass
+
+        # Allow owner access
+        if str(created_by) == str(user_id):
+            return
+
+        # If allow_org_admins is True, the organization scoping should handle this
+        # For now, deny access since we're implementing per-user ownership
+        logger.warning(
+            "Unauthorized opportunity access attempt",
+            opportunity_id=opportunity.get('id'),
+            requesting_user_id=str(user_id),
+            owner_user_id=str(created_by)
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. You can only access opportunities you created."
+        )
+
     def _build_where_clause(
         self,
         filter: Optional[OpportunityFilter],
@@ -308,15 +369,23 @@ class OpportunitiesService:
             logger.error(f"Error listing opportunities: {e}", exc_info=True)
             raise
 
-    def get_opportunity(self, opportunity_id: UUID) -> Optional[OpportunityDetail]:
+    def get_opportunity(
+        self,
+        opportunity_id: UUID,
+        user_id: Optional[UUID] = None
+    ) -> Optional[OpportunityDetail]:
         """
         Get a single opportunity by ID with full details.
 
         Args:
             opportunity_id: Opportunity UUID
+            user_id: Optional user ID for ownership validation
 
         Returns:
             OpportunityDetail or None if not found
+
+        Raises:
+            HTTPException: 403 if user doesn't have permission
         """
         try:
             conn = self._get_connection()
@@ -344,7 +413,12 @@ class OpportunitiesService:
             if not row:
                 return None
 
-            return OpportunityDetail(**dict(row))
+            # Validate ownership if user_id provided
+            opportunity_dict = dict(row)
+            if user_id:
+                self._validate_ownership(opportunity_dict, user_id)
+
+            return OpportunityDetail(**opportunity_dict)
 
         except Exception as e:
             logger.error(f"Error getting opportunity {opportunity_id}: {e}", exc_info=True)
@@ -402,7 +476,8 @@ class OpportunitiesService:
     def update_opportunity(
         self,
         opportunity_id: UUID,
-        data: Dict[str, Any]
+        data: Dict[str, Any],
+        user_id: Optional[UUID] = None
     ) -> Optional[OpportunityDetail]:
         """
         Update an opportunity.
@@ -410,13 +485,37 @@ class OpportunitiesService:
         Args:
             opportunity_id: Opportunity UUID
             data: Fields to update
+            user_id: Optional user ID for ownership validation
 
         Returns:
             Updated opportunity or None if not found
+
+        Raises:
+            HTTPException: 403 if user doesn't have permission
         """
         try:
             conn = self._get_connection()
             cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            # First, fetch the opportunity to validate ownership
+            fetch_query = "SELECT * FROM opportunities WHERE id = %s"
+            fetch_params = [str(opportunity_id)]
+
+            if self.organization_id:
+                fetch_query += " AND organization_id = %s"
+                fetch_params.append(str(self.organization_id))
+
+            cur.execute(fetch_query, fetch_params)
+            existing = cur.fetchone()
+
+            if not existing:
+                cur.close()
+                conn.close()
+                return None
+
+            # Validate ownership if user_id provided
+            if user_id:
+                self._validate_ownership(dict(existing), user_id)
 
             # Build update query
             set_clauses = []
@@ -453,7 +552,11 @@ class OpportunitiesService:
             if not row:
                 return None
 
-            logger.info(f"Updated opportunity: {opportunity_id}")
+            logger.info(
+                "Updated opportunity",
+                opportunity_id=str(opportunity_id),
+                user_id=str(user_id) if user_id else None
+            )
             return OpportunityDetail(**dict(row))
 
         except Exception as e:
@@ -465,7 +568,8 @@ class OpportunitiesService:
         opportunity_id: UUID,
         status: OpportunityStatus,
         reason: Optional[str] = None,
-        changed_by: Optional[str] = None
+        changed_by: Optional[str] = None,
+        user_id: Optional[UUID] = None
     ) -> Optional[OpportunityDetail]:
         """
         Update opportunity status.
@@ -475,6 +579,7 @@ class OpportunitiesService:
             status: New status
             reason: Reason for status change
             changed_by: User who changed the status
+            user_id: Optional user ID for ownership validation
 
         Returns:
             Updated opportunity or None if not found
@@ -486,7 +591,8 @@ class OpportunitiesService:
                 'status_reason': reason,
                 'status_changed_by': changed_by,
                 'status_changed_at': datetime.now(timezone.utc)
-            }
+            },
+            user_id=user_id
         )
 
     def bulk_update_status(
@@ -551,28 +657,57 @@ class OpportunitiesService:
             logger.error(f"Error in bulk status update: {e}", exc_info=True)
             raise
 
-    def delete_opportunity(self, opportunity_id: UUID) -> bool:
+    def delete_opportunity(
+        self,
+        opportunity_id: UUID,
+        user_id: Optional[UUID] = None
+    ) -> bool:
         """
         Delete an opportunity.
 
         Args:
             opportunity_id: Opportunity UUID
+            user_id: Optional user ID for ownership validation
 
         Returns:
             True if deleted, False if not found
+
+        Raises:
+            HTTPException: 403 if user doesn't have permission
         """
         try:
             conn = self._get_connection()
-            cur = conn.cursor()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
 
-            query = "DELETE FROM opportunities WHERE id = %s"
-            params = [str(opportunity_id)]
+            # First, fetch the opportunity to validate ownership
+            fetch_query = "SELECT * FROM opportunities WHERE id = %s"
+            fetch_params = [str(opportunity_id)]
 
             if self.organization_id:
-                query += " AND organization_id = %s"
-                params.append(str(self.organization_id))
+                fetch_query += " AND organization_id = %s"
+                fetch_params.append(str(self.organization_id))
 
-            cur.execute(query, params)
+            cur.execute(fetch_query, fetch_params)
+            existing = cur.fetchone()
+
+            if not existing:
+                cur.close()
+                conn.close()
+                return False
+
+            # Validate ownership if user_id provided
+            if user_id:
+                self._validate_ownership(dict(existing), user_id)
+
+            # Perform deletion
+            delete_query = "DELETE FROM opportunities WHERE id = %s"
+            delete_params = [str(opportunity_id)]
+
+            if self.organization_id:
+                delete_query += " AND organization_id = %s"
+                delete_params.append(str(self.organization_id))
+
+            cur.execute(delete_query, delete_params)
             deleted = cur.rowcount > 0
             conn.commit()
 
@@ -580,7 +715,11 @@ class OpportunitiesService:
             conn.close()
 
             if deleted:
-                logger.info(f"Deleted opportunity: {opportunity_id}")
+                logger.info(
+                    "Deleted opportunity",
+                    opportunity_id=str(opportunity_id),
+                    user_id=str(user_id) if user_id else None
+                )
             return deleted
 
         except Exception as e:

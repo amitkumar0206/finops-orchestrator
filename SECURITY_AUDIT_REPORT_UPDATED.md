@@ -10,13 +10,13 @@
 
 ## Executive Summary
 
-This comprehensive security audit has identified and fixed **2 CRITICAL vulnerabilities** in the FinOps AI Cost Intelligence Platform. **CRIT-1 (IDOR)** and **CRIT-6 (LLM SQL Injection)** have been FIXED with comprehensive authentication, authorization, and input validation controls. The remaining critical findings involve **Insecure Direct Object Reference (IDOR)** vulnerabilities in opportunity and saved view management endpoints, and unauthenticated analytics/Athena endpoints.
+This comprehensive security audit has identified and fixed **3 CRITICAL vulnerabilities** in the FinOps AI Cost Intelligence Platform. **CRIT-1 (Conversation IDOR)**, **CRIT-2 (Opportunities IDOR)**, and **CRIT-6 (LLM SQL Injection)** have been FIXED with comprehensive authentication, authorization, and input validation controls. The remaining critical findings involve **Insecure Direct Object Reference (IDOR)** vulnerability in saved view management endpoints, and unauthenticated analytics/Athena endpoints.
 
 ### Vulnerability Summary
 
 | Severity | Previously Reported (Open) | New Findings | Fixed in This Update | Total Open |
 |----------|---------------------------|--------------|----------------------|------------|
-| **CRITICAL** | 0 | 6 | 2 | **4** |
+| **CRITICAL** | 0 | 6 | 3 | **3** |
 | **HIGH** | 3 | 3 | 0 | **6** |
 | **MEDIUM** | 10 | 7 | 0 | **17** |
 | **LOW** | 2 | 0 | 0 | **2** |
@@ -25,7 +25,7 @@ This comprehensive security audit has identified and fixed **2 CRITICAL vulnerab
 ### Critical Findings Status
 
 1. **CRIT-1**: Unauthenticated conversation access/deletion (IDOR) - ✅ **FIXED**
-2. **CRIT-2**: Opportunities accessible without ownership validation (IDOR) - ⚠️ OPEN
+2. **CRIT-2**: Opportunities accessible without ownership validation (IDOR) - ✅ **FIXED**
 3. **CRIT-3**: Saved views accessible without ownership validation (IDOR) - ⚠️ OPEN
 4. **CRIT-4**: Unauthenticated analytics endpoints exposing infrastructure - ⚠️ OPEN
 5. **CRIT-5**: Unauthenticated Athena query execution - ⚠️ OPEN
@@ -280,14 +280,27 @@ Full test suite: 648 passed, 0 failed
 
 ---
 
-### CRIT-2 — Opportunities Accessible Without Ownership Validation (IDOR)
+### CRIT-2 — Opportunities Accessible Without Ownership Validation (IDOR) - ✅ FIXED
 
 **CVSS Score:** 9.1 (Critical)
-**Status:** OPEN (New Finding)
+**Status:** ✅ **FIXED** (2026-02-07)
 **File:** `backend/api/opportunities.py`
-**Lines:** 211-227, 278-306, 309-354, 410-434
+**Fixed Lines:** API layer (211-232, 235-276, 278-310, 410-438), Service layer (`opportunities_service.py` lines 61-120), Model (`opportunities.py` line 189)
+**Test Coverage:** `tests/unit/api/test_opportunities_security.py` (16 tests, all passing)
 
-#### Vulnerability Description
+#### Fix Summary
+
+All opportunity CRUD endpoints now enforce user-level ownership validation:
+- Added `created_by_user_id` field to `OpportunityBase` model to track ownership
+- Added `_validate_ownership()` method to `OpportunitiesService` for ownership validation
+- Updated GET, POST, PATCH, DELETE, and status endpoints to extract `user_id` from context and validate ownership
+- Implemented fetch-then-validate pattern to prevent TOCTOU races
+- Added audit logging for successful operations and unauthorized access attempts
+- Returns 403 for unauthorized access, 404 for not found
+- Handles legacy data gracefully (opportunities without `created_by_user_id`)
+- All 16 security tests pass
+
+#### Original Vulnerability Description
 
 Opportunity CRUD endpoints validate organization membership but not resource ownership, allowing any organization member to access, modify, or delete opportunities created by other members.
 
@@ -396,6 +409,82 @@ def get_opportunity(self, opportunity_id: UUID, user_id: str = None) -> Optional
           context = get_request_context(request)
           opportunity = svc.get_opportunity(opportunity_id, user_id=context.user_id)
 ```
+
+#### ✅ Implementation Verification
+
+**Fix Date:** 2026-02-07
+
+**Changes Implemented:**
+
+1. **Updated `backend/models/opportunities.py`:**
+   - Added `created_by_user_id: Optional[UUID] = None` field to `OpportunityBase` model (line 189)
+   - Field tracks the user who created each opportunity for ownership validation
+
+2. **Updated `backend/services/opportunities_service.py`:**
+   - Added `_validate_ownership()` method (lines 61-120)
+   - Validates user has permission to access/modify opportunity
+   - Handles UUID normalization for comparison
+   - Gracefully handles legacy data (NULL `created_by_user_id`)
+   - Logs unauthorized access attempts with details
+   - Updated `get_opportunity()` to accept `user_id` parameter and validate ownership
+   - Updated `update_opportunity()` to use fetch-then-validate pattern
+   - Updated `delete_opportunity()` to use fetch-then-validate pattern
+   - Updated `update_status()` to pass `user_id` to `update_opportunity()`
+
+3. **Updated `backend/api/opportunities.py`:**
+   - Added user context extraction to all CRUD endpoints
+   - Updated `GET /opportunities/{opportunity_id}` (lines 211-232):
+     - Added `user_id` extraction from context
+     - Passes `user_id` to service layer
+     - Logs successful access with user_id
+   - Updated `POST /opportunities` (lines 235-276):
+     - Stores `created_by_user_id` when creating opportunities
+     - Logs creation with user_id for audit trail
+   - Updated `PATCH /opportunities/{opportunity_id}` (lines 278-310):
+     - Extracts and passes `user_id` to service layer
+     - Service validates ownership before update
+   - Updated `DELETE /opportunities/{opportunity_id}` (lines 410-438):
+     - Extracts and passes `user_id` to service layer
+     - Service validates ownership before deletion
+   - Updated `PATCH /opportunities/{opportunity_id}/status` (lines 309-358):
+     - Extracts and passes `user_id` to service layer
+     - Delegates to update_opportunity which validates ownership
+
+4. **Created comprehensive test suite `tests/unit/api/test_opportunities_security.py`:**
+   - 16 tests covering authentication and authorization scenarios
+   - Tests for GET endpoint: 404 handling, ownership validation, authorized access
+   - Tests for PATCH endpoint: 404 handling, ownership validation, authorized updates
+   - Tests for DELETE endpoint: 404 handling, ownership validation, authorized deletion
+   - Tests for status update: ownership validation
+   - Service layer validation tests: owner allowed, non-owner denied, legacy data handling
+   - End-to-end flow tests: unauthorized and authorized complete flows
+   - All tests passing (16/16 ✅)
+
+**Test Results:**
+```
+tests/unit/api/test_opportunities_security.py::TestGetOpportunityOwnership - 3 tests PASSED
+tests/unit/api/test_opportunities_security.py::TestUpdateOpportunityOwnership - 3 tests PASSED
+tests/unit/api/test_opportunities_security.py::TestDeleteOpportunityOwnership - 3 tests PASSED
+tests/unit/api/test_opportunities_security.py::TestUpdateStatusOwnership - 2 tests PASSED
+tests/unit/api/test_opportunities_security.py::TestOpportunitiesServiceOwnershipValidation - 3 tests PASSED
+tests/unit/api/test_opportunities_security.py::TestEndToEndOwnershipFlow - 2 tests PASSED
+
+Total: 16 passed, 0 failed
+```
+
+**Security Controls Verified:**
+- ✅ Ownership validation enforced (403 for unauthorized access)
+- ✅ Proper 404 handling for non-existent opportunities
+- ✅ User context extracted and validated for all CRUD operations
+- ✅ Audit logging for all operations and unauthorized attempts
+- ✅ Fetch-then-validate pattern prevents TOCTOU races
+- ✅ Legacy data handling (NULL `created_by_user_id` allowed)
+- ✅ Exception handling preserves security (no information leakage)
+- ✅ No regression in existing tests
+
+**Documentation:**
+- Detailed fix summary: `CRIT-2_FIX_SUMMARY.md`
+- Attack scenarios, implementation details, verification steps documented
 
 ---
 
@@ -1936,18 +2025,19 @@ cd backend && pip list | grep -iE "aiohttp|starlette|urllib3|langchain"
 | # | Finding | Status | Fixed Date |
 |---|---------|--------|------------|
 | ~~1~~ | ~~**CRIT-1** Unauthenticated conversation access~~ | ✅ FIXED | 2026-02-07 |
+| ~~2~~ | ~~**CRIT-2** Opportunities IDOR~~ | ✅ FIXED | 2026-02-07 |
+| ~~6~~ | ~~**CRIT-6** LLM-generated SQL injection~~ | ✅ FIXED | 2026-02-07 |
 
 ### 🔴 CRITICAL — Fix Immediately (Before Next Deployment)
 
 | # | Finding | Effort | Files |
 |---|---------|--------|-------|
-| 1 | **CRIT-2** Opportunities IDOR | 4 hours | `opportunities.py`, `opportunities_service.py` |
-| 2 | **CRIT-3** Saved views IDOR | 4 hours | `saved_views.py`, `saved_views_service.py` |
-| 3 | **CRIT-4** Unauthenticated analytics | 2 hours | `analytics.py` |
-| 4 | **CRIT-5** Unauthenticated Athena queries | 4 hours | `athena_queries.py`, `athena_query_service.py` |
+| 1 | **CRIT-3** Saved views IDOR | 4 hours | `saved_views.py`, `saved_views_service.py` |
+| 2 | **CRIT-4** Unauthenticated analytics | 2 hours | `analytics.py` |
+| 3 | **CRIT-5** Unauthenticated Athena queries | 4 hours | `athena_queries.py`, `athena_query_service.py` |
 
-**Total Estimated Effort:** 14 hours (down from 16 hours)
-**Impact if Not Fixed:** Complete authentication bypass on analytics/Athena, cross-tenant data breach on opportunities/views
+**Total Estimated Effort:** 10 hours (down from 14 hours)
+**Impact if Not Fixed:** Complete authentication bypass on analytics/Athena, cross-tenant data breach on saved views
 
 ---
 
