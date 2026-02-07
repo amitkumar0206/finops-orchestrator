@@ -252,7 +252,7 @@ async def update_saved_view(
     """Update an existing saved view. Requires ownership or admin privileges."""
     try:
         # Get changes for audit
-        changes = {k: v for k, v in payload.dict().items() if v is not None}
+        changes = {k: v for k, v in payload.model_dump().items() if v is not None}
 
         result = await saved_views_service.update_saved_view(
             context=context,
