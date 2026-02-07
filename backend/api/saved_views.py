@@ -220,11 +220,19 @@ async def get_saved_view(
     request: Request,
     context: RequestContext = Depends(get_request_context)
 ):
-    """Get a specific saved view by ID"""
+    """Get a specific saved view by ID. Requires ownership or appropriate access."""
     try:
         view = await saved_views_service.get_saved_view(context=context, view_id=view_id)
         if not view:
             raise HTTPException(status_code=404, detail="Saved view not found")
+
+        logger.info(
+            "saved_view_accessed",
+            view_id=str(view_id),
+            user_id=str(context.user_id),
+            user_email=context.user_email,
+        )
+
         return SavedViewResponse(**view)
 
     except HTTPException:
@@ -241,7 +249,7 @@ async def update_saved_view(
     request: Request,
     context: RequestContext = Depends(get_request_context)
 ):
-    """Update an existing saved view"""
+    """Update an existing saved view. Requires ownership or admin privileges."""
     try:
         # Get changes for audit
         changes = {k: v for k, v in payload.dict().items() if v is not None}
@@ -263,6 +271,8 @@ async def update_saved_view(
 
         return SavedViewResponse(**result)
 
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.error("update_saved_view_validation_failed", error=str(e), exc_info=True)
         raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
@@ -277,7 +287,7 @@ async def delete_saved_view(
     request: Request,
     context: RequestContext = Depends(get_request_context)
 ):
-    """Delete a saved view"""
+    """Delete a saved view. Requires ownership or admin privileges."""
     try:
         # Get view name for audit
         view = await saved_views_service.get_saved_view(context=context, view_id=view_id)
@@ -296,11 +306,11 @@ async def delete_saved_view(
 
         return {"success": True, "deleted_id": str(view_id)}
 
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.error("delete_saved_view_validation_failed", error=str(e), exc_info=True)
         raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error("failed_to_delete_saved_view", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to delete saved view")

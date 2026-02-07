@@ -10,13 +10,13 @@
 
 ## Executive Summary
 
-This comprehensive security audit has identified and fixed **3 CRITICAL vulnerabilities** in the FinOps AI Cost Intelligence Platform. **CRIT-1 (Conversation IDOR)**, **CRIT-2 (Opportunities IDOR)**, and **CRIT-6 (LLM SQL Injection)** have been FIXED with comprehensive authentication, authorization, and input validation controls. The remaining critical findings involve **Insecure Direct Object Reference (IDOR)** vulnerability in saved view management endpoints, and unauthenticated analytics/Athena endpoints.
+This comprehensive security audit has identified and fixed **4 CRITICAL vulnerabilities** in the FinOps AI Cost Intelligence Platform. **CRIT-1 (Conversation IDOR)**, **CRIT-2 (Opportunities IDOR)**, **CRIT-3 (Saved Views IDOR)**, and **CRIT-6 (LLM SQL Injection)** have been FIXED with comprehensive authentication, authorization, and input validation controls. The remaining critical findings involve unauthenticated analytics/Athena endpoints.
 
 ### Vulnerability Summary
 
 | Severity | Previously Reported (Open) | New Findings | Fixed in This Update | Total Open |
 |----------|---------------------------|--------------|----------------------|------------|
-| **CRITICAL** | 0 | 6 | 3 | **3** |
+| **CRITICAL** | 0 | 6 | 4 | **2** |
 | **HIGH** | 3 | 3 | 0 | **6** |
 | **MEDIUM** | 10 | 7 | 0 | **17** |
 | **LOW** | 2 | 0 | 0 | **2** |
@@ -26,7 +26,7 @@ This comprehensive security audit has identified and fixed **3 CRITICAL vulnerab
 
 1. **CRIT-1**: Unauthenticated conversation access/deletion (IDOR) - ✅ **FIXED**
 2. **CRIT-2**: Opportunities accessible without ownership validation (IDOR) - ✅ **FIXED**
-3. **CRIT-3**: Saved views accessible without ownership validation (IDOR) - ⚠️ OPEN
+3. **CRIT-3**: Saved views accessible without ownership validation (IDOR) - ✅ **FIXED**
 4. **CRIT-4**: Unauthenticated analytics endpoints exposing infrastructure - ⚠️ OPEN
 5. **CRIT-5**: Unauthenticated Athena query execution - ⚠️ OPEN
 6. **CRIT-6**: LLM-generated SQL injection via prompt injection - ✅ **FIXED**
@@ -488,14 +488,30 @@ Total: 16 passed, 0 failed
 
 ---
 
-### CRIT-3 — Saved Views Accessible Without Ownership Validation (IDOR)
+### CRIT-3 — Saved Views Accessible Without Ownership Validation (IDOR) - ✅ FIXED
 
 **CVSS Score:** 8.8 (Critical)
-**Status:** OPEN (New Finding)
-**File:** `backend/api/saved_views.py`
-**Lines:** 217-234, 237-271, 274-306
+**Status:** ✅ **FIXED** (2026-02-07)
+**File:** `backend/api/saved_views.py`, `backend/services/saved_views_service.py`
+**Fixed Lines:** Service layer (lines 527-617), API layer (lines 217-306)
+**Test Coverage:** `tests/unit/api/test_saved_views_security.py` (22 tests, all passing)
 
-#### Vulnerability Description
+#### Fix Summary
+
+All saved view CRUD endpoints now enforce proper ownership validation:
+- Added `_validate_ownership_for_read()` method for read access validation
+- Added `_validate_ownership_for_modify()` method for write access validation
+- Updated `get_saved_view()` to validate ownership before returning data
+- Updated `update_saved_view()` and `delete_saved_view()` to use comprehensive validation
+- Implemented multi-tier access control: owner, admin, shared users, org defaults
+- Personal views properly protected (owner + admin only)
+- Shared views accessible to designated users (read-only)
+- Org default views accessible to all org members
+- Added audit logging for access attempts and modifications
+- Returns 403 for unauthorized access, 404 for not found
+- All 22 security tests pass
+
+#### Original Vulnerability Description
 
 Saved view endpoints validate organization membership but not that the requesting user owns the specific view, allowing horizontal privilege escalation.
 
@@ -573,6 +589,90 @@ In backend/services/saved_views_service.py:
            if not context.is_admin:
                raise HTTPException(status_code=403, detail="Cannot delete another user's view")
 ```
+
+#### ✅ Implementation Verification
+
+**Fix Date:** 2026-02-07
+
+**Changes Implemented:**
+
+1. **Updated `backend/services/saved_views_service.py`:**
+   - Added `_validate_ownership_for_read()` method (lines 527-577)
+     - Validates read access based on ownership, admin role, org defaults, and sharing
+     - Protects personal views from unauthorized access
+     - Allows shared view access for designated users
+     - Logs unauthorized access attempts
+   - Added `_validate_ownership_for_modify()` method (lines 579-609)
+     - Validates write access (update/delete operations)
+     - Only owner or admin can modify views
+     - Logs unauthorized modification attempts
+   - Updated `_get_view_with_access_check()` method (lines 611-644)
+     - Fetches view and validates modification access
+     - Returns None if view doesn't exist
+     - Raises HTTPException if access denied
+   - Updated `get_saved_view()` method (lines 346-407)
+     - Added call to `_validate_ownership_for_read()` after fetching view
+     - Validates user has permission before returning data
+   - Existing `update_saved_view()` and `delete_saved_view()` already use `_get_view_with_access_check()`
+
+2. **Updated `backend/api/saved_views.py`:**
+   - Updated `GET /views/{view_id}` (lines 217-234):
+     - Added audit logging for successful access
+     - Updated docstring to indicate ownership requirement
+     - Proper HTTPException handling
+   - Updated `PUT /views/{view_id}` (lines 237-271):
+     - Added `except HTTPException: raise` before general exception handler
+     - Ensures 403 errors propagate properly
+     - Updated docstring to indicate ownership requirement
+   - Updated `DELETE /views/{view_id}` (lines 274-306):
+     - Added `except HTTPException: raise` before general exception handler
+     - Ensures 403 errors propagate properly
+     - Updated docstring to indicate ownership requirement
+
+3. **Created comprehensive test suite `tests/unit/api/test_saved_views_security.py`:**
+   - 22 tests covering authentication and authorization scenarios
+   - Tests for GET endpoint: 404 handling, ownership validation, shared views, org defaults, admin access
+   - Tests for PUT endpoint: ownership validation, admin bypass
+   - Tests for DELETE endpoint: 404 handling, ownership validation, admin bypass
+   - Service layer validation tests: read access rules, write access rules, admin bypass
+   - End-to-end flow tests: unauthorized and authorized complete flows
+   - All tests passing (22/22 ✅)
+
+**Test Results:**
+```
+tests/unit/api/test_saved_views_security.py::TestGetSavedViewOwnership - 6 tests PASSED
+tests/unit/api/test_saved_views_security.py::TestUpdateSavedViewOwnership - 3 tests PASSED
+tests/unit/api/test_saved_views_security.py::TestDeleteSavedViewOwnership - 4 tests PASSED
+tests/unit/api/test_saved_views_security.py::TestSavedViewsServiceOwnershipValidation - 7 tests PASSED
+tests/unit/api/test_saved_views_security.py::TestEndToEndOwnershipFlow - 2 tests PASSED
+
+Total: 22 passed, 0 failed
+```
+
+**Security Controls Verified:**
+- ✅ Ownership validation enforced on GET operations (read access)
+- ✅ Ownership validation enforced on UPDATE operations (write access)
+- ✅ Ownership validation enforced on DELETE operations
+- ✅ Personal view protection (owner + admin only)
+- ✅ Shared view access for designated users
+- ✅ Org default view access for all org members
+- ✅ Proper 404 handling for non-existent views
+- ✅ Proper 403 handling for unauthorized access
+- ✅ Admin bypass functionality working correctly
+- ✅ Audit logging for access and modification attempts
+- ✅ Exception handling preserves security (no information leakage)
+- ✅ No regression in existing tests
+
+**Access Control Matrix Verified:**
+- Personal views: Owner + Admin (read/write), Others blocked
+- Org default views: All org members (read), Owner + Admin (write)
+- Shared views: Shared users (read), Owner + Admin (write)
+- Non-personal views: All org members (read), Owner + Admin (write)
+
+**Documentation:**
+- Detailed fix summary: `CRIT-3_FIX_SUMMARY.md`
+- Attack scenarios, implementation details, verification steps documented
+- Access control matrix and security controls documented
 
 ---
 
@@ -2026,18 +2126,18 @@ cd backend && pip list | grep -iE "aiohttp|starlette|urllib3|langchain"
 |---|---------|--------|------------|
 | ~~1~~ | ~~**CRIT-1** Unauthenticated conversation access~~ | ✅ FIXED | 2026-02-07 |
 | ~~2~~ | ~~**CRIT-2** Opportunities IDOR~~ | ✅ FIXED | 2026-02-07 |
+| ~~3~~ | ~~**CRIT-3** Saved views IDOR~~ | ✅ FIXED | 2026-02-07 |
 | ~~6~~ | ~~**CRIT-6** LLM-generated SQL injection~~ | ✅ FIXED | 2026-02-07 |
 
 ### 🔴 CRITICAL — Fix Immediately (Before Next Deployment)
 
 | # | Finding | Effort | Files |
 |---|---------|--------|-------|
-| 1 | **CRIT-3** Saved views IDOR | 4 hours | `saved_views.py`, `saved_views_service.py` |
-| 2 | **CRIT-4** Unauthenticated analytics | 2 hours | `analytics.py` |
-| 3 | **CRIT-5** Unauthenticated Athena queries | 4 hours | `athena_queries.py`, `athena_query_service.py` |
+| 1 | **CRIT-4** Unauthenticated analytics | 2 hours | `analytics.py` |
+| 2 | **CRIT-5** Unauthenticated Athena queries | 4 hours | `athena_queries.py`, `athena_query_service.py` |
 
-**Total Estimated Effort:** 10 hours (down from 14 hours)
-**Impact if Not Fixed:** Complete authentication bypass on analytics/Athena, cross-tenant data breach on saved views
+**Total Estimated Effort:** 6 hours (down from 10 hours)
+**Impact if Not Fixed:** Complete authentication bypass on analytics/Athena endpoints
 
 ---
 

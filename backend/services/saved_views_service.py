@@ -348,7 +348,7 @@ class SavedViewsService:
         context: RequestContext,
         view_id: UUID,
     ) -> Optional[Dict[str, Any]]:
-        """Get a specific saved view by ID"""
+        """Get a specific saved view by ID with ownership validation"""
         await self._ensure_initialized()
 
         if not context.organization_id:
@@ -376,6 +376,12 @@ class SavedViewsService:
 
             if not row:
                 return None
+
+            # Convert to dict for validation
+            view_dict = dict(row)
+
+            # Validate user has permission to read this view
+            self._validate_ownership_for_read(view_dict, context)
 
             return {
                 'id': str(row['id']),
@@ -524,16 +530,111 @@ class SavedViewsService:
 
             return expired_count
 
+    def _validate_ownership_for_read(
+        self,
+        view: Dict[str, Any],
+        context: RequestContext,
+    ) -> None:
+        """
+        Validate that the user has permission to read this saved view.
+
+        Args:
+            view: View data dict with created_by, is_default, is_personal, shared_with_users
+            context: Request context with user info
+
+        Raises:
+            HTTPException: 403 if user doesn't have permission to read the view
+        """
+        from fastapi import HTTPException
+
+        # Admins can access any view
+        if context.is_admin or context.org_role in ('owner', 'admin'):
+            return
+
+        # Owner can always access their own views
+        if view.get('created_by') and str(view['created_by']) == str(context.user_id):
+            return
+
+        # Organization default views are accessible to all members
+        if view.get('is_default'):
+            return
+
+        # Check if view is shared with the user
+        shared_users = view.get('shared_with_users', [])
+        if shared_users and context.user_id:
+            # Convert all to strings for comparison
+            shared_user_strs = [str(uid) for uid in shared_users]
+            if str(context.user_id) in shared_user_strs:
+                return
+
+        # If it's not a personal view and not explicitly shared, it might be org-shared
+        # Non-personal, non-default views can be accessed by org members (legacy behavior)
+        if not view.get('is_personal'):
+            return
+
+        # Deny access to personal views not owned by user
+        logger.warning(
+            "Unauthorized saved view access attempt",
+            view_id=view.get('id'),
+            requesting_user_id=str(context.user_id),
+            owner_user_id=str(view.get('created_by')),
+            is_personal=view.get('is_personal'),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. You can only access your own personal views or shared views."
+        )
+
+    def _validate_ownership_for_modify(
+        self,
+        view: Dict[str, Any],
+        context: RequestContext,
+    ) -> None:
+        """
+        Validate that the user has permission to modify this saved view.
+
+        Args:
+            view: View data dict with created_by, is_personal
+            context: Request context with user info
+
+        Raises:
+            HTTPException: 403 if user doesn't have permission to modify the view
+        """
+        from fastapi import HTTPException
+
+        # Admins can modify any view
+        if context.is_admin or context.org_role in ('owner', 'admin'):
+            return
+
+        # Users can only modify views they created
+        if view.get('created_by') and str(view['created_by']) == str(context.user_id):
+            return
+
+        logger.warning(
+            "Unauthorized saved view modification attempt",
+            view_id=view.get('id'),
+            requesting_user_id=str(context.user_id),
+            owner_user_id=str(view.get('created_by')),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. You can only modify views you created."
+        )
+
     async def _get_view_with_access_check(
         self,
         conn,
         context: RequestContext,
         view_id: UUID,
     ) -> Optional[Dict[str, Any]]:
-        """Check if user has access to modify a view"""
+        """
+        Fetch view and check if user has access to modify it.
+        Returns None if view doesn't exist.
+        Raises HTTPException if access is denied.
+        """
         result = await conn.execute(
             """
-            SELECT id, created_by, is_personal, is_default
+            SELECT id, created_by, is_personal, is_default, shared_with_users, shared_with_roles
             FROM saved_views
             WHERE id = :view_id
               AND organization_id = :org_id
@@ -546,15 +647,11 @@ class SavedViewsService:
         if not row:
             return None
 
-        # Admins can edit any view
-        if context.is_admin or context.org_role in ('owner', 'admin'):
-            return dict(row)
+        view_dict = dict(row)
+        # Validate ownership for modification
+        self._validate_ownership_for_modify(view_dict, context)
 
-        # Users can only edit their own personal views
-        if row['is_personal'] and row['created_by'] == context.user_id:
-            return dict(row)
-
-        return None
+        return view_dict
 
 
 # Global service instance
