@@ -161,6 +161,36 @@ class ConversationManager:
         finally:
             _put_conn(conn)
 
+    def get_thread_metadata(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get thread metadata including user_id for ownership validation.
+        Returns None if thread doesn't exist.
+        """
+        sql = (
+            "SELECT thread_id, user_id, title, metadata, created_at, updated_at, is_active "
+            "FROM conversation_threads WHERE thread_id = %s"
+        )
+        conn = _get_conn()
+        try:
+            with conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(sql, (thread_id,))
+                    row = cur.fetchone()
+                    if not row:
+                        return None
+                    # Parse metadata if it's a string
+                    if isinstance(row.get("metadata"), str):
+                        try:
+                            row["metadata"] = json.loads(row["metadata"]) if row["metadata"] else {}
+                        except Exception:
+                            row["metadata"] = {}
+                    return dict(row)
+        except Exception as e:
+            logger.error("Failed to get_thread_metadata", thread_id=thread_id, error=str(e))
+            raise
+        finally:
+            _put_conn(conn)
+
     # endregion
 
     # region Intents and executions

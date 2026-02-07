@@ -18,13 +18,18 @@ from backend.services.conversation_manager import conversation_manager
 from fastapi import Request
 from backend.agents.multi_agent_workflow import execute_multi_agent_query
 from backend.config.settings import get_settings
-from backend.services.request_context import get_context_from_request
+from backend.services.request_context import get_context_from_request, require_context, RequestContext
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 logger.info("Chat API initialized with Multi-Agent System")
+
+
+async def get_request_context(request: Request) -> RequestContext:
+    """Dependency to get request context with authentication"""
+    return require_context(request)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -203,38 +208,103 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
 
 
 @router.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: str, limit: int = 100):
+async def get_conversation(
+    conversation_id: str,
+    limit: int = 100,
+    context: RequestContext = Depends(get_request_context)
+):
     """Get conversation history by thread ID with optional limit (default 100)."""
     try:
+        # Validate ownership
+        thread_metadata = conversation_manager.get_thread_metadata(conversation_id)
+        if not thread_metadata:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # Check if user owns this conversation
+        if thread_metadata.get('user_id') != str(context.user_id):
+            logger.warning(
+                "unauthorized_conversation_access_attempt",
+                conversation_id=conversation_id,
+                requesting_user_id=str(context.user_id),
+                owner_user_id=thread_metadata.get('user_id')
+            )
+            raise HTTPException(status_code=403, detail="Access denied")
+
         messages = conversation_manager.get_conversation_history(conversation_id, limit=limit)
+
+        logger.info(
+            "conversation_accessed",
+            conversation_id=conversation_id,
+            user_id=str(context.user_id),
+            user_email=context.user_email,
+            message_count=len(messages)
+        )
+
         return {
             "conversation_id": conversation_id,
             "messages": messages,
             "count": len(messages),
             "fetched_at": datetime.utcnow().isoformat(),
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Failed to fetch conversation history", conversation_id=conversation_id, error=str(e))
+        logger.error("Failed to fetch conversation history", conversation_id=conversation_id, error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch conversation history")
 
 
 @router.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str):
+async def delete_conversation(
+    conversation_id: str,
+    context: RequestContext = Depends(get_request_context)
+):
     """Soft-delete a conversation thread by marking it inactive."""
     try:
-        # Soft delete via direct DB update to preserve audit trail
-        from services.database import DatabaseService
+        # Import at function level to avoid circular imports
+        from backend.services.database import DatabaseService
 
+        # Validate ownership before deletion
         db = DatabaseService()
         await db.initialize()
         async with db.acquire() as conn:
+            # Check if conversation exists and get owner
+            result = await conn.fetchrow(
+                "SELECT user_id, is_active FROM conversation_threads WHERE thread_id = $1",
+                conversation_id
+            )
+
+            if not result:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+
+            # Verify ownership
+            if result['user_id'] != str(context.user_id):
+                logger.warning(
+                    "unauthorized_conversation_deletion_attempt",
+                    conversation_id=conversation_id,
+                    requesting_user_id=str(context.user_id),
+                    owner_user_id=result['user_id']
+                )
+                raise HTTPException(status_code=403, detail="Access denied")
+
+            # Perform soft delete
             await conn.execute(
                 "UPDATE conversation_threads SET is_active = FALSE, updated_at = NOW() WHERE thread_id = $1",
-                conversation_id,
+                conversation_id
             )
-        return {"success": True, "conversation_id": conversation_id}
+
+            # Audit log
+            logger.info(
+                "conversation_deleted",
+                conversation_id=conversation_id,
+                user_id=str(context.user_id),
+                user_email=context.user_email
+            )
+
+        return {"success": True, "conversation_id": conversation_id, "status": "deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Failed to delete conversation", conversation_id=conversation_id, error=str(e))
+        logger.error("Failed to delete conversation", conversation_id=conversation_id, error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to delete conversation")
 
 
