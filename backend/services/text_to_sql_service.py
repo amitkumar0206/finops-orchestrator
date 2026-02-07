@@ -14,6 +14,7 @@ import structlog
 from backend.services.llm_service import llm_service
 from backend.config.settings import get_settings
 from backend.utils.sql_constants import build_sql_in_list, format_display_list
+from backend.utils.sql_validation import SQL_INJECTION_PATTERNS, ValidationError
 
 if TYPE_CHECKING:
     from backend.services.request_context import RequestContext
@@ -812,7 +813,27 @@ class TextToSQLService:
                 time_period=time_period_info,
                 scope=scope_info
             )
-            
+
+            # SECURITY: Validate LLM-generated SQL before execution
+            if sql_query:
+                try:
+                    self._validate_generated_sql(sql_query)
+                except ValidationError as e:
+                    logger.error(
+                        "SQL validation failed for LLM-generated query",
+                        error=str(e),
+                        sql_preview=sql_query[:200]
+                    )
+                    # Return error instead of malicious SQL
+                    metadata.update({
+                        "status": "validation_failed",
+                        "clarification": [
+                            "The generated query failed security validation. Please try rephrasing your request.",
+                            "Ensure you're requesting data analysis, not data modification."
+                        ]
+                    })
+                    return "", metadata
+
             return sql_query, metadata
             
         except Exception as e:
@@ -1041,6 +1062,123 @@ class TextToSQLService:
         )
 
         return sql, True
+
+    def _validate_generated_sql(self, sql: str) -> None:
+        """
+        Validate LLM-generated SQL for security threats.
+
+        This method protects against SQL injection and unauthorized operations
+        that could be introduced through prompt injection attacks on the LLM.
+
+        Raises:
+            ValidationError: If dangerous patterns or unauthorized operations detected
+        """
+        if not sql or not sql.strip():
+            return
+
+        sql_upper = sql.upper()
+        sql_stripped = sql.strip()
+
+        # 1. Reject multi-statement queries (prevent stacked queries)
+        # Allow trailing semicolon but not multiple statements
+        if ';' in sql_stripped.rstrip(';'):
+            raise ValidationError("Multi-statement SQL not allowed")
+
+        # 2. Reject DDL/DML operations - only SELECT queries allowed
+        dangerous_keywords = [
+            'DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'TRUNCATE',
+            'CREATE', 'REPLACE', 'GRANT', 'REVOKE', 'EXEC', 'EXECUTE',
+            'MERGE', 'CALL'
+        ]
+
+        for keyword in dangerous_keywords:
+            # Check for keyword as separate word (not part of column name)
+            pattern = re.compile(r'\b' + re.escape(keyword) + r'\b', re.IGNORECASE)
+            if pattern.search(sql):
+                raise ValidationError(f"Dangerous SQL keyword not allowed: {keyword}")
+
+        # Check for metadata/schema inspection keywords (case-insensitive, whole word)
+        # But exclude "DESC" when it's part of "ORDER BY ... DESC" (descending sort)
+        if re.search(r'\b(EXPLAIN|DESCRIBE|SHOW)\b', sql, re.IGNORECASE):
+            raise ValidationError("Schema inspection commands not allowed")
+
+        # Check for DESC as standalone command (not ORDER BY DESC)
+        if re.search(r'\bDESC\b(?!\s*(?:LIMIT|$|;))', sql, re.IGNORECASE):
+            # DESC found, check if it's in ORDER BY context
+            if not re.search(r'\bORDER\s+BY\b.*?\bDESC\b', sql, re.IGNORECASE | re.DOTALL):
+                # DESC not in ORDER BY context - likely DESCRIBE statement
+                raise ValidationError("Schema inspection commands not allowed")
+
+        # 3. Ensure query starts with SELECT or WITH (for CTEs) (whitespace/comments ok)
+        # Strip leading comments and whitespace
+        sql_clean = re.sub(r'^\s*(--.*?\n|/\*.*?\*/\s*)*', '', sql, flags=re.DOTALL).strip()
+        sql_clean_upper = sql_clean.upper()
+        if not (sql_clean_upper.startswith('SELECT') or sql_clean_upper.startswith('WITH')):
+            raise ValidationError("Only SELECT queries (including CTEs) are allowed")
+
+        # 4. Check for SQL injection patterns
+        # Log warnings for suspicious patterns but don't always block
+        # (LLM might legitimately use some patterns like quotes in strings)
+        suspicious_patterns = [
+            (r";\s*SELECT", "Stacked SELECT detected"),
+            (r"\bUNION\b.*?\bSELECT\b", "UNION injection attempt detected"),
+            (r"--", "SQL comment detected"),
+            (r"/\*", "Block comment detected"),
+        ]
+
+        for pattern_str, description in suspicious_patterns:
+            pattern = re.compile(pattern_str, re.IGNORECASE | re.DOTALL)
+            if pattern.search(sql):
+                logger.warning(
+                    "Suspicious SQL pattern in LLM-generated query",
+                    pattern=description,
+                    sql_preview=sql[:150]
+                )
+
+        # 5. Check for information_schema or system table access FIRST (word boundary check)
+        # This must run before the regular table check to catch system tables
+        system_tables = ['information_schema', 'pg_catalog', 'sys', 'mysql']
+        sql_lower = sql.lower()
+        for sys_table in system_tables:
+            # Use word boundary to avoid false positives in column names
+            if re.search(r'\b' + re.escape(sys_table) + r'\b', sql_lower):
+                raise ValidationError(f"Access to system tables not allowed: {sys_table}")
+
+        # 6. Validate table access - ensure only CUR table is queried
+        table_name = (settings.aws_cur_table or 'cur_table').lower()
+
+        # First, extract CTE (Common Table Expression) names from WITH clauses
+        # CTEs are temporary and should be excluded from unauthorized table check
+        cte_pattern = re.compile(r'\bWITH\s+([a-z_][a-z0-9_]*)\s+AS\s*\(', re.IGNORECASE)
+        cte_names = {match.group(1).lower() for match in cte_pattern.finditer(sql)}
+
+        # Extract all table references from FROM and JOIN clauses
+        table_pattern = re.compile(
+            r'\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)',
+            re.IGNORECASE
+        )
+
+        mentioned_tables = set()
+        for match in table_pattern.finditer(sql):
+            table_ref = match.group(1).lower()
+            # Remove schema prefix if present
+            if '.' in table_ref:
+                table_ref = table_ref.split('.')[1]
+            mentioned_tables.add(table_ref)
+
+        # Check if any unauthorized tables are accessed (excluding CTEs and subquery aliases)
+        unauthorized_tables = mentioned_tables - {table_name} - cte_names
+        if unauthorized_tables:
+            raise ValidationError(
+                f"Access to table(s) not allowed: {', '.join(unauthorized_tables)}. "
+                f"Only '{table_name}' is permitted."
+            )
+
+        logger.info(
+            "LLM-generated SQL validation passed",
+            sql_length=len(sql),
+            tables_accessed=list(mentioned_tables) if mentioned_tables else [table_name]
+        )
 
     def validate_sql_scope(
         self,
