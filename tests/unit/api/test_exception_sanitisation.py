@@ -240,6 +240,9 @@ class TestAnalyticsExceptionSanitisation:
     async def test_client_error_returns_generic_503(self):
         """ClientError in check_historical_data_availability → generic 503."""
         from botocore.exceptions import ClientError
+        from backend.services.request_context import RequestContext
+        from uuid import uuid4
+
         secret = "AccessDeniedException: User arn:aws:iam::111111111111:role/finops not authorized"
         error = ClientError(
             {"Error": {"Code": "AccessDeniedException", "Message": secret}},
@@ -248,11 +251,21 @@ class TestAnalyticsExceptionSanitisation:
         mock_client = Mock()
         mock_client.get_cost_and_usage = Mock(side_effect=error)
 
+        # Create mock request and context
+        mock_request = Mock()
+        mock_context = RequestContext(
+            user_id=uuid4(),
+            user_email="test@example.com",
+            organization_id=uuid4(),
+            is_admin=False,
+            org_role="member"
+        )
+
         with patch('backend.api.analytics.create_aws_client', return_value=mock_client):
             with patch('backend.api.analytics.logger') as mock_log:
                 from backend.api.analytics import check_historical_data_availability
                 with pytest.raises(HTTPException) as exc_info:
-                    await check_historical_data_availability()
+                    await check_historical_data_availability(mock_request, mock_context)
 
         assert exc_info.value.status_code == 503
         assert exc_info.value.detail == "Service temporarily unavailable."
@@ -263,15 +276,28 @@ class TestAnalyticsExceptionSanitisation:
     @pytest.mark.asyncio
     async def test_generic_exception_returns_500(self):
         """Generic Exception in check_historical_data_availability → generic 500."""
+        from backend.services.request_context import RequestContext
+        from uuid import uuid4
+
         secret = "psycopg2.OperationalError: connection to 10.0.0.5:5432 refused"
         mock_client = Mock()
         mock_client.get_cost_and_usage = Mock(side_effect=Exception(secret))
+
+        # Create mock request and context
+        mock_request = Mock()
+        mock_context = RequestContext(
+            user_id=uuid4(),
+            user_email="test@example.com",
+            organization_id=uuid4(),
+            is_admin=False,
+            org_role="member"
+        )
 
         with patch('backend.api.analytics.create_aws_client', return_value=mock_client):
             with patch('backend.api.analytics.logger') as mock_log:
                 from backend.api.analytics import check_historical_data_availability
                 with pytest.raises(HTTPException) as exc_info:
-                    await check_historical_data_availability()
+                    await check_historical_data_availability(mock_request, mock_context)
 
         assert exc_info.value.status_code == 500
         assert exc_info.value.detail == "An internal error occurred. Please try again later."
@@ -282,12 +308,25 @@ class TestAnalyticsExceptionSanitisation:
     @pytest.mark.asyncio
     async def test_data_sources_info_error_is_generic(self):
         """get_data_sources_info fallback must not expose str(e)."""
+        from backend.services.request_context import RequestContext
+        from uuid import uuid4
+
         secret = "NoCredentialsError: Unable to locate credentials in /home/deploy/.aws"
+
+        # Create mock request and context
+        mock_request = Mock()
+        mock_context = RequestContext(
+            user_id=uuid4(),
+            user_email="test@example.com",
+            organization_id=uuid4(),
+            is_admin=False,
+            org_role="member"
+        )
 
         with patch('backend.api.analytics.create_aws_session', side_effect=Exception(secret)):
             with patch('backend.api.analytics.logger') as mock_log:
                 from backend.api.analytics import get_data_sources_info
-                result = await get_data_sources_info()
+                result = await get_data_sources_info(mock_request, mock_context)
 
         assert secret not in json.dumps(result)
         assert "/home/deploy" not in json.dumps(result)
@@ -299,6 +338,9 @@ class TestAnalyticsExceptionSanitisation:
     async def test_cache_init_error_is_generic(self):
         """initialize_historical_cache generic Exception → generic 500."""
         from backend.api.analytics import initialize_historical_cache, CacheInitRequest
+        from backend.services.request_context import RequestContext
+        from uuid import uuid4
+
         secret = "Redis connection error: ECONNREFUSED 172.16.0.10:6379"
 
         mock_bg = Mock()
@@ -306,10 +348,20 @@ class TestAnalyticsExceptionSanitisation:
         # having the background task addition raise
         mock_bg.add_task = Mock(side_effect=Exception(secret))
 
+        # Create mock request and context
+        mock_request = Mock()
+        mock_context = RequestContext(
+            user_id=uuid4(),
+            user_email="test@example.com",
+            organization_id=uuid4(),
+            is_admin=False,
+            org_role="member"
+        )
+
         with patch('backend.api.analytics.logger') as mock_log:
-            request = CacheInitRequest(months=3)
+            cache_request = CacheInitRequest(months=3)
             with pytest.raises(HTTPException) as exc_info:
-                await initialize_historical_cache(request, mock_bg)
+                await initialize_historical_cache(cache_request, mock_bg, mock_request, mock_context)
 
         assert exc_info.value.status_code == 500
         assert exc_info.value.detail == "An internal error occurred. Please try again later."

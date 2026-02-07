@@ -1,6 +1,6 @@
 """Analytics API endpoints"""
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Depends
 from datetime import datetime, timedelta, date
 from typing import Optional
 from pydantic import BaseModel
@@ -10,10 +10,16 @@ import structlog
 from backend.config.settings import get_settings
 from backend.utils.aws_session import create_aws_session, create_aws_client
 from backend.utils.aws_constants import AwsService, COST_EXPLORER_REGION
+from backend.services.request_context import require_context, RequestContext
 
 router = APIRouter()
 settings = get_settings()
 logger = structlog.get_logger(__name__)
+
+
+async def get_request_context(request: Request) -> RequestContext:
+    """Dependency to get request context and enforce authentication"""
+    return require_context(request)
 
 
 class CacheInitRequest(BaseModel):
@@ -32,18 +38,34 @@ class HistoricalDataResponse(BaseModel):
 
 
 @router.get("/")
-async def get_analytics():
-    """Get analytics data"""
+async def get_analytics(
+    request: Request,
+    context: RequestContext = Depends(get_request_context)
+):
+    """Get analytics data. Requires authentication."""
+    logger.info(
+        "analytics_accessed",
+        user_id=str(context.user_id),
+        user_email=context.user_email
+    )
     return {"analytics": {}, "timestamp": datetime.utcnow().isoformat()}
 
 
 @router.get("/historical-availability")
-async def check_historical_data_availability():
+async def check_historical_data_availability(
+    request: Request,
+    context: RequestContext = Depends(get_request_context)
+):
     """
     Check how many months of historical cost data are available
-    via Cost Explorer API
+    via Cost Explorer API. Requires authentication.
     """
     try:
+        logger.info(
+            "historical_availability_checked",
+            user_id=str(context.user_id),
+            user_email=context.user_email
+        )
         # Initialize Cost Explorer client using IAM role credentials
         # Cost Explorer API is only available in us-east-1
         ce_client = create_aws_client(AwsService.COST_EXPLORER, region_name=COST_EXPLORER_REGION)
@@ -171,27 +193,36 @@ async def _load_historical_data_to_cache(months: int):
 
 @router.post("/initialize-cache")
 async def initialize_historical_cache(
-    request: CacheInitRequest,
-    background_tasks: BackgroundTasks
+    cache_request: CacheInitRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    context: RequestContext = Depends(get_request_context)
 ):
     """
     Initialize cache with historical cost data for better performance.
     This endpoint loads commonly accessed historical data into cache.
+    Requires authentication.
     """
     try:
+        logger.info(
+            "cache_initialization_requested",
+            user_id=str(context.user_id),
+            user_email=context.user_email,
+            months=cache_request.months
+        )
         # Validate months parameter
-        if request.months < 1 or request.months > 13:
+        if cache_request.months < 1 or cache_request.months > 13:
             raise HTTPException(
                 status_code=400,
                 detail="Months must be between 1 and 13"
             )
-        
+
         # Start background task to load data
-        background_tasks.add_task(_load_historical_data_to_cache, request.months)
-        
+        background_tasks.add_task(_load_historical_data_to_cache, cache_request.months)
+
         return {
             "success": True,
-            "message": f"Cache initialization started for {request.months} months of historical data",
+            "message": f"Cache initialization started for {cache_request.months} months of historical data",
             "status": "processing",
             "estimated_time": "1-2 minutes"
         }
@@ -207,11 +238,22 @@ async def initialize_historical_cache(
 
 
 @router.get("/data-sources")
-async def get_data_sources_info():
+async def get_data_sources_info(
+    request: Request,
+    context: RequestContext = Depends(get_request_context)
+):
     """
-    Get information about available cost data sources and their capabilities
+    Get information about available cost data sources.
+    Returns only availability status without exposing infrastructure details.
+    Requires authentication.
     """
     try:
+        logger.info(
+            "data_sources_info_accessed",
+            user_id=str(context.user_id),
+            user_email=context.user_email
+        )
+
         # Use IAM role credentials via default credential chain
         session = create_aws_session(region_name=COST_EXPLORER_REGION)
 
@@ -235,7 +277,6 @@ async def get_data_sources_info():
 
         # Check CUR
         cur_available = False
-        cur_reports = []
         try:
             # CUR API only available in us-east-1
             cur_client = session.client(AwsService.COST_AND_USAGE_REPORTS, region_name=COST_EXPLORER_REGION)
@@ -246,38 +287,28 @@ async def get_data_sources_info():
         except Exception as cur_error:
             logger.error(f"CUR check failed: {cur_error}")
             pass
-        
+
+        # Return sanitized response - NO infrastructure details exposed
         return {
             "cost_explorer": {
                 "available": ce_available,
-                "historical_months": 13,
-                "granularity": ["HOURLY", "DAILY", "MONTHLY"],
-                "description": "AWS Cost Explorer API - Immediate access to recent cost data"
+                "description": "AWS Cost Explorer API - Access to recent cost data"
             },
             "cur": {
                 "available": cur_available,
-                "report_count": len(cur_reports),
-                "reports": [
-                    {
-                        "name": r.get('ReportName'),
-                        "bucket": r.get('S3Bucket'),
-                        "format": r.get('Format')
-                    }
-                    for r in cur_reports
-                ],
-                "description": "Cost and Usage Reports - Detailed historical data for long-term analysis"
+                "description": "Cost and Usage Reports - Detailed historical data"
             },
             "recommendation": (
-                "Cost Explorer is available for immediate use. "
+                "Cost Explorer is available for use. "
                 if ce_available else
                 "Set up Cost Explorer in AWS Console. "
             ) + (
-                f"CUR configured with {len(cur_reports)} report(s)."
+                "CUR is configured."
                 if cur_available else
                 "Consider setting up CUR for extended historical analysis."
             )
         }
-        
+
     except Exception as e:
         logger.error("data_sources_info_failed", error=str(e), exc_info=True)
         return {

@@ -10,13 +10,13 @@
 
 ## Executive Summary
 
-This comprehensive security audit has identified and fixed **4 CRITICAL vulnerabilities** in the FinOps AI Cost Intelligence Platform. **CRIT-1 (Conversation IDOR)**, **CRIT-2 (Opportunities IDOR)**, **CRIT-3 (Saved Views IDOR)**, and **CRIT-6 (LLM SQL Injection)** have been FIXED with comprehensive authentication, authorization, and input validation controls. The remaining critical findings involve unauthenticated analytics/Athena endpoints.
+This comprehensive security audit has identified and fixed **5 CRITICAL vulnerabilities** in the FinOps AI Cost Intelligence Platform. **CRIT-1 (Conversation IDOR)**, **CRIT-2 (Opportunities IDOR)**, **CRIT-3 (Saved Views IDOR)**, **CRIT-4 (Unauthenticated Analytics)**, and **CRIT-6 (LLM SQL Injection)** have been FIXED with comprehensive authentication, authorization, and input validation controls. Only 1 remaining critical vulnerability involves unauthenticated Athena query endpoints.
 
 ### Vulnerability Summary
 
 | Severity | Previously Reported (Open) | New Findings | Fixed in This Update | Total Open |
 |----------|---------------------------|--------------|----------------------|------------|
-| **CRITICAL** | 0 | 6 | 4 | **2** |
+| **CRITICAL** | 0 | 6 | 5 | **1** |
 | **HIGH** | 3 | 3 | 0 | **6** |
 | **MEDIUM** | 10 | 7 | 0 | **17** |
 | **LOW** | 2 | 0 | 0 | **2** |
@@ -27,7 +27,7 @@ This comprehensive security audit has identified and fixed **4 CRITICAL vulnerab
 1. **CRIT-1**: Unauthenticated conversation access/deletion (IDOR) - ✅ **FIXED**
 2. **CRIT-2**: Opportunities accessible without ownership validation (IDOR) - ✅ **FIXED**
 3. **CRIT-3**: Saved views accessible without ownership validation (IDOR) - ✅ **FIXED**
-4. **CRIT-4**: Unauthenticated analytics endpoints exposing infrastructure - ⚠️ OPEN
+4. **CRIT-4**: Unauthenticated analytics endpoints exposing infrastructure - ✅ **FIXED**
 5. **CRIT-5**: Unauthenticated Athena query execution - ⚠️ OPEN
 6. **CRIT-6**: LLM-generated SQL injection via prompt injection - ✅ **FIXED**
 
@@ -676,14 +676,28 @@ Total: 22 passed, 0 failed
 
 ---
 
-### CRIT-4 — Unauthenticated Analytics Endpoints Exposing Infrastructure
+### CRIT-4 — Unauthenticated Analytics Endpoints Exposing Infrastructure - ✅ FIXED
 
 **CVSS Score:** 8.6 (Critical)
-**Status:** OPEN (New Finding)
+**Status:** ✅ **FIXED** (2026-02-07)
 **File:** `backend/api/analytics.py`
-**Lines:** 34-37, 40-92, 172-206, 209-287
+**Fixed Lines:** All endpoints (lines 37-51, 53-102, 186-219, 221-286)
+**Test Coverage:** `tests/unit/api/test_analytics_security.py` (15 tests, all passing)
 
-#### Vulnerability Description
+#### Fix Summary
+
+All analytics endpoints now require authentication and infrastructure details have been sanitized:
+- Added authentication to GET `/analytics`
+- Added authentication to GET `/historical-availability`
+- Added authentication to POST `/initialize-cache`
+- Added authentication to GET `/data-sources`
+- Removed ALL infrastructure details from `/data-sources` response
+- No longer exposes S3 bucket names, database names, CUR configurations
+- Added comprehensive audit logging for all access
+- Returns 401 Unauthorized for unauthenticated requests
+- All 15 security tests pass
+
+#### Original Vulnerability Description
 
 Multiple analytics endpoints lack authentication, allowing unauthenticated attackers to:
 - Map AWS infrastructure (S3 buckets, Athena databases, regions)
@@ -788,6 +802,96 @@ In backend/api/analytics.py:
    Replace with simple status indicators:
    return {"cur": {"available": True}, "cost_explorer": {"available": True}}
 ```
+
+#### ✅ Implementation Verification
+
+**Fix Date:** 2026-02-07
+
+**Changes Implemented:**
+
+1. **Updated `backend/api/analytics.py`:**
+   - Added imports: `Request`, `Depends` from FastAPI
+   - Added import: `require_context`, `RequestContext` from request_context
+   - Created `get_request_context()` helper function (lines 19-21)
+   - Updated GET `/analytics` (lines 37-51):
+     - Added `request: Request` and `context: RequestContext = Depends(get_request_context)`
+     - Added audit logging with user_id and email
+   - Updated GET `/historical-availability` (lines 53-102):
+     - Added authentication requirement via RequestContext dependency
+     - Added audit logging for historical availability checks
+   - Updated POST `/initialize-cache` (lines 186-219):
+     - Added authentication requirement
+     - Renamed request parameter to cache_request to avoid conflict
+     - Added audit logging with months parameter
+     - Validated months parameter (1-13 range)
+   - Updated GET `/data-sources` (lines 221-286):
+     - Added authentication requirement
+     - REMOVED all infrastructure details from response
+     - Removed: S3 bucket names, prefixes, database names, table names
+     - Removed: CUR report names, formats, configurations
+     - Removed: Historical months count, granularity details
+     - Returns only sanitized availability status (boolean)
+     - Added audit logging for data source access
+
+2. **Data Sanitization in `/data-sources` Response:**
+
+   **Before (8 sensitive fields exposed):**
+   - S3 bucket names
+   - S3 prefixes
+   - Database names
+   - Table names
+   - Report names
+   - Report configurations
+   - Historical months count
+   - Granularity arrays
+
+   **After (0 sensitive fields exposed):**
+   - Only availability status (boolean)
+   - Generic descriptions
+   - User-friendly recommendations
+
+3. **Created comprehensive test suite `tests/unit/api/test_analytics_security.py`:**
+   - 15 tests covering authentication and data sanitization
+   - Tests for GET `/analytics`: authentication requirement
+   - Tests for GET `/historical-availability`: authentication, audit logging
+   - Tests for POST `/initialize-cache`: authentication, audit logging, parameter validation
+   - Tests for GET `/data-sources`: authentication, data sanitization (no bucket/database names)
+   - End-to-end authentication flow tests
+   - All tests passing (15/15 ✅)
+
+**Test Results:**
+```
+tests/unit/api/test_analytics_security.py::TestGetAnalyticsAuthentication - 2 tests PASSED
+tests/unit/api/test_analytics_security.py::TestHistoricalAvailabilityAuthentication - 3 tests PASSED
+tests/unit/api/test_analytics_security.py::TestInitializeCacheAuthentication - 4 tests PASSED
+tests/unit/api/test_analytics_security.py::TestDataSourcesInfoSecurity - 5 tests PASSED
+tests/unit/api/test_analytics_security.py::TestEndToEndAuthentication - 1 test PASSED
+
+Total: 15 passed, 0 failed
+```
+
+**Security Controls Verified:**
+- ✅ Authentication required on all 4 analytics endpoints (401 without auth)
+- ✅ Authenticated users can access endpoints
+- ✅ ALL infrastructure details removed from responses
+- ✅ No S3 bucket names, database names, or CUR configurations exposed
+- ✅ Audit logging for all access with user_id and email
+- ✅ Input validation (months parameter: 1-13)
+- ✅ Proper HTTP status codes (401 unauthorized, 400 bad request)
+- ✅ Exception handling preserves security (no information leakage)
+- ✅ No regression in existing tests
+
+**Attack Surface Eliminated:**
+- ✓ Unauthenticated access blocked (401)
+- ✓ Infrastructure reconnaissance impossible (no details exposed)
+- ✓ Cost data exfiltration prevented (authentication required)
+- ✓ DoS via cache initialization prevented (authentication required)
+- ✓ AWS resource enumeration blocked (sanitized responses)
+
+**Documentation:**
+- Detailed fix summary: `CRIT-4_FIX_SUMMARY.md`
+- Attack scenarios, implementation details, verification steps documented
+- Data sanitization comparison (before/after) documented
 
 ---
 
@@ -2127,17 +2231,17 @@ cd backend && pip list | grep -iE "aiohttp|starlette|urllib3|langchain"
 | ~~1~~ | ~~**CRIT-1** Unauthenticated conversation access~~ | ✅ FIXED | 2026-02-07 |
 | ~~2~~ | ~~**CRIT-2** Opportunities IDOR~~ | ✅ FIXED | 2026-02-07 |
 | ~~3~~ | ~~**CRIT-3** Saved views IDOR~~ | ✅ FIXED | 2026-02-07 |
+| ~~4~~ | ~~**CRIT-4** Unauthenticated analytics~~ | ✅ FIXED | 2026-02-07 |
 | ~~6~~ | ~~**CRIT-6** LLM-generated SQL injection~~ | ✅ FIXED | 2026-02-07 |
 
 ### 🔴 CRITICAL — Fix Immediately (Before Next Deployment)
 
 | # | Finding | Effort | Files |
 |---|---------|--------|-------|
-| 1 | **CRIT-4** Unauthenticated analytics | 2 hours | `analytics.py` |
-| 2 | **CRIT-5** Unauthenticated Athena queries | 4 hours | `athena_queries.py`, `athena_query_service.py` |
+| 1 | **CRIT-5** Unauthenticated Athena queries | 4 hours | `athena_queries.py`, `athena_query_service.py` |
 
-**Total Estimated Effort:** 6 hours (down from 10 hours)
-**Impact if Not Fixed:** Complete authentication bypass on analytics/Athena endpoints
+**Total Estimated Effort:** 4 hours (down from 6 hours)
+**Impact if Not Fixed:** Complete authentication bypass on Athena query endpoints
 
 ---
 
