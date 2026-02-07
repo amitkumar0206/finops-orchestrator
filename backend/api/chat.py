@@ -6,7 +6,7 @@ Handles conversation management and agent orchestration with conversation histor
 import asyncio
 from typing import Any, Dict, List
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 import json
@@ -244,7 +244,7 @@ async def get_conversation(
             "conversation_id": conversation_id,
             "messages": messages,
             "count": len(messages),
-            "fetched_at": datetime.utcnow().isoformat(),
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
         }
     except HTTPException:
         raise
