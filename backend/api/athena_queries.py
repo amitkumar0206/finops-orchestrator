@@ -6,7 +6,7 @@ Handles Athena SQL query generation, execution, and result export
 from typing import Optional
 from datetime import datetime, timedelta, date
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field
 import structlog
@@ -14,10 +14,17 @@ import io
 
 from backend.services.athena_query_service import athena_service
 from backend.config.settings import get_settings
+from backend.services.request_context import require_context, RequestContext
+from backend.middleware.rate_limiting import check_athena_export_rate_limit
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
 settings = get_settings()
+
+
+async def get_request_context(request: Request) -> RequestContext:
+    """Dependency to get request context and enforce authentication"""
+    return require_context(request)
 
 
 class AthenaQueryRequest(BaseModel):
@@ -42,16 +49,23 @@ class AthenaQueryResponse(BaseModel):
 
 
 @router.post("/generate", response_model=AthenaQueryResponse)
-async def generate_athena_query(request: AthenaQueryRequest):
+async def generate_athena_query(
+    request: AthenaQueryRequest,
+    context: RequestContext = Depends(get_request_context)
+):
     """
-    Generate Athena SQL query based on user's natural language request
-    Optionally execute the query and return results
+    Generate Athena SQL query based on user's natural language request.
+    Optionally execute the query and return results.
+
+    Requires authentication.
     """
-    
+
     logger.info(
         "Generating Athena query",
         user_query=request.user_query,
-        execute=request.execute_query
+        execute=request.execute_query,
+        user_id=str(context.user_id),
+        user_email=context.user_email
     )
     
     try:
@@ -107,9 +121,23 @@ async def generate_athena_query(request: AthenaQueryRequest):
 
 
 @router.get("/execute/{query_execution_id}")
-async def get_query_results(query_execution_id: str):
-    """Get results from a previously executed Athena query"""
-    
+async def get_query_results(
+    query_execution_id: str,
+    context: RequestContext = Depends(get_request_context)
+):
+    """
+    Get results from a previously executed Athena query.
+
+    Requires authentication.
+    """
+
+    logger.info(
+        "Fetching query results",
+        query_execution_id=query_execution_id,
+        user_id=str(context.user_id),
+        user_email=context.user_email
+    )
+
     try:
         results = await athena_service._get_query_results(query_execution_id)
         
@@ -128,11 +156,28 @@ async def get_query_results(query_execution_id: str):
 
 
 @router.post("/export/csv")
-async def export_results_csv(request: AthenaQueryRequest):
+async def export_results_csv(
+    request: AthenaQueryRequest,
+    context: RequestContext = Depends(get_request_context),
+    rate_limit_info: dict = Depends(check_athena_export_rate_limit)
+):
     """
-    Execute query and export results as CSV file
+    Execute query and export results as CSV file.
+
+    Requires authentication.
+    Rate limited per organization based on subscription tier:
+    - Free: 10 exports/hour
+    - Standard: 50 exports/hour
+    - Enterprise: 200 exports/hour
     """
-    
+
+    logger.info(
+        "Exporting query results to CSV",
+        user_query=request.user_query,
+        user_id=str(context.user_id),
+        user_email=context.user_email
+    )
+
     try:
         # Parse time range
         if request.start_date and request.end_date:
@@ -188,11 +233,28 @@ async def export_results_csv(request: AthenaQueryRequest):
 
 
 @router.post("/export/json")
-async def export_results_json(request: AthenaQueryRequest):
+async def export_results_json(
+    request: AthenaQueryRequest,
+    context: RequestContext = Depends(get_request_context),
+    rate_limit_info: dict = Depends(check_athena_export_rate_limit)
+):
     """
-    Execute query and export results as JSON file
+    Execute query and export results as JSON file.
+
+    Requires authentication.
+    Rate limited per organization based on subscription tier:
+    - Free: 10 exports/hour
+    - Standard: 50 exports/hour
+    - Enterprise: 200 exports/hour
     """
-    
+
+    logger.info(
+        "Exporting query results to JSON",
+        user_query=request.user_query,
+        user_id=str(context.user_id),
+        user_email=context.user_email
+    )
+
     try:
         # Parse time range
         if request.start_date and request.end_date:

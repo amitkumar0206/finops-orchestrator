@@ -90,6 +90,7 @@ class TestEmailMaskingInAuthLogs:
                 'is_active': False,  # User is inactive
                 'password_hash': 'hash',
                 'password_salt': 'salt',
+                'password_hash_version': 2,
                 'is_admin': False,
                 'default_organization_id': None
             }
@@ -186,6 +187,7 @@ class TestEmailMaskingInAuthLogs:
                 'is_active': True,
                 'password_hash': 'correcthash',
                 'password_salt': 'salt',
+                'password_hash_version': 2,
                 'is_admin': False,
                 'default_organization_id': None
             }
@@ -239,6 +241,7 @@ class TestEmailMaskingInAuthLogs:
                 'full_name': 'Test User',
                 'password_hash': 'correcthash',
                 'password_salt': 'salt',
+                'password_hash_version': 2,  # Current version - no migration needed
                 'is_admin': False,
                 'default_organization_id': '456'
             }

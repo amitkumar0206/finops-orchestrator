@@ -381,16 +381,27 @@ class TestAthenaQueriesExceptionSanitisation:
     @pytest.mark.asyncio
     async def test_generate_query_exception_is_generic(self):
         """Exception in generate_athena_query → generic 500."""
+        from backend.services.request_context import RequestContext
+        from uuid import uuid4
+
         secret = "Table finops_cur.aws_cur_table not found in database finops_prod"
         mock_service = Mock()
         mock_service.generate_query_for_user_request = AsyncMock(side_effect=Exception(secret))
+
+        mock_context = RequestContext(
+            user_id=uuid4(),
+            user_email="test@example.com",
+            organization_id=uuid4(),
+            is_admin=False,
+            org_role="member"
+        )
 
         with patch('backend.api.athena_queries.athena_service', mock_service):
             with patch('backend.api.athena_queries.logger') as mock_log:
                 from backend.api.athena_queries import generate_athena_query, AthenaQueryRequest
                 request = AthenaQueryRequest(user_query="show costs")
                 with pytest.raises(HTTPException) as exc_info:
-                    await generate_athena_query(request)
+                    await generate_athena_query(request, mock_context)
 
         assert exc_info.value.status_code == 500
         assert exc_info.value.detail == "An internal error occurred. Please try again later."
@@ -401,15 +412,26 @@ class TestAthenaQueriesExceptionSanitisation:
     @pytest.mark.asyncio
     async def test_get_query_results_exception_is_generic(self):
         """Exception in get_query_results → generic 500."""
+        from backend.services.request_context import RequestContext
+        from uuid import uuid4
+
         secret = "athena.AmazonAthena: Access Denied on arn:aws:athena:us-east-1:123456789012"
         mock_service = Mock()
         mock_service._get_query_results = AsyncMock(side_effect=Exception(secret))
+
+        mock_context = RequestContext(
+            user_id=uuid4(),
+            user_email="test@example.com",
+            organization_id=uuid4(),
+            is_admin=False,
+            org_role="member"
+        )
 
         with patch('backend.api.athena_queries.athena_service', mock_service):
             with patch('backend.api.athena_queries.logger') as mock_log:
                 from backend.api.athena_queries import get_query_results
                 with pytest.raises(HTTPException) as exc_info:
-                    await get_query_results("test-query-id")
+                    await get_query_results("test-query-id", mock_context)
 
         assert exc_info.value.status_code == 500
         assert exc_info.value.detail == "An internal error occurred. Please try again later."
@@ -419,6 +441,9 @@ class TestAthenaQueriesExceptionSanitisation:
     @pytest.mark.asyncio
     async def test_execution_result_error_sanitised_in_csv_export(self):
         """Failed execution_result in CSV export → generic 500, error logged."""
+        from backend.services.request_context import RequestContext
+        from uuid import uuid4
+
         secret_error = "SYNTAX_ERROR: Line 3: col 15: table secret_cur_table not found"
         mock_service = Mock()
         mock_service.generate_query_for_user_request = AsyncMock(return_value=("SELECT 1", "test"))
@@ -427,12 +452,20 @@ class TestAthenaQueriesExceptionSanitisation:
             "error": secret_error,
         })
 
+        mock_context = RequestContext(
+            user_id=uuid4(),
+            user_email="test@example.com",
+            organization_id=uuid4(),
+            is_admin=False,
+            org_role="member"
+        )
+
         with patch('backend.api.athena_queries.athena_service', mock_service):
             with patch('backend.api.athena_queries.logger') as mock_log:
                 from backend.api.athena_queries import export_results_csv, AthenaQueryRequest
                 request = AthenaQueryRequest(user_query="show costs")
                 with pytest.raises(HTTPException) as exc_info:
-                    await export_results_csv(request)
+                    await export_results_csv(request, mock_context)
 
         assert exc_info.value.status_code == 500
         assert exc_info.value.detail == "An internal error occurred. Please try again later."
@@ -444,6 +477,9 @@ class TestAthenaQueriesExceptionSanitisation:
     @pytest.mark.asyncio
     async def test_inline_execution_error_sanitised_in_generate(self):
         """Inline execution error in generate_athena_query response is generic."""
+        from backend.services.request_context import RequestContext
+        from uuid import uuid4
+
         secret_error = "SYNTAX_ERROR: column secret_column not found in secret_db.secret_table"
         mock_service = Mock()
         mock_service.generate_query_for_user_request = AsyncMock(return_value=("SELECT 1", "test"))
@@ -455,11 +491,19 @@ class TestAthenaQueriesExceptionSanitisation:
             "row_count": 0,
         })
 
+        mock_context = RequestContext(
+            user_id=uuid4(),
+            user_email="test@example.com",
+            organization_id=uuid4(),
+            is_admin=False,
+            org_role="member"
+        )
+
         with patch('backend.api.athena_queries.athena_service', mock_service):
             with patch('backend.api.athena_queries.logger') as mock_log:
                 from backend.api.athena_queries import generate_athena_query, AthenaQueryRequest
                 request = AthenaQueryRequest(user_query="show costs", execute_query=True)
-                result = await generate_athena_query(request)
+                result = await generate_athena_query(request, mock_context)
 
         # The response error field must be generic
         assert result.error == "Query execution failed."

@@ -18,6 +18,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, His
 from backend.config.settings import get_settings
 from backend.api import chat, health, reports, analytics, athena_queries
 from backend.api import saved_views, organizations, scope, opportunities, auth
+from backend.api.admin import rate_limits as admin_rate_limits
 from backend.services.vector_store import VectorStoreService
 from backend.services.database import DatabaseService
 from backend.middleware.account_scoping import AccountScopingMiddleware
@@ -268,6 +269,10 @@ app.include_router(opportunities.router, prefix="/api/v1", tags=["Opportunities"
 
 # Authentication router (no prefix - already has /api/auth in router)
 app.include_router(auth.router, tags=["Authentication"])
+
+# Admin rate limits routers
+app.include_router(admin_rate_limits.admin_router, tags=["Admin", "Rate Limits"])
+app.include_router(admin_rate_limits.org_admin_router, tags=["Organization Admin", "Rate Limits"])
 
 
 @app.get("/metrics")

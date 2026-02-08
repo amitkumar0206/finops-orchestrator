@@ -479,6 +479,154 @@ Your CUR data must be configured in AWS:
 
 See [AWS Deployment Guide](./docs/AWS_DEPLOYMENT_GUIDE.md) for detailed setup.
 
+## Security & Access Control
+
+### Authentication & Authorization
+
+**JWT-Based Authentication**
+- Secure password hashing with PBKDF2-HMAC-SHA256 (600,000 iterations - OWASP 2023+ compliant)
+- Automatic password hash migration from legacy (100k) to current (600k) iterations on login
+- Constant-time comparison to prevent timing attacks
+- Access and refresh tokens with configurable expiration
+- Token blacklisting for secure logout
+
+**Role-Based Access Control (RBAC)**
+- Platform admin (`is_admin` flag) - Full system access
+- Organization roles: `owner`, `admin`, `member` - Per-organization permissions
+- Configuration-based permissions (no hardcoded role checks)
+- Multi-tenant organization isolation
+
+### Rate Limiting
+
+**Multi-Layer Rate Limiting with Per-User Fairness**
+
+Prevents resource hogging through 3-tier rate limiting system:
+
+```
+Layer 1: Per-User Limits (prevents single user from consuming all resources)
+         ↓
+Layer 2: Organization Limits (enforces subscription tier quotas)
+         ↓
+Request Allowed
+```
+
+**Priority Hierarchy:**
+1. **User-specific override** (highest) - Custom limit for specific user
+2. **Organization role override** - Custom limit for role within organization
+3. **System tier default** - Default limit based on subscription tier
+4. **Conservative fallback** (lowest) - 10 requests/hour if all else fails
+
+**Default Limits by Tier:**
+- **Enterprise** (200 req/hour org): owner/admin=100, member=50 per user
+- **Standard** (50 req/hour org): owner/admin=30, member=15 per user
+- **Free** (10 req/hour org): owner/admin=5, member=3 per user
+
+**Configuration:**
+```bash
+# Organization limits (by subscription tier)
+ATHENA_EXPORT_LIMIT_ENTERPRISE=200
+ATHENA_EXPORT_LIMIT_STANDARD=50
+ATHENA_EXPORT_LIMIT_FREE=10
+
+# Per-user limits (Enterprise tier)
+ATHENA_EXPORT_PER_USER_LIMIT_ENTERPRISE_OWNER=100
+ATHENA_EXPORT_PER_USER_LIMIT_ENTERPRISE_ADMIN=100
+ATHENA_EXPORT_PER_USER_LIMIT_ENTERPRISE_MEMBER=50
+
+# Per-user limits (Standard tier)
+ATHENA_EXPORT_PER_USER_LIMIT_STANDARD_OWNER=30
+ATHENA_EXPORT_PER_USER_LIMIT_STANDARD_ADMIN=30
+ATHENA_EXPORT_PER_USER_LIMIT_STANDARD_MEMBER=15
+
+# Per-user limits (Free tier)
+ATHENA_EXPORT_PER_USER_LIMIT_FREE_OWNER=5
+ATHENA_EXPORT_PER_USER_LIMIT_FREE_ADMIN=5
+ATHENA_EXPORT_PER_USER_LIMIT_FREE_MEMBER=3
+```
+
+### Admin API for Rate Limit Management
+
+**Platform Admin Endpoints** (requires `is_admin=true`):
+```http
+# View organization's rate limits
+GET /api/admin/rate-limits/organizations/{org_id}/{endpoint}
+
+# Set role-based limits
+PUT /api/admin/rate-limits/organizations/{org_id}/roles
+Body: {
+  "endpoint": "athena_export",
+  "role_limits": [{"role": "member", "requests_per_hour": 75}]
+}
+
+# Set user-specific limit
+PUT /api/admin/rate-limits/organizations/{org_id}/users/{user_id}
+Body: {
+  "endpoint": "athena_export",
+  "user_id": "uuid",
+  "requests_per_hour": 200,
+  "notes": "Power user - data analyst"
+}
+
+# Reset role to system default
+DELETE /api/admin/rate-limits/organizations/{org_id}/roles/{role}
+
+# Reset user to role default
+DELETE /api/admin/rate-limits/organizations/{org_id}/users/{user_id}
+```
+
+**Organization Admin Endpoints** (requires organization owner/admin role):
+```http
+# Same endpoints with different prefix
+GET    /api/organizations/{org_id}/rate-limits/{endpoint}
+PUT    /api/organizations/{org_id}/rate-limits/roles
+PUT    /api/organizations/{org_id}/rate-limits/users/{user_id}
+DELETE /api/organizations/{org_id}/rate-limits/roles/{role}
+DELETE /api/organizations/{org_id}/rate-limits/users/{user_id}
+```
+
+**Use Cases:**
+- **Set role overrides**: Increase member limit from 50/hour to 75/hour for entire organization
+- **Give power user custom limit**: Data analyst needs 200/hour instead of default 50/hour
+- **Restrict intern access**: Admin intern gets only 25/hour instead of default 100/hour
+
+**Database Tables:**
+- `organization_rate_limits` - Role-based overrides per organization
+- `user_rate_limits` - User-specific overrides
+
+**Access Control:**
+- Platform admins can manage any organization's limits
+- Organization admins can only manage their own organization
+- Regular members cannot access rate limit management
+
+### Security Features
+
+**Password Security (HIGH-NEW-2 Fix)**
+- PBKDF2-HMAC-SHA256 with 600,000 iterations (OWASP 2023+ compliant)
+- Version tracking for password hashes (v1=100k legacy, v2=600k current)
+- Automatic transparent migration on login (no password resets required)
+- Constant-time comparison using `secrets.compare_digest()`
+
+**PII Protection (HIGH-6 Fix)**
+- Email masking in authentication logs (`u***@example.com`)
+- No sensitive data in error messages or logs
+
+**CSRF Protection**
+- Secure cookie configuration with SameSite policies
+- Token-based authentication (JWT in Authorization header)
+
+**Security Headers**
+- Content Security Policy (CSP) with strict directives
+- HTTP Strict Transport Security (HSTS)
+- X-Frame-Options: DENY (clickjacking protection)
+- X-Content-Type-Options: nosniff
+
+**SQL Injection Prevention**
+- Parameterized queries throughout
+- No string concatenation for SQL generation
+- Centralized SQL constants
+
+See [SECURITY_AUDIT_REPORT.md](./SECURITY_AUDIT_REPORT.md) for complete security audit findings and remediation status.
+
 ## Development
 
 ### Running Tests

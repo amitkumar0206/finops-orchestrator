@@ -32,6 +32,7 @@ class RateLimiter:
         self,
         requests_per_window: int = None,
         window_seconds: int = None,
+        use_org_key: bool = False,
     ):
         """
         Initialize rate limiter.
@@ -39,9 +40,11 @@ class RateLimiter:
         Args:
             requests_per_window: Max requests allowed per window (default from settings)
             window_seconds: Window size in seconds (default from settings)
+            use_org_key: If True, use organization-level keys instead of user-level (default False)
         """
         self.requests_per_window = requests_per_window or settings.rate_limit_requests
         self.window_seconds = window_seconds or settings.rate_limit_window
+        self.use_org_key = use_org_key
 
         # In-memory storage: {key: [(timestamp, count), ...]}
         self._storage: Dict[str, list] = defaultdict(list)
@@ -68,6 +71,23 @@ class RateLimiter:
 
         return f"rate_limit:{endpoint}:{client_ip}:{user_email}"
 
+    def _get_organization_key(self, request: Request, endpoint: str = "") -> str:
+        """
+        Generate a unique key for the organization.
+
+        Uses organization ID for organization-level rate limiting.
+        Falls back to user-level key if organization context not available.
+        """
+        # Get request context (set by AccountScopingMiddleware)
+        context = getattr(request.state, 'context', None)
+
+        if context and context.organization_id:
+            org_id = str(context.organization_id)
+            return f"rate_limit:org:{endpoint}:{org_id}"
+
+        # Fallback to user-level key for safety
+        return self._get_client_key(request, endpoint)
+
     async def is_allowed(self, request: Request, endpoint: str = "") -> tuple[bool, dict]:
         """
         Check if request is allowed under rate limit.
@@ -79,7 +99,12 @@ class RateLimiter:
         Returns:
             Tuple of (is_allowed, rate_limit_info)
         """
-        key = self._get_client_key(request, endpoint)
+        # Choose key generation strategy based on configuration
+        if self.use_org_key:
+            key = self._get_organization_key(request, endpoint)
+        else:
+            key = self._get_client_key(request, endpoint)
+
         current_time = time.time()
         window_start = current_time - self.window_seconds
 
@@ -141,6 +166,7 @@ class RateLimiter:
 # Global rate limiter instances for different use cases
 _default_limiter: Optional[RateLimiter] = None
 _ingest_limiter: Optional[RateLimiter] = None
+_athena_export_limiters: Dict[str, RateLimiter] = {}  # Cached tier-specific limiters
 
 
 def get_default_limiter() -> RateLimiter:
@@ -165,6 +191,48 @@ def get_ingest_limiter() -> RateLimiter:
             window_seconds=3600,  # 1 hour
         )
     return _ingest_limiter
+
+
+def get_athena_export_limiter(subscription_tier: str = 'standard') -> RateLimiter:
+    """
+    Get rate limiter for Athena export operations based on subscription tier.
+
+    Args:
+        subscription_tier: One of 'free', 'standard', 'enterprise'
+
+    Returns:
+        RateLimiter configured for the subscription tier with organization-level limiting
+    """
+    global _athena_export_limiters
+
+    # Return cached limiter if exists
+    if subscription_tier in _athena_export_limiters:
+        return _athena_export_limiters[subscription_tier]
+
+    # Create new limiter for this tier
+    settings_obj = get_settings()
+
+    # Map subscription tier to limit
+    limits = {
+        'free': settings_obj.athena_export_limit_free,
+        'standard': settings_obj.athena_export_limit_standard,
+        'enterprise': settings_obj.athena_export_limit_enterprise,
+    }
+
+    # Get limit for this tier (default to standard if unknown tier)
+    limit = limits.get(subscription_tier, settings_obj.athena_export_limit_standard)
+
+    # Create organization-level limiter
+    limiter = RateLimiter(
+        requests_per_window=limit,
+        window_seconds=settings_obj.athena_export_window,
+        use_org_key=True,  # Use organization-level limiting
+    )
+
+    # Cache it
+    _athena_export_limiters[subscription_tier] = limiter
+
+    return limiter
 
 
 async def check_rate_limit(
@@ -234,3 +302,225 @@ async def check_ingest_rate_limit(request: Request) -> dict:
         limiter=get_ingest_limiter(),
         endpoint="opportunities_ingest",
     )
+
+
+async def get_per_user_limit(
+    user_id: Optional[str],
+    org_id: Optional[str],
+    subscription_tier: str,
+    user_role: str,
+    endpoint: str
+) -> int:
+    """
+    Get per-user rate limit for a specific user, organization, role, and endpoint.
+
+    Priority order (highest to lowest):
+    1. User-specific override from database (user_rate_limits)
+    2. Organization role-specific override from database (organization_rate_limits)
+    3. Tier-specific default from settings
+    4. Conservative fallback (10/hour)
+
+    Args:
+        user_id: User UUID (None if no user context)
+        org_id: Organization UUID (None if no org context)
+        subscription_tier: 'free', 'standard', or 'enterprise'
+        user_role: 'owner', 'admin', or 'member'
+        endpoint: Endpoint name (e.g., 'athena_export')
+
+    Returns:
+        Per-user rate limit (requests per hour)
+    """
+    from backend.services.database import DatabaseService
+
+    if org_id:
+        try:
+            db = DatabaseService()
+            if not db.engine:
+                await db.initialize()
+
+            async with db.engine.begin() as conn:
+                # PRIORITY 1: Check for user-specific override
+                if user_id:
+                    result = await conn.execute(
+                        """
+                        SELECT requests_per_hour
+                        FROM user_rate_limits
+                        WHERE user_id = :user_id
+                          AND organization_id = :org_id
+                          AND endpoint = :endpoint
+                        """,
+                        {"user_id": user_id, "org_id": org_id, "endpoint": endpoint}
+                    )
+                    row = result.first()
+                    if row:
+                        logger.debug(
+                            "Using user-specific rate limit override",
+                            user_id=user_id,
+                            org_id=org_id,
+                            endpoint=endpoint,
+                            limit=row[0]
+                        )
+                        return row[0]
+
+                # PRIORITY 2: Check for organization role-specific override
+                result = await conn.execute(
+                    """
+                    SELECT requests_per_hour
+                    FROM organization_rate_limits
+                    WHERE organization_id = :org_id
+                      AND endpoint = :endpoint
+                      AND user_role = :role
+                    """,
+                    {"org_id": org_id, "endpoint": endpoint, "role": user_role}
+                )
+                row = result.first()
+                if row:
+                    logger.debug(
+                        "Using organization role-specific rate limit",
+                        org_id=org_id,
+                        endpoint=endpoint,
+                        role=user_role,
+                        limit=row[0]
+                    )
+                    return row[0]
+        except Exception as e:
+            logger.warning(
+                "Failed to fetch custom rate limit, using defaults",
+                error=str(e),
+                user_id=user_id,
+                org_id=org_id,
+                endpoint=endpoint
+            )
+
+    # Fallback to tier-specific defaults from settings
+    settings = get_settings()
+
+    # Build setting name: {endpoint}_per_user_limit_{tier}_{role}
+    # Example: athena_export_per_user_limit_enterprise_admin
+    setting_name = f"{endpoint}_per_user_limit_{subscription_tier}_{user_role}"
+
+    # Get from settings or use conservative fallback
+    limit = getattr(settings, setting_name, 10)
+
+    logger.debug(
+        "Using default per-user rate limit",
+        endpoint=endpoint,
+        tier=subscription_tier,
+        role=user_role,
+        limit=limit
+    )
+
+    return limit
+
+
+async def check_athena_export_rate_limit(request: Request) -> dict:
+    """
+    FastAPI dependency for Athena export endpoints with multi-layer rate limiting.
+
+    Implements TWO layers of rate limiting for fairness:
+    1. Per-user limit (based on role) - prevents resource hogging
+    2. Organization limit (based on tier) - prevents org from exceeding quota
+
+    Rate limits by tier and role:
+    - Enterprise (org=200/hour): owner/admin=100/hour, member=50/hour
+    - Standard (org=50/hour): owner/admin=30/hour, member=15/hour
+    - Free (org=10/hour): owner/admin=5/hour, member=3/hour
+
+    Both limits must pass for request to succeed.
+
+    Usage:
+        @router.post("/export/csv")
+        async def export_csv(
+            rate_info: dict = Depends(check_athena_export_rate_limit)
+        ):
+            ...
+    """
+    from fastapi import HTTPException
+
+    # Get request context (set by AccountScopingMiddleware)
+    context = getattr(request.state, 'context', None)
+
+    # Extract user email from request (set by authentication middleware)
+    user_email = getattr(request.state, 'user_email', None)
+
+    # Determine subscription tier, org role, and user ID
+    if context and context.organization_info:
+        subscription_tier = context.organization_info.subscription_tier
+        org_id = str(context.organization_id) if context.organization_id else None
+        user_id = str(context.user_id) if context.user_id else None
+        user_role = context.org_role  # 'owner', 'admin', or 'member'
+    else:
+        # Fallback if no context available
+        subscription_tier = 'standard'
+        org_id = None
+        user_id = None
+        user_role = 'member'
+        logger.warning(
+            "No organization context available for rate limiting, using defaults",
+            path=request.url.path,
+            user_email=user_email
+        )
+
+    # LAYER 1: Check per-user limit (prevents resource hogging)
+    # Checks user-specific override first, then role-based, then defaults
+    per_user_limit = await get_per_user_limit(user_id, org_id, subscription_tier, user_role, "athena_export")
+
+    # Create per-user limiter (uses user email as key, not org)
+    user_limiter = RateLimiter(
+        requests_per_window=per_user_limit,
+        window_seconds=3600,
+        use_org_key=False  # Use user email as key
+    )
+
+    try:
+        await check_rate_limit(
+            request,
+            limiter=user_limiter,
+            endpoint=f"athena_export_user"
+        )
+    except HTTPException as e:
+        # Per-user limit exceeded
+        logger.warning(
+            "Per-user rate limit exceeded",
+            user_email=user_email,
+            user_role=user_role,
+            limit=per_user_limit,
+            tier=subscription_tier
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=f"User rate limit exceeded. You have reached your personal limit of {per_user_limit} requests per hour as a '{user_role}' user. Please wait before making more requests.",
+            headers=e.headers if hasattr(e, 'headers') else {
+                "Retry-After": "3600",
+                "X-RateLimit-Limit": str(per_user_limit),
+                "X-RateLimit-Scope": "user"
+            }
+        )
+
+    # LAYER 2: Check organization limit (prevents org from exceeding tier quota)
+    org_limiter = get_athena_export_limiter(subscription_tier)
+
+    try:
+        return await check_rate_limit(
+            request,
+            limiter=org_limiter,
+            endpoint="athena_export"
+        )
+    except HTTPException as e:
+        # Organization limit exceeded
+        org_limit = getattr(get_settings(), f"athena_export_limit_{subscription_tier}", 50)
+        logger.warning(
+            "Organization rate limit exceeded",
+            org_id=org_id,
+            tier=subscription_tier,
+            limit=org_limit
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=f"Organization rate limit exceeded. Your organization has reached its limit of {org_limit} requests per hour for the '{subscription_tier}' tier. Please wait or upgrade your plan.",
+            headers=e.headers if hasattr(e, 'headers') else {
+                "Retry-After": "3600",
+                "X-RateLimit-Limit": str(org_limit),
+                "X-RateLimit-Scope": "organization"
+            }
+        )

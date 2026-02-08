@@ -100,23 +100,68 @@ async def get_db() -> DatabaseService:
     return db
 
 
-def hash_password(password: str, salt: str) -> str:
-    """
-    Hash a password with the given salt.
+# Password Hashing Configuration
+# Version 1: 100,000 iterations (legacy, insecure for 2025+)
+# Version 2: 600,000 iterations (OWASP recommendation as of 2023+)
+PASSWORD_HASH_VERSION_LEGACY = 1
+PASSWORD_HASH_VERSION_CURRENT = 2
+PASSWORD_HASH_ITERATIONS = {
+    1: 100000,  # Legacy - kept for backward compatibility
+    2: 600000   # Current - OWASP recommended minimum (2023+)
+}
 
-    Uses PBKDF2 with SHA-256 for secure password hashing.
+
+def hash_password(password: str, salt: str, version: int = PASSWORD_HASH_VERSION_CURRENT) -> str:
     """
+    Hash a password with the given salt using PBKDF2-HMAC-SHA256.
+
+    Args:
+        password: Plain text password to hash
+        salt: Cryptographic salt (64-char hex string)
+        version: Password hash version (1=100k iterations, 2=600k iterations)
+
+    Returns:
+        Hexadecimal string of the password hash
+
+    Security Notes:
+        - Version 1 (100k iterations): Legacy, vulnerable to GPU cracking
+        - Version 2 (600k iterations): OWASP 2023+ recommendation, resistant to modern attacks
+        - Default is version 2 for all new passwords
+        - Version 1 support maintained for backward compatibility only
+    """
+    iterations = PASSWORD_HASH_ITERATIONS.get(version, PASSWORD_HASH_ITERATIONS[PASSWORD_HASH_VERSION_CURRENT])
+
     return hashlib.pbkdf2_hmac(
         'sha256',
         password.encode('utf-8'),
         salt.encode('utf-8'),
-        100000  # iterations
+        iterations
     ).hex()
 
 
-def verify_password(password: str, salt: str, hashed: str) -> bool:
-    """Verify a password against its hash"""
-    return hash_password(password, salt) == hashed
+def verify_password(password: str, salt: str, hashed: str, version: int = PASSWORD_HASH_VERSION_CURRENT) -> bool:
+    """
+    Verify a password against its hash.
+
+    Args:
+        password: Plain text password to verify
+        salt: Cryptographic salt used during hashing
+        hashed: Expected password hash (hex string)
+        version: Password hash version to use for verification
+
+    Returns:
+        True if password matches, False otherwise
+
+    Security Notes:
+        - Supports both legacy (v1) and current (v2) password hashes
+        - Uses constant-time comparison to prevent timing attacks
+        - Existing users with v1 hashes can still log in
+        - New passwords always use v2 (600k iterations)
+    """
+    computed_hash = hash_password(password, salt, version)
+
+    # Use constant-time comparison to prevent timing attacks
+    return secrets.compare_digest(computed_hash, hashed)
 
 
 def generate_salt() -> str:
@@ -141,7 +186,7 @@ async def login(request: LoginRequest):
         result = await conn.execute(
             """
             SELECT id, email, full_name, password_hash, password_salt,
-                   is_admin, is_active, default_organization_id
+                   password_hash_version, is_admin, is_active, default_organization_id
             FROM users
             WHERE email = :email
             """,
@@ -171,15 +216,53 @@ async def login(request: LoginRequest):
                 detail="Invalid email or password"
             )
 
+        # Get password hash version (default to legacy version 1 for old records)
+        password_version = user_row.get('password_hash_version', PASSWORD_HASH_VERSION_LEGACY)
+
+        # Verify password using the stored version
         if not verify_password(
             request.password,
             user_row['password_salt'],
-            user_row['password_hash']
+            user_row['password_hash'],
+            version=password_version
         ):
             logger.warning("login_failed_wrong_password", email=mask_email(request.email))
             raise HTTPException(
                 status_code=401,
                 detail="Invalid email or password"
+            )
+
+        # Automatic password hash migration: Upgrade legacy hashes to current version
+        # This happens transparently on successful login without requiring password reset
+        if password_version < PASSWORD_HASH_VERSION_CURRENT:
+            logger.info(
+                "password_hash_migration",
+                user_id=str(user_row['id']),
+                old_version=password_version,
+                new_version=PASSWORD_HASH_VERSION_CURRENT
+            )
+
+            # Rehash password with current version (600k iterations)
+            new_hash = hash_password(
+                request.password,
+                user_row['password_salt'],
+                version=PASSWORD_HASH_VERSION_CURRENT
+            )
+
+            # Update user's password hash with new version
+            await conn.execute(
+                """
+                UPDATE users
+                SET password_hash = :new_hash,
+                    password_hash_version = :new_version,
+                    password_updated_at = CURRENT_TIMESTAMP
+                WHERE id = :user_id
+                """,
+                {
+                    "new_hash": new_hash,
+                    "new_version": PASSWORD_HASH_VERSION_CURRENT,
+                    "user_id": user_row['id']
+                }
             )
 
         user_id = str(user_row['id'])

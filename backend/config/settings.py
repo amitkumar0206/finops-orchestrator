@@ -228,7 +228,29 @@ class Settings(BaseSettings):
     # Rate Limiting
     rate_limit_requests: int = Field(default=100, env="RATE_LIMIT_REQUESTS")
     rate_limit_window: int = Field(default=60, env="RATE_LIMIT_WINDOW")  # seconds
-    
+
+    # Athena Export Rate Limits (per organization, per hour)
+    athena_export_limit_free: int = Field(default=10, env="ATHENA_EXPORT_LIMIT_FREE")
+    athena_export_limit_standard: int = Field(default=50, env="ATHENA_EXPORT_LIMIT_STANDARD")
+    athena_export_limit_enterprise: int = Field(default=200, env="ATHENA_EXPORT_LIMIT_ENTERPRISE")
+    athena_export_window: int = Field(default=3600, env="ATHENA_EXPORT_WINDOW")  # 1 hour
+
+    # Athena Export Per-User Limits (prevents resource hogging within organization)
+    # Enterprise tier per-user limits (default: org=200/hour)
+    athena_export_per_user_limit_enterprise_owner: int = Field(default=100, env="ATHENA_EXPORT_PER_USER_LIMIT_ENTERPRISE_OWNER")
+    athena_export_per_user_limit_enterprise_admin: int = Field(default=100, env="ATHENA_EXPORT_PER_USER_LIMIT_ENTERPRISE_ADMIN")
+    athena_export_per_user_limit_enterprise_member: int = Field(default=50, env="ATHENA_EXPORT_PER_USER_LIMIT_ENTERPRISE_MEMBER")
+
+    # Standard tier per-user limits (default: org=50/hour)
+    athena_export_per_user_limit_standard_owner: int = Field(default=30, env="ATHENA_EXPORT_PER_USER_LIMIT_STANDARD_OWNER")
+    athena_export_per_user_limit_standard_admin: int = Field(default=30, env="ATHENA_EXPORT_PER_USER_LIMIT_STANDARD_ADMIN")
+    athena_export_per_user_limit_standard_member: int = Field(default=15, env="ATHENA_EXPORT_PER_USER_LIMIT_STANDARD_MEMBER")
+
+    # Free tier per-user limits (default: org=10/hour)
+    athena_export_per_user_limit_free_owner: int = Field(default=5, env="ATHENA_EXPORT_PER_USER_LIMIT_FREE_OWNER")
+    athena_export_per_user_limit_free_admin: int = Field(default=5, env="ATHENA_EXPORT_PER_USER_LIMIT_FREE_ADMIN")
+    athena_export_per_user_limit_free_member: int = Field(default=3, env="ATHENA_EXPORT_PER_USER_LIMIT_FREE_MEMBER")
+
     # Background Jobs
     celery_broker_url: Optional[str] = Field(default=None, env="CELERY_BROKER_URL")
     celery_result_backend: Optional[str] = Field(default=None, env="CELERY_RESULT_BACKEND")
