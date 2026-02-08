@@ -5,7 +5,8 @@ Scheduled Reports, Multi-Account, RBAC, Dashboards, and Ticketing
 
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from typing import ClassVar
 from uuid import UUID
 from datetime import datetime
 import structlog
@@ -36,6 +37,36 @@ class ScheduledReportCreate(BaseModel):
     delivery_methods: List[str]  # ['EMAIL', 'WEBHOOK', 'S3', 'SLACK']
     recipients: Dict[str, List[str]]  # {emails: [], webhooks: [], ...}
     report_template: Optional[str] = None
+
+    # Patterns that could be used for SSTI attacks
+    BLOCKED_PATTERNS: ClassVar[list] = ['__', 'config', 'import', 'globals', 'getattr', 'subclasses', 'mro',
+                                        'builtins', 'class', 'base', 'init', 'eval', 'exec', 'compile',
+                                        'open', 'file', 'input', 'raw_input', 'reload']
+
+    @field_validator('report_template')
+    @classmethod
+    def validate_template(cls, v: Optional[str]) -> Optional[str]:
+        """
+        Validate report template to prevent SSTI attacks.
+        Blocks common attack patterns used in Jinja2 template injection.
+        """
+        if v is None:
+            return v
+
+        # Check for blocked patterns
+        v_lower = v.lower()
+        for pattern in cls.BLOCKED_PATTERNS:
+            if pattern in v_lower:
+                raise ValueError(
+                    f"Report template contains disallowed content: '{pattern}'. "
+                    "This pattern could be used for security exploits."
+                )
+
+        # Additional length check to prevent DoS
+        if len(v) > 50000:  # 50KB max template size
+            raise ValueError("Report template exceeds maximum allowed size (50KB)")
+
+        return v
 
 
 class AWSAccountCreate(BaseModel):

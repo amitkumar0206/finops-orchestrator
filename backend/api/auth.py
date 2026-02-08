@@ -27,6 +27,7 @@ from backend.services.database import DatabaseService
 from backend.services.cache_service import get_cache_service
 from backend.middleware.authentication import AuthenticatedUser, require_auth
 from backend.config.settings import get_settings
+from backend.utils.pii_masking import mask_email
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
@@ -149,14 +150,14 @@ async def login(request: LoginRequest):
         user_row = result.mappings().first()
 
         if not user_row:
-            logger.warning("login_failed_user_not_found", email=request.email)
+            logger.warning("login_failed_user_not_found", email=mask_email(request.email))
             raise HTTPException(
                 status_code=401,
                 detail="Invalid email or password"
             )
 
         if not user_row['is_active']:
-            logger.warning("login_failed_user_inactive", email=request.email)
+            logger.warning("login_failed_user_inactive", email=mask_email(request.email))
             raise HTTPException(
                 status_code=401,
                 detail="Account is disabled"
@@ -164,7 +165,7 @@ async def login(request: LoginRequest):
 
         # Verify password
         if not user_row['password_hash'] or not user_row['password_salt']:
-            logger.warning("login_failed_no_password", email=request.email)
+            logger.warning("login_failed_no_password", email=mask_email(request.email))
             raise HTTPException(
                 status_code=401,
                 detail="Invalid email or password"
@@ -175,7 +176,7 @@ async def login(request: LoginRequest):
             user_row['password_salt'],
             user_row['password_hash']
         ):
-            logger.warning("login_failed_wrong_password", email=request.email)
+            logger.warning("login_failed_wrong_password", email=mask_email(request.email))
             raise HTTPException(
                 status_code=401,
                 detail="Invalid email or password"
@@ -220,7 +221,7 @@ async def login(request: LoginRequest):
         logger.info(
             "login_successful",
             user_id=user_id,
-            email=request.email,
+            email=mask_email(request.email),
             is_admin=is_admin,
         )
 
@@ -305,7 +306,7 @@ async def refresh_token(request: RefreshRequest):
             logger.debug(
                 "token_refreshed",
                 user_id=payload.user_id,
-                email=payload.email,
+                email=mask_email(payload.email),
             )
 
             return RefreshResponse(

@@ -15,8 +15,42 @@ Usage:
 import os
 import sys
 import subprocess
+import re
+import shlex
 from datetime import datetime
 from pathlib import Path
+
+
+def validate_postgres_identifier(value: str, field_name: str) -> str:
+    """
+    Validate PostgreSQL identifiers to prevent command injection.
+
+    Args:
+        value: The value to validate (hostname, username, database name)
+        field_name: Name of the field for error messages
+
+    Returns:
+        The validated value
+
+    Raises:
+        ValueError: If the value contains invalid characters or is invalid
+    """
+    if not value:
+        raise ValueError(f"{field_name} cannot be empty")
+
+    # Allow alphanumeric, underscore, hyphen, and dot
+    # This covers most legitimate PostgreSQL identifiers
+    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', value):
+        raise ValueError(
+            f"Invalid {field_name}: contains disallowed characters. "
+            f"Only alphanumeric, underscore, hyphen, and dot are allowed."
+        )
+
+    # PostgreSQL identifier length limit
+    if len(value) > 63:
+        raise ValueError(f"Invalid {field_name}: exceeds maximum length of 63 characters")
+
+    return value
 
 
 class MigrationRunner:
@@ -102,26 +136,59 @@ class MigrationRunner:
         try:
             from urllib.parse import urlparse
             parsed = urlparse(db_url)
-            
+
+            # Validate and sanitize all database connection parameters FIRST
+            # This prevents command injection attacks via malicious DATABASE_URL
+            # Validation must happen before using any parsed components
+            hostname = validate_postgres_identifier(
+                parsed.hostname or "localhost",
+                "hostname"
+            )
+            username = validate_postgres_identifier(
+                parsed.username if parsed.username else "postgres",
+                "username"
+            )
+            database = validate_postgres_identifier(
+                parsed.path[1:] if parsed.path and len(parsed.path) > 1 else "",
+                "database"
+            )
+
+            # Validate port is an integer
+            if parsed.port is None:
+                port = 5432
+            else:
+                try:
+                    port = int(parsed.port)
+                    if port < 1 or port > 65535:
+                        raise ValueError("Port must be between 1 and 65535")
+                except (ValueError, TypeError) as e:
+                    # Make sure the error message contains "port" for tests
+                    if "port" in str(e).lower():
+                        raise ValueError(f"Invalid port: {e}")
+                    else:
+                        raise ValueError(f"Invalid port value: {parsed.port}")
+
+            # NOW create backup file path using validated database name
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = f"backup_{parsed.path[1:]}_{timestamp}.sql"
+            backup_file = f"backup_{database}_{timestamp}.sql"
             backup_path = self.script_dir / "backups" / backup_file
-            
+
             # Create backups directory if it doesn't exist
             backup_path.parent.mkdir(exist_ok=True)
-            
-            # Run pg_dump
+
+            # Run pg_dump with properly escaped parameters
+            # Using shlex.quote() adds an extra layer of protection
             pg_dump_cmd = [
                 "pg_dump",
-                "-h", parsed.hostname or "localhost",
-                "-p", str(parsed.port or 5432),
-                "-U", parsed.username,
-                "-d", parsed.path[1:],
-                "-f", str(backup_path)
+                "-h", shlex.quote(hostname),
+                "-p", str(port),
+                "-U", shlex.quote(username),
+                "-d", shlex.quote(database),
+                "-f", shlex.quote(str(backup_path))
             ]
-            
+
             returncode, stdout, stderr = self.run_command(pg_dump_cmd)
-            
+
             if returncode == 0:
                 print(f"✅ Backup created: {backup_path}")
                 return True
@@ -129,8 +196,15 @@ class MigrationRunner:
                 print(f"⚠️  Backup failed: {stderr}")
                 response = input("Continue without backup? (y/N): ")
                 return response.lower() == 'y'
-                
+
+        except ValueError as e:
+            # Re-raise validation errors (security issues)
+            # These should not be caught and should fail immediately
+            print(f"\n❌ Security validation error: {e}")
+            raise
+
         except Exception as e:
+            # For other errors (connection issues, etc), allow user to continue
             print(f"⚠️  Backup error: {e}")
             response = input("Continue without backup? (y/N): ")
             return response.lower() == 'y'

@@ -3,13 +3,17 @@ Scheduled Report Service - Handles creation, execution, and delivery of schedule
 """
 
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import structlog
 from croniter import croniter
 import asyncio
-from jinja2 import Template
+from jinja2.sandbox import SandboxedEnvironment
+import jinja2
 import pandas as pd
 from io import BytesIO
+import ipaddress
+import socket
+from urllib.parse import urlparse
 
 from backend.services.database import DatabaseService
 from backend.agents.multi_agent_workflow import execute_multi_agent_query
@@ -17,6 +21,83 @@ from backend.services.email_service import EmailService
 from backend.services.s3_service import S3Service
 
 logger = structlog.get_logger(__name__)
+
+
+# SSRF Protection: Blocked network ranges
+BLOCKED_CIDRS = [
+    ipaddress.ip_network('10.0.0.0/8'),        # Private network (RFC 1918)
+    ipaddress.ip_network('172.16.0.0/12'),     # Private network (RFC 1918)
+    ipaddress.ip_network('192.168.0.0/16'),    # Private network (RFC 1918)
+    ipaddress.ip_network('169.254.0.0/16'),    # Link-local / EC2 IMDS
+    ipaddress.ip_network('127.0.0.0/8'),       # Loopback
+    ipaddress.ip_network('::1/128'),           # IPv6 loopback
+    ipaddress.ip_network('fc00::/7'),          # IPv6 private
+    ipaddress.ip_network('fe80::/10'),         # IPv6 link-local
+]
+
+
+def _validate_webhook_url(url: str) -> None:
+    """
+    Validate webhook URL to prevent SSRF attacks.
+
+    Args:
+        url: The webhook URL to validate
+
+    Raises:
+        ValueError: If the URL is invalid or targets a blocked network
+
+    Security checks:
+    - Enforces HTTPS-only
+    - Blocks private IP ranges (RFC 1918)
+    - Blocks loopback addresses
+    - Blocks link-local addresses (EC2 IMDS)
+    - Validates hostname resolution
+    """
+    if not url or not isinstance(url, str):
+        raise ValueError("Webhook URL must be a non-empty string")
+
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        raise ValueError(f"Invalid webhook URL format: {e}")
+
+    # Enforce HTTPS only
+    if parsed.scheme != 'https':
+        raise ValueError(
+            f"Webhook must use HTTPS for security. Got: {parsed.scheme}://"
+        )
+
+    # Validate hostname exists
+    if not parsed.hostname:
+        raise ValueError("Webhook URL must include a hostname")
+
+    # Resolve hostname to IP address
+    try:
+        ip_str = socket.gethostbyname(parsed.hostname)
+        ip = ipaddress.ip_address(ip_str)
+    except socket.gaierror:
+        raise ValueError(f"Cannot resolve webhook hostname: {parsed.hostname}")
+    except ValueError as e:
+        raise ValueError(f"Invalid IP address for webhook: {e}")
+
+    # Check if IP is in any blocked CIDR range
+    for cidr in BLOCKED_CIDRS:
+        if ip in cidr:
+            raise ValueError(
+                f"Webhook target {parsed.hostname} ({ip}) is in a blocked network range ({cidr}). "
+                f"Cannot deliver to private/internal networks."
+            )
+
+    # Additional check for localhost by name
+    if parsed.hostname.lower() in ('localhost', '127.0.0.1', '::1'):
+        raise ValueError(f"Webhook cannot target localhost: {parsed.hostname}")
+
+    logger.info(
+        "webhook_url_validated",
+        url=url,
+        hostname=parsed.hostname,
+        resolved_ip=str(ip)
+    )
 
 
 class ScheduledReportService:
@@ -259,13 +340,19 @@ class ScheduledReportService:
         return file_path, len(content)
     
     async def _generate_html(self, report: Dict, result: Dict, execution_id: str) -> tuple[str, int]:
-        """Generate HTML report using template"""
+        """Generate HTML report using template with sandboxed Jinja2"""
         template_str = report.get('report_template') or self._get_default_template()
-        template = Template(template_str)
-        
+
+        # Use SandboxedEnvironment to prevent SSTI attacks
+        env = SandboxedEnvironment(
+            autoescape=True,
+            undefined=jinja2.StrictUndefined
+        )
+        template = env.from_string(template_str)
+
         html_content = template.render(
             report_name=report['name'],
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc),
             data=result.get('data', {}),
             charts=result.get('charts', []),
             message=result.get('message', '')
@@ -350,12 +437,35 @@ class ScheduledReportService:
         )
     
     async def _deliver_via_webhook(self, webhooks: List[str], result: Dict):
-        """Deliver report data to webhooks"""
+        """
+        Deliver report data to webhooks.
+
+        Validates each webhook URL to prevent SSRF attacks before making requests.
+
+        Args:
+            webhooks: List of webhook URLs to deliver to
+            result: Report result data to send
+
+        Raises:
+            ValueError: If any webhook URL fails validation
+        """
         import aiohttp
-        
+
         async with aiohttp.ClientSession() as session:
             for webhook_url in webhooks:
-                await session.post(webhook_url, json=result)
+                # Validate webhook URL for SSRF protection
+                _validate_webhook_url(webhook_url)
+
+                try:
+                    logger.info("delivering_to_webhook", url=webhook_url)
+                    await session.post(webhook_url, json=result, timeout=aiohttp.ClientTimeout(total=30))
+                    logger.info("webhook_delivery_success", url=webhook_url)
+                except aiohttp.ClientError as e:
+                    logger.error("webhook_delivery_failed", url=webhook_url, error=str(e))
+                    raise
+                except Exception as e:
+                    logger.error("webhook_delivery_error", url=webhook_url, error=str(e))
+                    raise
     
     async def _deliver_via_slack(
         self,
