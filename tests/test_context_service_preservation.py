@@ -4,7 +4,8 @@ Test context preservation for service filters when time range changes
 Issue: "for last 100 days" after "for ec2 and lambda" should preserve EC2 and Lambda filters
 """
 import sys
-sys.path.insert(0, '/Users/Amit.Kumar2/Documents/Code/finops-orchestrator/backend')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'backend'))
 
 from services.conversation_context import ConversationContext
 

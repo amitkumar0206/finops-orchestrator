@@ -19,7 +19,7 @@ source "$ENV_FILE"
 AWS_CUR_DATABASE="${AWS_CUR_DATABASE:-cost_usage_db}"
 AWS_CUR_TABLE="${AWS_CUR_TABLE:-cur_data}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
-ATHENA_OUTPUT_LOCATION="${ATHENA_OUTPUT_LOCATION:-s3://finops-intelligence-platform-athena-results-515966519020/}"
+ATHENA_OUTPUT_LOCATION="${ATHENA_OUTPUT_LOCATION:-s3://finops-intelligence-platform-athena-results-${AWS_ACCOUNT_ID}/}"
 ATHENA_WORKGROUP="${ATHENA_WORKGROUP:-finops-workgroup}"
 
 log_info "Creating unified CUR view: $AWS_CUR_DATABASE.$AWS_CUR_TABLE"

@@ -4,7 +4,8 @@ Test human-like conversation understanding for context management
 Tests all scenarios: preserve, add, replace, remove, clear
 """
 import sys
-sys.path.insert(0, '/Users/Amit.Kumar2/Documents/Code/finops-orchestrator/backend')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'backend'))
 
 from services.conversation_context import ConversationContext
 

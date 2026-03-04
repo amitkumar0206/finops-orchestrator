@@ -1742,7 +1742,7 @@ logger.info("Prompt", prompt=prompt)
 - [Troubleshooting](./docs/TROUBLESHOOTING.md)
 
 **Support:**
-- Technical Lead: amit.kumar2@dazn.com
+- Technical Lead: FinOps Platform Team
 - Slack: #finops-platform
 
 ---

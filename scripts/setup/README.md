@@ -17,7 +17,7 @@ Set the environment and run ingestion locally:
 
 ```zsh
 export AWS_REGION=us-east-1
-export RESOURCE_INVENTORY_S3_BUCKET=finops-intelligence-platform-data-515966519020
+export RESOURCE_INVENTORY_S3_BUCKET=finops-intelligence-platform-data-${AWS_ACCOUNT_ID}
 export RESOURCE_INVENTORY_S3_PREFIX=resource-inventory/
 export RESOURCE_INVENTORY_DB=resource_inventory
 export RESOURCE_INVENTORY_TABLE=resources

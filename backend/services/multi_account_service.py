@@ -13,6 +13,7 @@ import structlog
 from datetime import datetime
 
 from backend.services.database import DatabaseService
+from backend.utils.encryption import get_field_encryptor, DecryptionError
 
 logger = structlog.get_logger(__name__)
 
@@ -49,22 +50,31 @@ class MultiAccountService:
         if not validation_result['success']:
             raise ValueError(f"Account validation failed: {validation_result['error']}")
         
+        # Encrypt sensitive fields before storage
+        encryptor = get_field_encryptor()
+        role_arn_encrypted = encryptor.encrypt_string(role_arn)
+        external_id_encrypted = (
+            encryptor.encrypt_string(external_id) if external_id else None
+        )
+
         query = """
             INSERT INTO aws_accounts (
                 account_id, account_name, account_email, environment,
                 business_unit, cost_center, role_arn, external_id,
+                role_arn_encrypted, external_id_encrypted,
                 cur_database, cur_table, region, status, created_by,
                 last_validated_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW()
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW()
             )
             RETURNING id, account_id, account_name, status
         """
-        
+
         result = await self.db.execute(
             query,
             account_id, account_name, account_email, environment,
-            business_unit, cost_center, role_arn, external_id,
+            business_unit, cost_center, '[ENCRYPTED]', '[ENCRYPTED]' if external_id else None,
+            role_arn_encrypted, external_id_encrypted,
             cur_database, cur_table, region, 'ACTIVE', created_by
         )
         
@@ -126,21 +136,35 @@ class MultiAccountService:
         """Get temporary credentials for an account"""
         
         query = """
-            SELECT role_arn, external_id, status
+            SELECT role_arn, external_id, role_arn_encrypted,
+                   external_id_encrypted, status
             FROM aws_accounts
             WHERE account_id = $1
         """
         account = await self.db.fetch_one(query, account_id)
-        
+
         if not account:
             raise ValueError(f"Account {account_id} not found")
-        
+
         if account['status'] != 'ACTIVE':
             raise ValueError(f"Account {account_id} is not active")
-        
+
+        # Decrypt credentials — fall back to plaintext for pre-migration rows
+        if account.get('role_arn_encrypted'):
+            encryptor = get_field_encryptor()
+            actual_role_arn = encryptor.decrypt_string(account['role_arn_encrypted'])
+            actual_external_id = (
+                encryptor.decrypt_string(account['external_id_encrypted'])
+                if account.get('external_id_encrypted')
+                else account.get('external_id')
+            )
+        else:
+            actual_role_arn = account['role_arn']
+            actual_external_id = account.get('external_id')
+
         validation = await self._validate_account_access(
-            account['role_arn'],
-            account['external_id'],
+            actual_role_arn,
+            actual_external_id,
             account_id
         )
         

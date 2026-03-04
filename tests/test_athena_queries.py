@@ -1,6 +1,6 @@
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import date
 from backend.services.athena_executor import EnhancedAthenaQueryExecutor
 from backend.agents.intent_classifier import IntentType
@@ -11,7 +11,9 @@ def executor():
     with patch('backend.services.athena_executor.create_aws_session'):
         executor = EnhancedAthenaQueryExecutor()
         executor.templates = MagicMock()
-        return executor
+        # Mock the actual Athena query execution to prevent real AWS calls
+        executor._execute_athena_query = AsyncMock(return_value=[])
+        yield executor
 
 @pytest.mark.asyncio
 async def test_reserved_instances_cost_query_generation(executor):

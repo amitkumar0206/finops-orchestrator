@@ -122,12 +122,12 @@ scripts/
 **Example:**
 ```bash
 ./scripts/setup/setup-athena-cur.sh \
-  finops-intelligence-platform-data-515966519020 \
+  finops-intelligence-platform-data-<YOUR_AWS_ACCOUNT_ID> \
   cost-exports/finops-cost-export \
   cost_usage_db \
   cur_data \
   us-east-1 \
-  s3://finops-intelligence-platform-data-515966519020/athena-results/
+  s3://finops-intelligence-platform-data-<YOUR_AWS_ACCOUNT_ID>/athena-results/
 ```
 
 **What it does:**
@@ -390,5 +390,5 @@ aws logs tail /ecs/finops-intelligence-platform/backend --follow --region us-eas
 
 ---
 
-**Last Updated:** December 2, 2025  
-**Maintainer:** Amit Kumar (amit.kumar2@dazn.com)
+**Last Updated:** December 2, 2025
+**Maintainer:** FinOps Platform Team

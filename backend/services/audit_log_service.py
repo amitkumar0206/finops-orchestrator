@@ -231,29 +231,30 @@ class AuditLogService:
         limit: int = 1000
     ) -> List[Dict[str, Any]]:
         """Get recent actions"""
-        
+        hours = int(hours)
+
         if action_filter:
             query = """
                 SELECT user_email, action, resource_type, description,
                        status, created_at
                 FROM audit_logs
-                WHERE created_at >= NOW() - INTERVAL '%s hours'
-                AND action = $1
+                WHERE created_at >= NOW() - make_interval(hours => $1)
+                AND action = $2
                 ORDER BY created_at DESC
-                LIMIT $2
-            """ % hours
-            return await self.db.fetch_all(query, action_filter, limit)
-        
+                LIMIT $3
+            """
+            return await self.db.fetch_all(query, hours, action_filter, limit)
+
         query = """
             SELECT user_email, action, resource_type, description,
                    status, created_at
             FROM audit_logs
-            WHERE created_at >= NOW() - INTERVAL '%s hours'
+            WHERE created_at >= NOW() - make_interval(hours => $1)
             ORDER BY created_at DESC
-            LIMIT $1
-        """ % hours
-        
-        return await self.db.fetch_all(query, limit)
+            LIMIT $2
+        """
+
+        return await self.db.fetch_all(query, hours, limit)
     
     async def get_failed_actions(
         self,
@@ -261,18 +262,19 @@ class AuditLogService:
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """Get failed actions for security monitoring"""
+        hours = int(hours)
 
         query = """
             SELECT user_email, action, resource_type, description,
                    error_message, ip_address, created_at
             FROM audit_logs
-            WHERE created_at >= NOW() - INTERVAL '%s hours'
+            WHERE created_at >= NOW() - make_interval(hours => $1)
             AND status IN ('failure', 'denied')
             ORDER BY created_at DESC
-            LIMIT $1
-        """ % hours
+            LIMIT $2
+        """
 
-        return await self.db.fetch_all(query, limit)
+        return await self.db.fetch_all(query, hours, limit)
 
     # ==================== Enhanced Logging Methods for Multi-Tenant Support ====================
 

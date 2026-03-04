@@ -10,11 +10,11 @@
         "s3:GetBucketAcl",
         "s3:GetBucketPolicy"
       ],
-      "Resource": "arn:aws:s3:::finops-intelligence-platform-cur-reports-1761153939",
+      "Resource": "arn:aws:s3:::${CUR_BUCKET_NAME}",
       "Condition": {
         "StringEquals": {
-          "aws:SourceArn": "arn:aws:cur:us-east-1:029720204697:definition/*",
-          "aws:SourceAccount": "029720204697"
+          "aws:SourceArn": "arn:aws:cur:${AWS_REGION}:${BILLING_ACCOUNT_ID}:definition/*",
+          "aws:SourceAccount": "${BILLING_ACCOUNT_ID}"
         }
       }
     },
@@ -24,11 +24,11 @@
         "Service": "billingreports.amazonaws.com"
       },
       "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::finops-intelligence-platform-cur-reports-1761153939/*",
+      "Resource": "arn:aws:s3:::${CUR_BUCKET_NAME}/*",
       "Condition": {
         "StringEquals": {
-          "aws:SourceArn": "arn:aws:cur:us-east-1:029720204697:definition/*",
-          "aws:SourceAccount": "029720204697"
+          "aws:SourceArn": "arn:aws:cur:${AWS_REGION}:${BILLING_ACCOUNT_ID}:definition/*",
+          "aws:SourceAccount": "${BILLING_ACCOUNT_ID}"
         }
       }
     }

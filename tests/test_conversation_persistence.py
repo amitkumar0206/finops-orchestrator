@@ -7,6 +7,7 @@ import asyncio
 import pytest
 import sys
 from pathlib import Path
+from unittest.mock import patch, AsyncMock, MagicMock
 
 # Add backend to path
 backend_path = Path(__file__).parent / "backend"
@@ -23,8 +24,19 @@ async def test_conversation_persistence():
     """Test that conversations persist in database"""
     print("🧪 Testing database-backed conversation context manager...")
 
-    # Create context manager
+    # Create context manager and mock its DB service to avoid real DB connections
     manager = ConversationContextManager()
+    mock_db = MagicMock()
+    mock_db.initialize = AsyncMock()
+    mock_db.close = AsyncMock()
+    mock_session = AsyncMock()
+    mock_db.get_session = AsyncMock(return_value=mock_session)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+    mock_session.execute = AsyncMock(return_value=MagicMock(fetchone=MagicMock(return_value=None), fetchall=MagicMock(return_value=[])))
+    mock_session.commit = AsyncMock()
+    manager.db_service = mock_db
+    manager._initialized = True
 
     try:
         # Test 1: Create a new conversation

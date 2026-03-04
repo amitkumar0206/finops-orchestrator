@@ -9,7 +9,7 @@ Tests the enhanced rate limiting system that supports:
 
 import pytest
 from uuid import uuid4
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, patch, AsyncMock
 from fastapi import Request
 
 from backend.middleware.rate_limiting import (
@@ -217,11 +217,12 @@ class TestTierBasedLimits:
         assert limiter_enterprise.requests_per_window == settings.athena_export_limit_enterprise
 
 
+@patch('backend.middleware.rate_limiting.get_per_user_limit', new_callable=AsyncMock, return_value=1000)
 class TestAthenaExportRateLimitDependency:
     """Test the check_athena_export_rate_limit FastAPI dependency"""
 
     @pytest.mark.asyncio
-    async def test_uses_org_subscription_tier(self, mock_request_with_org):
+    async def test_uses_org_subscription_tier(self, mock_per_user, mock_request_with_org):
         """Should use organization's subscription tier to determine limit"""
         request = mock_request_with_org(subscription_tier='enterprise')
 
@@ -233,7 +234,7 @@ class TestAthenaExportRateLimitDependency:
         assert rate_info['limit'] == 200  # Enterprise tier
 
     @pytest.mark.asyncio
-    async def test_free_tier_org_gets_lower_limit(self, mock_request_with_org):
+    async def test_free_tier_org_gets_lower_limit(self, mock_per_user, mock_request_with_org):
         """Free tier org should get 10 requests/hour"""
         request = mock_request_with_org(subscription_tier='free')
 
@@ -242,7 +243,7 @@ class TestAthenaExportRateLimitDependency:
         assert rate_info['limit'] == 10  # Free tier
 
     @pytest.mark.asyncio
-    async def test_fallback_to_standard_without_context(self):
+    async def test_fallback_to_standard_without_context(self, mock_per_user):
         """Should fallback to standard tier if no context available"""
         # Create request without context
         request = MagicMock(spec=Request)
@@ -258,7 +259,7 @@ class TestAthenaExportRateLimitDependency:
         assert rate_info['limit'] == 50  # Standard tier (fallback)
 
     @pytest.mark.asyncio
-    async def test_rate_limit_enforced_across_org(self, mock_request_with_org):
+    async def test_rate_limit_enforced_across_org(self, mock_per_user, mock_request_with_org):
         """Rate limit should be enforced across entire organization"""
         org_id = uuid4()
 

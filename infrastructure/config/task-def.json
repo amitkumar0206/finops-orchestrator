@@ -1,9 +1,9 @@
 {
-    "taskDefinitionArn": "arn:aws:ecs:us-east-1:515966519020:task-definition/finops-intelligence-platform-backend:17",
+    "taskDefinitionArn": "arn:aws:ecs:${AWS_REGION}:${AWS_ACCOUNT_ID}:task-definition/finops-intelligence-platform-backend:17",
     "containerDefinitions": [
         {
             "name": "backend",
-            "image": "515966519020.dkr.ecr.us-east-1.amazonaws.com/finops-backend:latest",
+            "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/finops-backend:latest",
             "cpu": 0,
             "links": [],
             "portMappings": [
@@ -27,15 +27,15 @@
                 },
                 {
                     "name": "REDIS_HOST",
-                    "value": "master.finops-intelligence-platform-redis.xfmrmp.use1.cache.amazonaws.com"
+                    "value": "${ELASTICACHE_ENDPOINT}"
                 },
                 {
                     "name": "AWS_REGION",
-                    "value": "us-east-1"
+                    "value": "${AWS_REGION}"
                 },
                 {
                     "name": "POSTGRES_HOST",
-                    "value": "finops-intelligence-platform-postgres.c1oey686imx4.us-east-1.rds.amazonaws.com"
+                    "value": "${RDS_ENDPOINT}"
                 },
                 {
                     "name": "ENVIRONMENT",
@@ -50,14 +50,6 @@
                     "value": "5432"
                 },
                 {
-                    "name": "POSTGRES_PASSWORD",
-                    "value": "****"
-                },
-                {
-                    "name": "SECRET_KEY",
-                    "value": "finops-intelligence-platform-services-515966519020-secret-key-v1"
-                },
-                {
                     "name": "POSTGRES_DB",
                     "value": "finops"
                 },
@@ -67,11 +59,7 @@
                 },
                 {
                     "name": "CUR_BUCKET_NAME",
-                    "value": "finops-intelligence-platform-cur-reports-1761591318"
-                },
-                {
-                    "name": "DATABASE_URL",
-                    "value": "postgresql://finops:****@finops-intelligence-platform-postgres.c1oey686imx4.us-east-1.rds.amazonaws.com:5432/finops"
+                    "value": "${CUR_BUCKET_NAME}"
                 },
                 {
                     "name": "AWS_S3_BUCKET",
@@ -92,12 +80,21 @@
                 {
                     "name": "BEDROCK_MODEL_ID",
                     "value": "amazon.nova-premier-v1:0"
-                },
+                }
             ],
             "environmentFiles": [],
             "mountPoints": [],
             "volumesFrom": [],
-            "secrets": [],
+            "secrets": [
+                {
+                    "name": "SECRET_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:finops/secret-key"
+                },
+                {
+                    "name": "POSTGRES_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:finops/database-password"
+                }
+            ],
             "dnsServers": [],
             "dnsSearchDomains": [],
             "extraHosts": [],
@@ -108,7 +105,7 @@
                 "logDriver": "awslogs",
                 "options": {
                     "awslogs-group": "/ecs/finops-intelligence-platform/backend",
-                    "awslogs-region": "us-east-1",
+                    "awslogs-region": "${AWS_REGION}",
                     "awslogs-stream-prefix": "backend"
                 },
                 "secretOptions": []
@@ -128,8 +125,8 @@
         }
     ],
     "family": "finops-intelligence-platform-backend",
-    "taskRoleArn": "arn:aws:iam::515966519020:role/finops-intelligence-platform-ECSTaskRole-G4sbGu5FgUtw",
-    "executionRoleArn": "arn:aws:iam::515966519020:role/finops-intelligence-platform-ECSTaskExecutionRole-91QFvtw52B5M",
+    "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ECS_TASK_ROLE_NAME}",
+    "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ECS_EXECUTION_ROLE_NAME}",
     "networkMode": "awsvpc",
     "revision": 17,
     "volumes": [],
@@ -181,5 +178,5 @@
     "cpu": "1024",
     "memory": "2048",
     "registeredAt": "2025-10-28T23:44:51.477000+05:30",
-    "registeredBy": "arn:aws:sts::515966519020:assumed-role/AWSReservedSSO_power-user_b1e00a7113409603/Amit.Kumar2@dazn.com"
+    "registeredBy": "arn:aws:sts::${AWS_ACCOUNT_ID}:assumed-role/${DEPLOYER_ROLE}"
 }

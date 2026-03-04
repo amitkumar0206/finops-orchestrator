@@ -705,7 +705,7 @@ This project is proprietary to DAZN Group Limited. All rights reserved.
 ## Support
 
 For technical support and questions:
-- **Technical Lead**: [Amit Kumar] <amit.kumar2@dazn.com>
+- **Technical Lead**: FinOps Platform Team
 - **Architecture Questions**: Cloud Architecture Team
 - **Deployment Issues**: Performance Engineering Team
 

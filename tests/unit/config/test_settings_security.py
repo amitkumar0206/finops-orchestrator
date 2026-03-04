@@ -119,6 +119,67 @@ class TestSecretKeyValidation:
                 Settings()
 
 
+class TestDeterministicSecretKeyRejection:
+    """Test that deterministic/predictable SECRET_KEY patterns are rejected"""
+
+    def setup_method(self):
+        clear_settings_cache()
+        self._original_env = os.environ.copy()
+
+    def teardown_method(self):
+        os.environ.clear()
+        os.environ.update(self._original_env)
+        clear_settings_cache()
+
+    def test_production_rejects_deterministic_pattern(self):
+        """The old CloudFormation pattern stackname-accountid-secret-key-v1 must be rejected"""
+        os.environ['SECRET_KEY'] = 'finops-intelligence-platform-services-123456789012-secret-key-v1'
+        os.environ['ENVIRONMENT'] = 'production'
+
+        with pytest.raises(ValueError) as exc_info:
+            Settings()
+
+        assert "deterministic pattern" in str(exc_info.value).lower()
+
+    def test_production_rejects_variant_deterministic_pattern(self):
+        """Any stackname-digits-secret-key-vN pattern must be rejected"""
+        os.environ['SECRET_KEY'] = 'my-stack-000000000000-secret-key-v2'
+        os.environ['ENVIRONMENT'] = 'production'
+
+        with pytest.raises(ValueError) as exc_info:
+            Settings()
+
+        assert "deterministic pattern" in str(exc_info.value).lower()
+
+    def test_deterministic_key_not_secure(self):
+        """is_secret_key_secure must return False for deterministic keys"""
+        os.environ['SECRET_KEY'] = 'finops-platform-123456789012-secret-key-v1'
+        os.environ['ENVIRONMENT'] = 'development'
+
+        settings = Settings()
+
+        assert settings.is_secret_key_secure is False
+
+    def test_random_key_not_flagged_as_deterministic(self):
+        """Legitimate random keys must not be flagged"""
+        os.environ['SECRET_KEY'] = 'Kj3mP9xQ7vR2bN5wT8yZ1cA6dF4gH0iL-extra-long-secure-key'
+        os.environ['ENVIRONMENT'] = 'production'
+
+        settings = Settings()
+
+        assert settings.is_secret_key_secure is True
+
+    def test_production_rejects_placeholder_retrieve_from_secrets_manager(self):
+        """The placeholder RETRIEVE_FROM_SECRETS_MANAGER must be rejected in production"""
+        os.environ['SECRET_KEY'] = 'RETRIEVE_FROM_SECRETS_MANAGER'
+        os.environ['ENVIRONMENT'] = 'production'
+
+        with pytest.raises(ValueError) as exc_info:
+            Settings()
+
+        assert "insecure value" in str(exc_info.value).lower()
+
+
 class TestLegacyHeaderAuthRemoved:
     """Test that legacy header authentication has been removed"""
 
@@ -155,6 +216,72 @@ class TestLegacyHeaderAuthRemoved:
         assert not hasattr(settings, 'allow_legacy_header_auth')
 
 
+class TestFieldEncryptionKeyValidation:
+    """Test that FIELD_ENCRYPTION_KEY is validated in security configuration"""
+
+    def setup_method(self):
+        clear_settings_cache()
+        self._original_env = os.environ.copy()
+
+    def teardown_method(self):
+        os.environ.clear()
+        os.environ.update(self._original_env)
+        clear_settings_cache()
+
+    def test_production_without_encryption_key_reports_critical(self):
+        """Production without FIELD_ENCRYPTION_KEY must produce CRITICAL warning"""
+        os.environ['SECRET_KEY'] = 'secure-key-that-is-at-least-32-characters-long-for-production'
+        os.environ['ENVIRONMENT'] = 'production'
+        os.environ.pop('FIELD_ENCRYPTION_KEY', None)
+
+        settings = Settings()
+        issues = settings.validate_security_configuration()
+
+        encryption_issues = [i for i in issues if 'FIELD_ENCRYPTION_KEY' in i]
+        assert len(encryption_issues) >= 1
+        assert any('CRITICAL' in i for i in encryption_issues)
+
+    def test_production_with_short_encryption_key_reports_critical(self):
+        """Production with short FIELD_ENCRYPTION_KEY must produce CRITICAL warning"""
+        os.environ['SECRET_KEY'] = 'secure-key-that-is-at-least-32-characters-long-for-production'
+        os.environ['ENVIRONMENT'] = 'production'
+        os.environ['FIELD_ENCRYPTION_KEY'] = 'tooshort'
+
+        settings = Settings()
+        issues = settings.validate_security_configuration()
+
+        encryption_issues = [i for i in issues if 'FIELD_ENCRYPTION_KEY' in i]
+        assert len(encryption_issues) >= 1
+        assert any('too short' in i.lower() for i in encryption_issues)
+
+    def test_production_with_valid_encryption_key_no_encryption_issues(self):
+        """Production with a good FIELD_ENCRYPTION_KEY should have no encryption issues"""
+        os.environ['SECRET_KEY'] = 'secure-key-that-is-at-least-32-characters-long-for-production'
+        os.environ['ENVIRONMENT'] = 'production'
+        os.environ['FIELD_ENCRYPTION_KEY'] = 'a' * 48
+
+        settings = Settings()
+        issues = settings.validate_security_configuration()
+
+        encryption_issues = [i for i in issues if 'FIELD_ENCRYPTION_KEY' in i]
+        assert len(encryption_issues) == 0
+
+    def test_development_without_encryption_key_no_critical(self):
+        """Development without FIELD_ENCRYPTION_KEY should NOT produce CRITICAL"""
+        os.environ.pop('SECRET_KEY', None)
+        os.environ['ENVIRONMENT'] = 'development'
+        os.environ.pop('FIELD_ENCRYPTION_KEY', None)
+
+        settings = Settings()
+        issues = settings.validate_security_configuration()
+
+        encryption_critical = [
+            i for i in issues
+            if 'FIELD_ENCRYPTION_KEY' in i and 'CRITICAL' in i
+        ]
+        assert len(encryption_critical) == 0
+
+
 class TestSecurityConfigurationValidation:
     """Test the validate_security_configuration method"""
 
@@ -182,6 +309,7 @@ class TestSecurityConfigurationValidation:
             os.environ['SECRET_KEY'] = 'secure-key-that-is-at-least-32-characters-long-for-production'
             os.environ['ENVIRONMENT'] = 'production'
             os.environ['DEBUG'] = 'false'
+            os.environ['FIELD_ENCRYPTION_KEY'] = 'a' * 48
             # Use verify-full SSL mode for secure production configuration
             os.environ['POSTGRES_SSL_MODE'] = 'verify-full'
             os.environ['POSTGRES_SSL_CA_CERT_PATH'] = temp_ca_path

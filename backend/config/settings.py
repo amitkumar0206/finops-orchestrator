@@ -9,6 +9,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 import os
 import json
+import re
 import secrets
 import warnings
 
@@ -124,6 +125,13 @@ class Settings(BaseSettings):
     # SECURITY: Legacy header-based auth (X-User-Email) has been REMOVED
     # JWT tokens are now the ONLY supported authentication method
     
+    # Field Encryption
+    field_encryption_key: Optional[str] = Field(
+        default=None,
+        env="FIELD_ENCRYPTION_KEY",
+        description="Encryption key for sensitive database fields (min 32 chars in production)"
+    )
+
     # Database
     postgres_host: str = Field(default="localhost", env="POSTGRES_HOST")
     postgres_port: int = Field(default=5432, env="POSTGRES_PORT")
@@ -277,7 +285,13 @@ class Settings(BaseSettings):
         "your-secret-key",
         "change-me",
         "test-secret",
+        "retrieve_from_secrets_manager",
     ])
+
+    # Regex pattern matching deterministic SECRET_KEY formats (e.g. stackname-accountid-secret-key-v1)
+    _DETERMINISTIC_KEY_PATTERN: ClassVar = re.compile(
+        r"^[\w-]+-\d{10,14}-secret-key-v\d+$"
+    )
 
     @model_validator(mode='after')
     def validate_and_set_secret_key(self) -> 'Settings':
@@ -341,6 +355,22 @@ class Settings(BaseSettings):
                 elif not is_testing:
                     warnings.warn(
                         f"WARNING: Using insecure SECRET_KEY. This must be changed for production.",
+                        UserWarning,
+                        stacklevel=2
+                    )
+
+            # Reject deterministic patterns like <stackname>-<accountid>-secret-key-v1
+            if self._DETERMINISTIC_KEY_PATTERN.match(self.secret_key):
+                if is_production:
+                    raise ValueError(
+                        "CRITICAL SECURITY ERROR: SECRET_KEY matches a deterministic pattern "
+                        "(e.g. stackname-accountid-secret-key-v1). Use a cryptographically random key. "
+                        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+                    )
+                elif not is_testing:
+                    warnings.warn(
+                        "WARNING: SECRET_KEY matches a deterministic pattern and is guessable. "
+                        "Use a cryptographically random key for production.",
                         UserWarning,
                         stacklevel=2
                     )
@@ -485,7 +515,8 @@ class Settings(BaseSettings):
             return False
         return (
             len(self.secret_key) >= 32 and
-            self.secret_key.lower() not in self.INSECURE_SECRET_KEYS
+            self.secret_key.lower() not in self.INSECURE_SECRET_KEYS and
+            not self._DETERMINISTIC_KEY_PATTERN.match(self.secret_key)
         )
 
     @property
@@ -539,7 +570,6 @@ class Settings(BaseSettings):
 
         # Check if CA cert file exists when specified
         if self.postgres_ssl_ca_cert_path:
-            import os
             if not os.path.isfile(self.postgres_ssl_ca_cert_path):
                 issues.append(
                     f"SSL CA certificate file not found: {self.postgres_ssl_ca_cert_path}"
@@ -630,6 +660,19 @@ class Settings(BaseSettings):
                 issues.append(
                     "WARNING: SECRET_KEY is not secure. For development this is acceptable, "
                     "but ensure a secure key is set for production."
+                )
+
+        # Field encryption key validation
+        if self.is_production:
+            if not self.field_encryption_key:
+                issues.append(
+                    "CRITICAL: FIELD_ENCRYPTION_KEY is not set. Sensitive database fields "
+                    "(AWS role ARNs, external IDs, ticketing credentials) cannot be encrypted."
+                )
+            elif len(self.field_encryption_key) < 32:
+                issues.append(
+                    "CRITICAL: FIELD_ENCRYPTION_KEY is too short "
+                    f"({len(self.field_encryption_key)} chars). Must be at least 32 characters."
                 )
 
         # Include CORS validation issues

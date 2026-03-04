@@ -250,8 +250,12 @@ auto-*.sh
 fix-*.sh
 show-*.sh
 
-# Temporary task definitions (keep only task-def.json)
+# Temporary task definitions
 task-def-*.json
+
+# Populated infrastructure configs (contain real secrets — only templates tracked in git)
+infrastructure/config/task-def.local.json
+infrastructure/config/cur-bucket-policy.local.json
 
 # Temporary configuration files
 cur-definition*.json

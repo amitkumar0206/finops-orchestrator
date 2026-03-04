@@ -440,6 +440,24 @@ Resources:
   #       IgnorePublicAcls: true
   #       RestrictPublicBuckets: true
 
+  # Secrets Manager — JWT Secret Key
+  SecretKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: finops/secret-key
+      Description: JWT signing secret key for the FinOps platform
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
+  # Secrets Manager — Database Password
+  DatabasePasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: finops/database-password
+      Description: PostgreSQL database password for the FinOps platform
+      SecretString: !Ref DatabasePassword
+
   # ECS Cluster
   ECSCluster:
     Type: AWS::ECS::Cluster
@@ -500,6 +518,16 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: '*'
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref SecretKeySecret
+                  - !Ref DatabasePasswordSecret
 
   ECSTaskRole:
     Type: AWS::IAM::Role
@@ -709,6 +737,18 @@ Outputs:
     Value: !Ref PrivateSubnet2
     Export:
       Name: !Sub '${AWS::StackName}-private-subnet-2'
+
+  SecretKeyArn:
+    Description: ARN of the JWT Secret Key in Secrets Manager
+    Value: !Ref SecretKeySecret
+    Export:
+      Name: !Sub '${AWS::StackName}-secret-key-arn'
+
+  DatabasePasswordSecretArn:
+    Description: ARN of the Database Password Secret
+    Value: !Ref DatabasePasswordSecret
+    Export:
+      Name: !Sub '${AWS::StackName}-db-password-secret-arn'
 
   S3BucketName:
     Description: S3 Bucket Name

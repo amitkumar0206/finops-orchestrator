@@ -32,9 +32,16 @@ from fastapi import HTTPException
 # cached module from sys.modules.
 # ---------------------------------------------------------------------------
 if 'backend.services.scheduled_report_service' not in sys.modules:
-    _srs_stub = types.ModuleType('backend.services.scheduled_report_service')
-    _srs_stub.scheduled_report_service = Mock()
-    sys.modules['backend.services.scheduled_report_service'] = _srs_stub
+    try:
+        import backend.services.scheduled_report_service  # noqa: F401
+    except Exception:
+        # Fallback: lightweight stub so phase3_enterprise can be imported
+        _srs_stub = types.ModuleType('backend.services.scheduled_report_service')
+        _srs_stub.scheduled_report_service = Mock()
+        _srs_stub.ScheduledReportService = Mock()
+        _srs_stub._validate_webhook_url = Mock()
+        _srs_stub.BLOCKED_CIDRS = []
+        sys.modules['backend.services.scheduled_report_service'] = _srs_stub
 
 import backend.api.phase3_enterprise  # noqa: E402, F401
 import backend.api.auth  # noqa: E402, F401
