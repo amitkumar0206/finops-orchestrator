@@ -17,11 +17,12 @@ Tests cover:
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+from uuid import uuid4
 
 from models.schemas import ChatRequest, ChatResponse
 from api.chat import chat
 from fastapi import BackgroundTasks
-from fastapi.requests import Request
+from backend.services.request_context import RequestContext
 
 
 class TestAthenaQueryInResponse:
@@ -107,13 +108,17 @@ class TestAthenaQueryInResponse:
                     context={}
                 )
 
-                # Mock FastAPI dependencies
+                # Mock FastAPI dependencies — /chat now requires authenticated context
                 background_tasks = BackgroundTasks()
-                http_request = MagicMock(spec=Request)
-                http_request.client.host = "127.0.0.1"
+                context = RequestContext(
+                    user_id=uuid4(),
+                    user_email="test@example.com",
+                    organization_id=uuid4(),
+                    allowed_account_ids=["123456789012"],
+                )
 
                 # Call chat endpoint
-                response = await chat(request, background_tasks, http_request)
+                response = await chat(request, background_tasks, context)
 
                 # Verify athena_query is extracted and included
                 assert response.__class__.__name__ == 'ChatResponse'
@@ -154,13 +159,17 @@ class TestAthenaQueryInResponse:
                     context={}
                 )
 
-                # Mock FastAPI dependencies
+                # Mock FastAPI dependencies — /chat now requires authenticated context
                 background_tasks = BackgroundTasks()
-                http_request = MagicMock(spec=Request)
-                http_request.client.host = "127.0.0.1"
+                context = RequestContext(
+                    user_id=uuid4(),
+                    user_email="test@example.com",
+                    organization_id=uuid4(),
+                    allowed_account_ids=["123456789012"],
+                )
 
                 # Call chat endpoint
-                response = await chat(request, background_tasks, http_request)
+                response = await chat(request, background_tasks, context)
 
                 # Verify athena_query is None when not provided
                 assert response.__class__.__name__ == 'ChatResponse'

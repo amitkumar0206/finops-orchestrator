@@ -4,21 +4,19 @@ Handles conversation management and agent orchestration with conversation histor
 """
 
 import asyncio
-from typing import Any, Dict, List
-from uuid import uuid4
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 import json
 from fastapi.responses import StreamingResponse
 import structlog
 
 from backend.models.schemas import ChatRequest, ChatResponse, MessageRole
 from backend.services.conversation_manager import conversation_manager
-from fastapi import Request
 from backend.agents.multi_agent_workflow import execute_multi_agent_query
 from backend.config.settings import get_settings
-from backend.services.request_context import get_context_from_request, require_context, RequestContext
+from backend.services.request_context import require_context, RequestContext
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -27,42 +25,111 @@ settings = get_settings()
 logger.info("Chat API initialized with Multi-Agent System")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Security dependencies & helpers
+# All chat endpoints use these to enforce authentication and conversation
+# ownership uniformly.  Single source of truth → one implementation to test,
+# one place to change the policy (e.g., "admins can access any conversation").
+# ─────────────────────────────────────────────────────────────────────────────
+
 async def get_request_context(request: Request) -> RequestContext:
-    """Dependency to get request context with authentication"""
+    """FastAPI dependency — enforces authentication. Raises 401 if no auth."""
     return require_context(request)
 
 
+def require_conversation_owner(
+    conversation_id: str,
+    context: RequestContext,
+    *,
+    action: str = "access",
+) -> str:
+    """
+    Centralized conversation-ownership check (IDOR protection).
+
+    Used by every chat endpoint that touches an existing conversation.
+    Single source of truth for the policy, the 404/403 semantics, and the
+    audit-log event shape.
+
+    Args:
+        conversation_id: Thread ID to verify.
+        context: Authenticated request context (provides user_id).
+        action: Short label for the audit event (e.g., "read", "delete", "stream").
+
+    Returns:
+        The validated conversation_id (unchanged).
+
+    Raises:
+        HTTPException: 404 if the thread does not exist, 403 if the caller
+            is not the owner.
+    """
+    metadata = conversation_manager.get_thread_metadata(conversation_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    owner_id = metadata.get("user_id")
+    if owner_id != str(context.user_id):
+        logger.warning(
+            "unauthorized_conversation_attempt",
+            action=action,
+            conversation_id=conversation_id,
+            requesting_user_id=str(context.user_id),
+            owner_user_id=owner_id,
+        )
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return conversation_id
+
+
+def resolve_owned_conversation(
+    supplied_conversation_id: Optional[str],
+    context: RequestContext,
+    *,
+    action: str,
+) -> str:
+    """
+    Helper for POST endpoints (/chat, /stream):
+      • If the client supplied a conversation_id → verify ownership, reuse it.
+      • Otherwise → create a new thread owned by the authenticated user.
+
+    Threads are ALWAYS owned by a real authenticated user — there is no
+    IP/anon fallback path.
+    """
+    if supplied_conversation_id:
+        return require_conversation_owner(supplied_conversation_id, context, action=action)
+    return conversation_manager.create_thread(user_id=str(context.user_id), title=None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_request: Request):
+async def chat(
+    request: ChatRequest,
+    background_tasks: BackgroundTasks,
+    context: RequestContext = Depends(get_request_context),
+):
     """
     Main chat endpoint for natural language cost analysis.
-    Uses the Multi-Agent system (default) for intelligent routing and better follow-ups.
-    Includes account scoping based on user's organization and saved view.
+
+    Requires authentication. Uses the Multi-Agent system for intelligent routing
+    and better follow-ups. All queries scoped to the caller's organization and
+    allowed AWS accounts.
     """
-
-    # Get request context for account scoping
-    request_context = get_context_from_request(http_request)
-    scope_info = request_context.to_scope_dict() if request_context else None
-
-    # Ensure a persistent conversation thread exists (maps to DB thread_id)
-    conversation_id = request.conversation_id or None
-    if not conversation_id:
-        if request_context:
-            user_id = str(request_context.user_id)
-        else:
-            client_ip = http_request.client.host if http_request and http_request.client else None
-            user_id = f"ip:{client_ip}" if client_ip else f"anon:{str(uuid4())}"
-        conversation_id = conversation_manager.create_thread(user_id=user_id, title=None)
+    scope_info = context.to_scope_dict()
+    conversation_id = resolve_owned_conversation(
+        request.conversation_id, context, action="chat"
+    )
     start_time = datetime.utcnow()
 
     logger.info(
         "Processing chat request with Multi-Agent System",
         conversation_id=conversation_id,
+        user_id=str(context.user_id),
         message_length=len(request.message),
-        has_scope=scope_info is not None,
-        account_count=len(request_context.allowed_account_ids) if request_context else 0
+        account_count=len(context.allowed_account_ids),
     )
-    
+
     try:
         # Persist user message and build context
         user_message_id = conversation_manager.add_message(
@@ -74,19 +141,15 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
         )
         derived_context = conversation_manager.get_context_for_query(conversation_id)
 
-        # Extract organization and account info from context
-        organization_id = request_context.organization_id if request_context else None
-        account_ids = request_context.allowed_account_ids if request_context else None
-
-        # Execute multi-agent workflow with organization/account scoping
+        # Execute multi-agent workflow with tenant scoping
         response = await execute_multi_agent_query(
             query=request.message,
             conversation_id=conversation_id,
             chat_history=request.chat_history or [],
             previous_context={**derived_context, **(request.context or {})},
-            organization_id=organization_id,
-            account_ids=account_ids,
-            timezone=request.context.get("timezone", "UTC") if request.context else "UTC"
+            organization_id=context.organization_id,
+            account_ids=context.allowed_account_ids,
+            timezone=request.context.get("timezone", "UTC") if request.context else "UTC",
         )
 
         # Extract response components
@@ -97,35 +160,34 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
         context_data = response.get("context", {})
         metadata = response.get("metadata", {})
         athena_query = response.get("athena_query")  # SQL query from cost analysis
-        
+
         # If no message and we have error/clarification status, construct a helpful message
         if not message_text and metadata:
             status = metadata.get("status")
             clarifications = metadata.get("clarification", [])
             if status == "llm_error":
                 message_text = "I encountered an issue generating a reliable query for your request. " + (
-                    clarifications[0] if clarifications else 
+                    clarifications[0] if clarifications else
                     "Please try rephrasing or provide more specific details (e.g., time period, service name)."
                 )
             elif status == "needs_clarification":
-                message_text = (clarifications[0] if clarifications else 
+                message_text = (clarifications[0] if clarifications else
                     "I need more information to proceed. Could you specify a time period or breakdown preference?")
             else:
                 message_text = "I apologize, but I couldn't process your request."
-        
+
         execution_time = (datetime.utcnow() - start_time).total_seconds()
 
         logger.info(
             "Multi-agent chat completed",
             conversation_id=conversation_id,
             execution_time=execution_time,
-            charts_count=len(charts)
+            charts_count=len(charts),
         )
 
         # Merge scope info into metadata
         response_metadata = response.get("metadata", {})
-        if scope_info:
-            response_metadata['scope'] = scope_info
+        response_metadata["scope"] = scope_info
 
         chat_response = ChatResponse(
             message=message_text,
@@ -145,7 +207,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
             results=response.get("results", []),  # Data table
             metadata=response_metadata,  # Query metadata with scope
             execution_time=execution_time,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
         )
 
         # Persist assistant message and execution logs in background
@@ -173,9 +235,9 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
                 logger.error("Failed to persist multi-agent conversation", error=str(e))
 
         background_tasks.add_task(_persist_multi_agent_default)
-        
+
         return chat_response
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -184,10 +246,10 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
             "Chat request failed",
             conversation_id=conversation_id,
             error=str(e),
-            request_payload=request.dict() if hasattr(request, 'dict') else str(request),
-            chat_history_len=len(request.chat_history) if hasattr(request, 'chat_history') and request.chat_history else 0,
+            request_payload=request.dict() if hasattr(request, "dict") else str(request),
+            chat_history_len=len(request.chat_history) if hasattr(request, "chat_history") and request.chat_history else 0,
             traceback=traceback.format_exc(),
-            exc_info=True
+            exc_info=True,
         )
         execution_time = (datetime.utcnow() - start_time).total_seconds()
         return ChatResponse(
@@ -199,11 +261,11 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
             suggestions=[
                 "Try asking about your AWS costs",
                 "Request a cost summary or breakdown by service",
-                "Request cost optimization recommendations"
+                "Request cost optimization recommendations",
             ],
             agent_responses=[],
             execution_time=execution_time,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
         )
 
 
@@ -211,24 +273,11 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks, http_req
 async def get_conversation(
     conversation_id: str,
     limit: int = 100,
-    context: RequestContext = Depends(get_request_context)
+    context: RequestContext = Depends(get_request_context),
 ):
     """Get conversation history by thread ID with optional limit (default 100)."""
     try:
-        # Validate ownership
-        thread_metadata = conversation_manager.get_thread_metadata(conversation_id)
-        if not thread_metadata:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-
-        # Check if user owns this conversation
-        if thread_metadata.get('user_id') != str(context.user_id):
-            logger.warning(
-                "unauthorized_conversation_access_attempt",
-                conversation_id=conversation_id,
-                requesting_user_id=str(context.user_id),
-                owner_user_id=thread_metadata.get('user_id')
-            )
-            raise HTTPException(status_code=403, detail="Access denied")
+        require_conversation_owner(conversation_id, context, action="read")
 
         messages = conversation_manager.get_conversation_history(conversation_id, limit=limit)
 
@@ -236,8 +285,7 @@ async def get_conversation(
             "conversation_accessed",
             conversation_id=conversation_id,
             user_id=str(context.user_id),
-            user_email=context.user_email,
-            message_count=len(messages)
+            message_count=len(messages),
         )
 
         return {
@@ -256,49 +304,27 @@ async def get_conversation(
 @router.delete("/conversations/{conversation_id}")
 async def delete_conversation(
     conversation_id: str,
-    context: RequestContext = Depends(get_request_context)
+    context: RequestContext = Depends(get_request_context),
 ):
     """Soft-delete a conversation thread by marking it inactive."""
     try:
-        # Import at function level to avoid circular imports
-        from backend.services.database import DatabaseService
+        require_conversation_owner(conversation_id, context, action="delete")
 
-        # Validate ownership before deletion
+        # Perform soft delete
+        from backend.services.database import DatabaseService
         db = DatabaseService()
         await db.initialize()
         async with db.acquire() as conn:
-            # Check if conversation exists and get owner
-            result = await conn.fetchrow(
-                "SELECT user_id, is_active FROM conversation_threads WHERE thread_id = $1",
-                conversation_id
-            )
-
-            if not result:
-                raise HTTPException(status_code=404, detail="Conversation not found")
-
-            # Verify ownership
-            if result['user_id'] != str(context.user_id):
-                logger.warning(
-                    "unauthorized_conversation_deletion_attempt",
-                    conversation_id=conversation_id,
-                    requesting_user_id=str(context.user_id),
-                    owner_user_id=result['user_id']
-                )
-                raise HTTPException(status_code=403, detail="Access denied")
-
-            # Perform soft delete
             await conn.execute(
                 "UPDATE conversation_threads SET is_active = FALSE, updated_at = NOW() WHERE thread_id = $1",
-                conversation_id
+                conversation_id,
             )
 
-            # Audit log
-            logger.info(
-                "conversation_deleted",
-                conversation_id=conversation_id,
-                user_id=str(context.user_id),
-                user_email=context.user_email
-            )
+        logger.info(
+            "conversation_deleted",
+            conversation_id=conversation_id,
+            user_id=str(context.user_id),
+        )
 
         return {"success": True, "conversation_id": conversation_id, "status": "deleted"}
     except HTTPException:
@@ -311,61 +337,75 @@ async def delete_conversation(
 @router.get("/suggestions")
 async def get_query_suggestions():
     """Get suggested queries for users"""
-    
+
     suggestions = [
         {
             "text": "Show me my AWS costs for the last 30 days",
             "category": "cost_analysis",
-            "description": "Get a comprehensive breakdown of your recent AWS spending"
+            "description": "Get a comprehensive breakdown of your recent AWS spending",
         },
         {
             "text": "What are my top 5 most expensive AWS services?",
             "category": "service_analysis",
-            "description": "Identify your biggest cost drivers"
+            "description": "Identify your biggest cost drivers",
         },
         {
             "text": "How can I optimize my EC2 costs?",
             "category": "optimization",
-            "description": "Get specific recommendations for compute cost reduction"
+            "description": "Get specific recommendations for compute cost reduction",
         },
         {
             "text": "Show me cost trends over the last quarter",
-            "category": "trend_analysis", 
-            "description": "Analyze spending patterns and identify trends"
+            "category": "trend_analysis",
+            "description": "Analyze spending patterns and identify trends",
         },
         {
             "text": "Generate a cost optimization report",
             "category": "reports",
-            "description": "Create a comprehensive optimization analysis"
+            "description": "Create a comprehensive optimization analysis",
         },
         {
             "text": "What cost anomalies were detected this week?",
             "category": "anomaly_detection",
-            "description": "Review unusual spending patterns and alerts"
-        }
+            "description": "Review unusual spending patterns and alerts",
+        },
     ]
-    
+
     return {"suggestions": suggestions}
 
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest, http_request: Request):
+async def chat_stream(
+    request: ChatRequest,
+    context: RequestContext = Depends(get_request_context),
+):
     """
-    Streaming chat endpoint for real-time response generation
-    Returns server-sent events with incremental updates
+    Streaming chat endpoint for real-time response generation.
+
+    Requires authentication. All responses are scoped to the caller's
+    organization and allowed AWS accounts (multi-tenant isolation).
+    Returns server-sent events with incremental updates.
     """
-    
-    conversation_id = request.conversation_id or None
-    if not conversation_id:
-        client_ip = http_request.client.host if http_request and http_request.client else None
-        user_id = f"ip:{client_ip}" if client_ip else f"anon:{str(uuid4())}"
-        conversation_id = conversation_manager.create_thread(user_id=user_id, title=None)
-    
+    conversation_id = resolve_owned_conversation(
+        request.conversation_id, context, action="stream"
+    )
+
+    # Tenant scope (captured for the streaming closure)
+    organization_id = context.organization_id
+    account_ids = context.allowed_account_ids
+
+    logger.info(
+        "chat_stream_started",
+        conversation_id=conversation_id,
+        user_id=str(context.user_id),
+        organization_id=str(organization_id) if organization_id else None,
+        account_count=len(account_ids),
+    )
+
     async def generate_stream():
-        """Generate streaming response events"""
-        
+        """Generate streaming response events scoped to the caller's tenant."""
         yield f"data: {{'type': 'start', 'conversation_id': '{conversation_id}'}}\n\n"
-        
+
         try:
             yield f"data: {{'type': 'status', 'message': 'Analyzing your query (multi-agent)...'}}\n\n"
             # Non-incremental streaming: emit final results as a set of events
@@ -373,7 +413,10 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                 query=request.message,
                 conversation_id=conversation_id,
                 chat_history=request.chat_history or [],
-                previous_context=request.context or {}
+                previous_context=request.context or {},
+                organization_id=organization_id,
+                account_ids=account_ids,
+                timezone=(request.context or {}).get("timezone", "UTC"),
             )
 
             yield f"data: {{'type': 'message', 'content': {json.dumps(response.get('message', ''))}}}\n\n"
@@ -382,17 +425,24 @@ async def chat_stream(request: ChatRequest, http_request: Request):
             if response.get("suggestions"):
                 yield f"data: {{'type': 'suggestions', 'data': {json.dumps(response['suggestions'])}}}\n\n"
             yield f"data: {{'type': 'complete'}}\n\n"
-                
+
         except Exception as e:
-            yield f"data: {{'type': 'error', 'message': 'An error occurred: {str(e)}'}}\n\n"
-    
+            logger.error(
+                "chat_stream_error",
+                conversation_id=conversation_id,
+                user_id=str(context.user_id),
+                error=str(e),
+                exc_info=True,
+            )
+            yield "data: {'type': 'error', 'message': 'An error occurred processing your request.'}\n\n"
+
     return StreamingResponse(
         generate_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-        }
+        },
     )
 
 
@@ -405,24 +455,24 @@ async def chat_health():
         return {
             "status": "healthy",
             "system": "multi-agent",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         logger.error(f"Chat health check failed: {e}")
         return {
             "status": "unhealthy",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
 
 async def _store_conversation(
     conversation_id: str,
     user_message: str,
-    assistant_message: str
+    assistant_message: str,
 ):
     """Store conversation in database (background task)"""
-    
+
     try:
         from services.database import DatabaseService
         db = DatabaseService()
@@ -436,15 +486,15 @@ async def _store_conversation(
                 {
                     "conversation_id": conversation_id,
                     "user_message": user_message,
-                    "assistant_message": assistant_message
-                }
+                    "assistant_message": assistant_message,
+                },
             )
             await session.commit()
         logger.info(
             "Conversation stored in database",
             conversation_id=conversation_id,
             user_message_length=len(user_message),
-            assistant_message_length=len(assistant_message)
+            assistant_message_length=len(assistant_message),
         )
     except Exception as e:
         logger.error(f"Failed to store conversation: {e}")
