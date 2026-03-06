@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import structlog
 
 from backend.services.database import DatabaseService
-from backend.services.request_context import RequestContext, SavedViewInfo
+from backend.services.request_context import RequestContext
 from backend.services.rbac_permission_service import get_rbac_service
 
 logger = structlog.get_logger(__name__)

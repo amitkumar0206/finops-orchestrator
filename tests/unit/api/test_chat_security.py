@@ -192,7 +192,11 @@ class TestGetConversationOwnership:
         assert result['conversation_id'] == 'test-thread-123'
         assert 'messages' in result
         assert result['count'] == 1
-        mock_conversation_manager.get_conversation_history.assert_called_once_with('test-thread-123', limit=100)
+        # HIGH-14: service layer now receives user_id — defense-in-depth beneath
+        # the require_conversation_owner() check at the top of the handler.
+        mock_conversation_manager.get_conversation_history.assert_called_once_with(
+            'test-thread-123', user_id=str(sample_request_context.user_id), limit=100
+        )
 
     @pytest.mark.asyncio
     async def test_logs_successful_access(

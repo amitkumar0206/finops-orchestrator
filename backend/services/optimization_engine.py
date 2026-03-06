@@ -5,7 +5,6 @@ Provides service-specific cost optimization recommendations with confidence scor
 
 import structlog
 from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from backend.config.settings import get_settings

@@ -7,7 +7,7 @@ allowing the QueryOrchestrator to work with any data source without knowing impl
 from abc import ABC, abstractmethod
 from typing import Optional
 from backend.services.query_spec import QuerySpec
-from backend.services.query_result import QueryResult, ResultMetadata
+from backend.services.query_result import QueryResult
 import structlog
 
 logger = structlog.get_logger(__name__)

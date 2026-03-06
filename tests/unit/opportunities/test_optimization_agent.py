@@ -289,7 +289,7 @@ class TestProcessQuery:
         mock_result.items = []
         mock_opportunities_service.list_opportunities.return_value = mock_result
 
-        response = await agent.process_query(
+        await agent.process_query(
             "Show me optimization opportunities",
             account_ids=["123456789012"],
         )

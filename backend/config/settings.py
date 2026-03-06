@@ -4,7 +4,7 @@ Uses Pydantic Settings for environment variable handling and validation
 """
 
 from functools import lru_cache
-from typing import ClassVar, FrozenSet, List, Optional, Any
+from typing import ClassVar, FrozenSet, List, Optional
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 import os
@@ -237,6 +237,27 @@ class Settings(BaseSettings):
     rate_limit_requests: int = Field(default=100, env="RATE_LIMIT_REQUESTS")
     rate_limit_window: int = Field(default=60, env="RATE_LIMIT_WINDOW")  # seconds
 
+    # SECURITY (HIGH-12, HIGH-35): Number of trusted reverse proxies between
+    # the client and this backend. Controls which X-Forwarded-For entry is
+    # trusted as the real client IP for rate-limiting and brute-force throttling.
+    #
+    # AWS ALB *appends* the connecting peer's IP to any existing XFF header.
+    # An attacker can prepend arbitrary spoofed entries but cannot modify what
+    # the ALB appends. With N trusted proxies, hops[-N] is the real client.
+    #
+    # Per-client deployment topologies (MUST be configured per SaaS tenant):
+    #   0 = direct connection / local dev — XFF ignored entirely, use TCP peer
+    #   1 = single ALB (default AWS deployment)
+    #   2 = CloudFront → ALB
+    #   3 = CloudFront → ALB → internal gateway
+    trusted_proxy_count: int = Field(
+        default=1,
+        ge=0,
+        le=5,
+        env="TRUSTED_PROXY_COUNT",
+        description="Number of trusted reverse proxies; controls X-Forwarded-For parsing depth",
+    )
+
     # Athena Export Rate Limits (per organization, per hour)
     athena_export_limit_free: int = Field(default=10, env="ATHENA_EXPORT_LIMIT_FREE")
     athena_export_limit_standard: int = Field(default=50, env="ATHENA_EXPORT_LIMIT_STANDARD")
@@ -348,13 +369,13 @@ class Settings(BaseSettings):
             if self.secret_key.lower() in self.INSECURE_SECRET_KEYS:
                 if is_production:
                     raise ValueError(
-                        f"CRITICAL SECURITY ERROR: SECRET_KEY is set to a known insecure value. "
-                        f"Generate a secure key with: "
-                        f"python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+                        "CRITICAL SECURITY ERROR: SECRET_KEY is set to a known insecure value. "
+                        "Generate a secure key with: "
+                        "python -c \"import secrets; print(secrets.token_urlsafe(64))\""
                     )
                 elif not is_testing:
                     warnings.warn(
-                        f"WARNING: Using insecure SECRET_KEY. This must be changed for production.",
+                        "WARNING: Using insecure SECRET_KEY. This must be changed for production.",
                         UserWarning,
                         stacklevel=2
                     )

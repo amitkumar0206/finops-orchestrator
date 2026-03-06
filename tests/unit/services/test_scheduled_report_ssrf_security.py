@@ -4,7 +4,7 @@ Tests the fix for HIGH-5: Server-Side Request Forgery (SSRF) via Webhook Deliver
 """
 
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock
 import socket
 
 from backend.services.scheduled_report_service import (

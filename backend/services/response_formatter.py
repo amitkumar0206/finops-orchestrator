@@ -4,13 +4,12 @@ Implements: Summary, Scope, Results, Insights, Recommended Charts, Next steps
 """
 
 from typing import Dict, List, Any, Optional, Union, Tuple
-from datetime import datetime, date
 import re
 import structlog
 
 from backend.utils.date_parser import date_parser
 from backend.agents.intent_classifier import IntentType
-from backend.services.column_constants import DIMENSION_VALUE, SERVICE, REGION, COST_USD, RESOURCE_TYPE
+from backend.services.column_constants import SERVICE, RESOURCE_TYPE
 
 logger = structlog.get_logger(__name__)
 
@@ -262,9 +261,7 @@ class FinOpsResponseFormatter:
             # Handle ARN fallback scenario (when direct ARN has no costs but related resources do)
             if params_metadata.get("arn_fallback"):
                 original_arn = params_metadata.get("original_arn", "the specified ARN")
-                fallback_msg = params_metadata.get("fallback_message", "")
-                resource_type_explanation = params_metadata.get("resource_type_explanation", "related resources")
-                
+
                 # Use standardized column name for service
                 service_name = data_results[0].get(SERVICE, data_results[0].get("service", "Unknown")) if data_results else "Unknown"
                 service_name = self._humanize_service_name(service_name)
@@ -536,7 +533,7 @@ class FinOpsResponseFormatter:
         Check if actual data availability matches requested time range.
         Returns warning message if there's a significant mismatch.
         """
-        from datetime import datetime, timedelta
+        from datetime import datetime
         
         requested_start = params.get("start_date")
         requested_end = params.get("end_date")
@@ -772,7 +769,6 @@ class FinOpsResponseFormatter:
         # Check if chart aggregation was applied
         chart_aggregation_note = ""
         if metadata.get("chart_shows_top_5"):
-            total_items = metadata.get("total_items_available", count)
             hidden_items = metadata.get("items_aggregated_into_others", 0)
             chart_aggregation_note = f" Chart shows top 5 items with {hidden_items} others aggregated for clarity."
         
@@ -1155,8 +1151,6 @@ class FinOpsResponseFormatter:
         
         # Special insights for ARN fallback queries
         if metadata.get("arn_fallback"):
-            resource_type_explanation = metadata.get("resource_type_explanation", "resources")
-            
             # Analyze resource types
             if data_results:
                 resource_types = {}
@@ -1230,7 +1224,7 @@ class FinOpsResponseFormatter:
                     insights.append(f"**Leading driver**: **{driver_name}** is the primary cost contributor")
                 
                 if len(data_results) >= 3:
-                    insights.append(f"**Optimization focus**: Concentrate efforts on the top 3 components for maximum impact")
+                    insights.append("**Optimization focus**: Concentrate efforts on the top 3 components for maximum impact")
             else:
                 # Regular top N ranking insights
                 if len(data_results) >= 2:
@@ -1248,7 +1242,7 @@ class FinOpsResponseFormatter:
                         insights.append(f"**Primary driver**: **{top_service}** is your main cost contributor")
                 
                 if len(data_results) >= 3:
-                    insights.append(f"**Optimization focus**: Concentrate efforts on the top 3 services for maximum impact")
+                    insights.append("**Optimization focus**: Concentrate efforts on the top 3 services for maximum impact")
         
         elif intent == IntentType.COST_BREAKDOWN:
             # Breakdown insights

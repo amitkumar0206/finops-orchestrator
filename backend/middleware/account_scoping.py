@@ -26,7 +26,7 @@ from backend.services.request_context import (
     create_empty_context,
 )
 from backend.services.database import DatabaseService
-from backend.middleware.authentication import AuthenticatedUser, AnonymousUser
+from backend.middleware.authentication import AnonymousUser
 
 logger = structlog.get_logger(__name__)
 

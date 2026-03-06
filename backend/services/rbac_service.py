@@ -10,7 +10,7 @@ from fastapi import HTTPException, Request, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from backend.services.database import DatabaseService
-from backend.utils.pii_masking import mask_email, hash_identifier
+from backend.utils.pii_masking import hash_identifier
 
 logger = structlog.get_logger(__name__)
 security = HTTPBearer()

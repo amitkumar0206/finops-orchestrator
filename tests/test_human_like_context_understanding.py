@@ -27,13 +27,13 @@ def verify_result(actual_services, expected_services, actual_time, expected_time
         time_match = expected_time_desc.lower() in (actual_time or {}).get('description', '').lower()
     
     if services_match and time_match:
-        print(f"   ✅ PASS")
+        print("   ✅ PASS")
         print(f"      Services: {actual_services}")
         if expected_time_desc:
             print(f"      Time: {actual_time.get('description')}")
         return True
     else:
-        print(f"   ❌ FAIL")
+        print("   ❌ FAIL")
         print(f"      Expected Services: {expected_services}")
         print(f"      Actual Services:   {actual_services}")
         if expected_time_desc:

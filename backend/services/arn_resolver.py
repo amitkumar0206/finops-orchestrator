@@ -1,6 +1,4 @@
-import os
 import re
-import json
 from typing import Dict, Optional
 
 from backend.utils.aws_session import create_aws_session
@@ -267,7 +265,6 @@ def resolve_elb_resource(parts: Dict[str, str]) -> Optional[Dict]:
     # ALB/NLB (elbv2) ARN: arn:aws:elasticloadbalancing:region:account-id:loadbalancer/app/name/id
     region = parts.get("region")
     account = parts.get("account")
-    rtype = parts.get("resource_type")
     rid = parts.get("resource_id")
     elb = get_boto3_client("elbv2", region)
     # We won't fully parse type here; use name/id heuristics

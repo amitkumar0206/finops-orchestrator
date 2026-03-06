@@ -22,7 +22,7 @@ Converts relative dates (last 30 days, this month, Q1, YTD) to absolute date ran
 Default: Last 30 days rolling if no timeframe specified
 """
 
-from typing import Dict, Tuple, Optional, Any
+from typing import Dict, Tuple, Any
 from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta
 import re

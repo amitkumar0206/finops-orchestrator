@@ -10,10 +10,9 @@ Tests authentication and rate limiting requirements for Athena query endpoints t
 """
 
 import pytest
-from uuid import UUID, uuid4
-from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
+from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
-from datetime import date
 
 from backend.api.athena_queries import (
     generate_athena_query,
@@ -456,10 +455,10 @@ class TestSecurityAuditCompliance:
     async def test_no_endpoints_allow_anonymous_access(self):
         """Verify no critical endpoints allow anonymous access"""
         # All three critical endpoints should require authentication
-        from backend.api.athena_queries import (
+        from backend.api.athena_queries import (  # noqa: F401
             generate_athena_query,
             export_results_csv,
-            export_results_json
+            export_results_json,
         )
 
         # This test ensures the vulnerability is fixed

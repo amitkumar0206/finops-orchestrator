@@ -6,7 +6,7 @@ queries (make_interval) instead of vulnerable % string formatting.
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from backend.services.audit_log_service import AuditLogService
 

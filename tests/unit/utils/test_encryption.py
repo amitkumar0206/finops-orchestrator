@@ -4,7 +4,6 @@ Tests for field-level encryption utility (CRIT-9 remediation).
 
 import os
 import pytest
-from unittest.mock import patch
 
 from backend.utils.encryption import (
     DecryptionError,

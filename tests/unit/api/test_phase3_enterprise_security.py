@@ -362,9 +362,6 @@ class TestScheduledReportCreateRegressionTests:
         """Test that field_validator decorator is applied to validate_template"""
         import inspect
 
-        # Get the validate_template method
-        method = getattr(ScheduledReportCreate, 'validate_template')
-
         # Check that it's a classmethod
         assert isinstance(inspect.getattr_static(ScheduledReportCreate, 'validate_template'),
                          classmethod)

@@ -8,7 +8,6 @@ the previously vulnerable X-User-Email header).
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from datetime import datetime, timedelta, timezone
 
 from backend.middleware.authentication import (
     AuthenticationMiddleware,
@@ -17,11 +16,7 @@ from backend.middleware.authentication import (
     require_auth,
     require_admin,
 )
-from backend.utils.auth import (
-    JWTAuthenticator,
-    TokenExpiredError,
-    TokenInvalidError,
-)
+from backend.utils.auth import JWTAuthenticator
 
 
 @pytest.fixture
@@ -124,7 +119,7 @@ class TestJWTAuthentication:
         mock_cache.is_access_token_blacklisted = AsyncMock(return_value=False)
 
         with patch('backend.middleware.authentication.get_cache_service', return_value=mock_cache):
-            response = await middleware.dispatch(request, call_next)
+            await middleware.dispatch(request, call_next)
 
         # Should have called the next handler
         call_next.assert_called_once()
@@ -245,7 +240,7 @@ class TestPublicPaths:
 
         call_next = AsyncMock(return_value=Mock())
 
-        response = await middleware.dispatch(request, call_next)
+        await middleware.dispatch(request, call_next)
 
         # Should have called the next handler
         call_next.assert_called_once()
@@ -400,7 +395,7 @@ class TestTokenBlacklist:
         mock_cache.is_access_token_blacklisted = AsyncMock(return_value=False)
 
         with patch('backend.middleware.authentication.get_cache_service', return_value=mock_cache):
-            response = await middleware.dispatch(request, call_next)
+            await middleware.dispatch(request, call_next)
 
         # Should have called the next handler
         call_next.assert_called_once()

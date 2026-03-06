@@ -4,11 +4,8 @@ Chart Data Builder - Converts chart specifications into Chart.js-compatible data
 
 from typing import Dict, List, Any, Optional
 import structlog
-from datetime import datetime
 
-from backend.services.column_constants import (
-    DIMENSION_VALUE, SERVICE, REGION, COST_USD, CHART_REQUIRED_COLUMNS
-)
+from backend.services.column_constants import DIMENSION_VALUE, COST_USD
 
 logger = structlog.get_logger(__name__)
 
@@ -401,8 +398,7 @@ class ChartDataBuilder:
         if conv_context:
             # Check if last query intent was breakdown or if we're in a follow-up drill-down
             last_intent = getattr(conv_context, 'last_intent', None)
-            last_query = getattr(conv_context, 'last_query', '').lower()
-            
+
             # IMPORTANT: Only detect breakdown for COST_BREAKDOWN intent
             # Don't confuse with TOP_N_RANKING which should still aggregate
             if last_intent == 'cost_breakdown':
@@ -444,7 +440,7 @@ class ChartDataBuilder:
             values.append(others_sum)
             
             logger.info(
-                f"BAR CHART: Aggregating for cleaner UI (top-level query)",
+                "BAR CHART: Aggregating for cleaner UI (top-level query)",
                 total_items=len(items),
                 showing_top=5,
                 others_count=others_count,
@@ -462,7 +458,7 @@ class ChartDataBuilder:
                 conv_context.last_shown_top_items = labels
             
             logger.info(
-                f"BAR CHART: Breakdown query - showing top 15 items without aggregation",
+                "BAR CHART: Breakdown query - showing top 15 items without aggregation",
                 total_items=len(items),
                 is_breakdown=True
             )

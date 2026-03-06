@@ -4,13 +4,12 @@ Handles Athena SQL query generation, execution, and result export
 """
 
 from typing import Optional
-from datetime import datetime, timedelta, date
+from datetime import timedelta, date
 
 from fastapi import APIRouter, HTTPException, Request, Depends
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 import structlog
-import io
 
 from backend.services.athena_query_service import athena_service
 from backend.config.settings import get_settings

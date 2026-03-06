@@ -697,19 +697,19 @@ Format your response beautifully with markdown for optimal readability."""
             
         elif any(word in query_lower for word in ["optimize", "save", "reduce", "quick win"]):
             # Optimization query
-            response_parts.append(f"## 💡 Cost Optimization Opportunities\n")
+            response_parts.append("## 💡 Cost Optimization Opportunities\n")
             response_parts.append(f"Based on your **${total_cost:,.2f}** in total spending, here are key areas to focus on:\n")
             
             if top_services:
                 top_service = list(top_services.keys())[0]
                 top_cost = list(top_services.values())[0]
                 response_parts.append(f"**Highest Cost Service:** {top_service} (${top_cost:,.2f})")
-                response_parts.append(f"\nReview the optimization recommendations below for specific savings opportunities.")
+                response_parts.append("\nReview the optimization recommendations below for specific savings opportunities.")
             
         elif any(word in query_lower for word in ["trend", "over time", "pattern", "growth"]):
             # Trend query
-            response_parts.append(f"## 📈 AWS Cost Trends\n")
-            response_parts.append(f"I've analyzed your cost trends:\n")
+            response_parts.append("## 📈 AWS Cost Trends\n")
+            response_parts.append("I've analyzed your cost trends:\n")
             response_parts.append(f"**Total Spending:** ${total_cost:,.2f}")
             
             if avg_daily > 0:
@@ -724,11 +724,11 @@ Format your response beautifully with markdown for optimal readability."""
                 elif trend_direction == "decreasing":
                     response_parts.append(f"\n📉 Costs are **trending downward** ({percent_change:+.1f}% change)")
                 else:
-                    response_parts.append(f"\n➡️ Costs are **relatively stable**")
+                    response_parts.append("\n➡️ Costs are **relatively stable**")
             
         elif "breakdown" in query_lower or "distribution" in query_lower:
             # Breakdown query
-            response_parts.append(f"## 📊 AWS Cost Breakdown\n")
+            response_parts.append("## 📊 AWS Cost Breakdown\n")
             response_parts.append(f"**Total Spending:** ${total_cost:,.2f}\n")
             response_parts.append(f"**Average Daily Cost:** ${avg_daily:,.2f}\n")
             
@@ -740,7 +740,7 @@ Format your response beautifully with markdown for optimal readability."""
             
         else:
             # General cost analysis
-            response_parts.append(f"## 💰 AWS Cost Analysis\n")
+            response_parts.append("## 💰 AWS Cost Analysis\n")
             period = analysis.get("time_range", {}).get("period", "30d") if analysis else "30d"
             response_parts.append(f"I've analyzed your AWS costs for {period}.\n")
             response_parts.append(f"**Total spending:** ${total_cost:,.2f}")
@@ -1670,7 +1670,6 @@ Generate a consolidated prompt that captures the complete user intent from this 
         for msg in chat_history[-10:]:  # Last 10 messages to avoid token limits
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
-            timestamp = msg.get("timestamp", "")
             conversation_text += f"{role.upper()}: {content}\n"
         
         system_prompt = """You are an expert FinOps analyst with decades of experience helping engineering teams and finance managers understand their AWS cloud costs.

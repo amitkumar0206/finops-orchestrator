@@ -5,7 +5,7 @@ Tests the fix for CRIT-NEW-1: Command Injection in Database Migration Script
 
 import pytest
 import os
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch
 from pathlib import Path
 import sys
 

@@ -29,9 +29,11 @@ Design:
         slows brute force regardless). Degraded protection > total outage.
     The fail-open path logs a WARNING so ops can alert on it.
 
-Not in scope here (see audit): X-Forwarded-For trust assumes a trusted proxy
-(ALB). An attacker spoofing XFF to evade the IP limit is still caught by the
-per-email limit. Matches the existing behavior in rate_limiting.py.
+X-Forwarded-For parsing (HIGH-35 fix): delegates to utils.client_ip, which
+uses trusted-proxy-depth semantics. The prior implementation took the
+leftmost XFF entry (attacker-controlled), allowing password-spray attackers
+to bypass Layer 1 entirely by setting a random XFF on each request. The
+per-email Layer 2 still caught targeted attacks, but spray was unprotected.
 """
 
 import hashlib
@@ -41,6 +43,7 @@ import structlog
 from fastapi import HTTPException, Request, status
 
 from backend.services.cache_service import CacheService, get_cache_service
+from backend.utils.client_ip import get_client_ip
 from backend.utils.pii_masking import mask_email
 
 logger = structlog.get_logger(__name__)
@@ -106,11 +109,10 @@ class LoginThrottle:
 
     @staticmethod
     def _get_client_ip(http_request: Request) -> str:
-        """Matches rate_limiting.py:57-65 (X-Forwarded-For → client.host)."""
-        forwarded = http_request.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        return http_request.client.host if http_request.client else "unknown"
+        # SECURITY (HIGH-35): delegate to the shared trusted-proxy-depth
+        # helper. The prior inline .split(",")[0] took the leftmost XFF
+        # entry — attacker-controlled, allowing Layer 1 bypass via spoofing.
+        return get_client_ip(http_request)
 
     # ── Public API ───────────────────────────────────────────────────────────
 

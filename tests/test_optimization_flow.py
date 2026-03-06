@@ -7,7 +7,6 @@ Tests: database seeding, recommendation retrieval, query routing, response forma
 import sys
 import os
 from unittest.mock import patch, MagicMock
-import json
 
 # Add backend to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
@@ -88,7 +87,7 @@ def test_optimization_engine(mock_connect):
     from services.optimization_engine import OptimizationEngine
 
     engine = OptimizationEngine()
-    recommendations = engine.get_recommendations("EC2", {"current_monthly_cost": 1000.0})
+    engine.get_recommendations("EC2", {"current_monthly_cost": 1000.0})
 
     # Engine was instantiated and called without hanging
     assert engine is not None
@@ -113,11 +112,11 @@ def test_multi_agent_routing():
         "optimization report", "cost optimization report", "generate", "show me optimization"
     ]
     
-    print(f"\nOptimization detection phrases:")
+    print("\nOptimization detection phrases:")
     for phrase in optimization_phrases:
         print(f"  - '{phrase}'")
     
-    print(f"\nTesting queries against phrases:")
+    print("\nTesting queries against phrases:")
     for query in test_queries:
         query_lower = query.lower()
         matches = [phrase for phrase in optimization_phrases if phrase in query_lower]
@@ -172,7 +171,7 @@ def test_response_formatting():
             lines.append(line)
         
         response = "\n".join(lines)
-        print(f"\n✅ Response formatted successfully")
+        print("\n✅ Response formatted successfully")
         print(f"\nFinal response:\n{response}")
         return True
         

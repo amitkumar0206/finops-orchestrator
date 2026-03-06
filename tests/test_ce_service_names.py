@@ -5,7 +5,6 @@ Test Cost Explorer API directly to see what service names it returns for EC2
 
 import boto3
 from datetime import datetime, timedelta
-import json
 
 from backend.utils.aws_constants import COST_EXPLORER_REGION
 

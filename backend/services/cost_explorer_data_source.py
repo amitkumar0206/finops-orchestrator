@@ -3,7 +3,6 @@ Cost Explorer data source implementation.
 
 Provides fallback data source when Athena is unavailable or returns no results.
 """
-from typing import Dict, Any, List
 import time
 from backend.services.data_source import DataSource
 from backend.services.query_spec import QuerySpec

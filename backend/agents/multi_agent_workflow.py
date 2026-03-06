@@ -10,7 +10,7 @@ from uuid import UUID
 
 from backend.config.settings import get_settings
 from backend.finops.time_range import merge_time_range, TimeRangeResult
-from backend.agents.optimization_agent import OptimizationAgent, get_optimization_agent
+from backend.agents.optimization_agent import get_optimization_agent
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()

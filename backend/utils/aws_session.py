@@ -22,7 +22,6 @@ Credential Resolution Order (boto3 default chain):
 
 import warnings
 from typing import Optional, Any
-from functools import lru_cache
 
 import boto3
 from botocore.config import Config
@@ -30,7 +29,6 @@ import structlog
 
 from backend.utils.aws_constants import (
     AwsService,
-    AwsRegion,
     DEFAULT_AWS_REGION,
 )
 
@@ -48,8 +46,14 @@ def _check_explicit_credentials_configured() -> bool:
         from backend.config.settings import get_settings
         settings = get_settings()
 
+        # Bypass Pydantic's __getattr__ via __dict__ — these fields carry
+        # Field(deprecated=...) which emits DeprecationWarning on EVERY read,
+        # even when the value is None. We are the warner, not a consumer of
+        # the deprecated feature; inspect without triggering. Pydantic v2
+        # stores field values directly in __dict__ so semantics are identical.
         has_explicit_creds = bool(
-            settings.aws_access_key_id and settings.aws_secret_access_key
+            settings.__dict__.get("aws_access_key_id")
+            and settings.__dict__.get("aws_secret_access_key")
         )
 
         if has_explicit_creds:

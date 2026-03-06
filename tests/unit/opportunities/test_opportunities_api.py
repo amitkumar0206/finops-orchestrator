@@ -10,11 +10,10 @@ Tests cover:
 """
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
 from uuid import uuid4
 from datetime import datetime, timezone
 
-from fastapi.testclient import TestClient
 
 
 # Mock the opportunities service

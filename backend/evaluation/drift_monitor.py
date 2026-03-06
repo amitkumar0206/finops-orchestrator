@@ -6,7 +6,7 @@ Intended to be run periodically (e.g., cron or scheduled task).
 from __future__ import annotations
 import json, os
 from glob import glob
-from collections import Counter, deque
+from collections import Counter
 
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), 'results')
 WINDOW = 5  # number of recent evaluations

@@ -8,7 +8,6 @@ If repair fails, returns original string.
 from __future__ import annotations
 import json
 import structlog
-from typing import Optional
 from backend.services.llm_service import llm_service
 
 logger = structlog.get_logger(__name__)

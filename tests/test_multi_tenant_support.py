@@ -9,9 +9,8 @@ Tests cover:
 """
 
 import pytest
-from uuid import uuid4, UUID
+from uuid import uuid4
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, AsyncMock, patch
 
 # Import the modules we're testing
 from backend.services.request_context import (
@@ -19,8 +18,6 @@ from backend.services.request_context import (
     SavedViewInfo,
     OrganizationInfo,
     create_empty_context,
-    get_context_from_request,
-    require_context,
 )
 from backend.services.text_to_sql_service import TextToSQLService
 from backend.services.athena_query_service import AthenaQueryService

@@ -6,13 +6,10 @@ Verifies configuration-based role and permission management system.
 
 import pytest
 from uuid import uuid4
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
 
 from backend.services.rbac_permission_service import (
-    RBACPermissionService,
     get_rbac_service,
-    check_permission
+    check_permission,
 )
 from backend.services.request_context import RequestContext
 

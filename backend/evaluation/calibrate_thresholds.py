@@ -10,7 +10,6 @@ Writes backend/config/intent_thresholds.json
 from __future__ import annotations
 import json, os
 from glob import glob
-from statistics import mean
 
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), 'results')
 OUTPUT_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'intent_thresholds.json')

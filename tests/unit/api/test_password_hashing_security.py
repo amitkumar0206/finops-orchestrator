@@ -10,9 +10,6 @@ Tests the PBKDF2 password hashing implementation to ensure:
 """
 
 import pytest
-import hashlib
-import secrets
-from unittest.mock import AsyncMock, MagicMock, patch
 import time
 
 from backend.api.auth import (
@@ -158,15 +155,11 @@ class TestPasswordHashingSecurity:
         hashed = hash_password(password, salt)
 
         # Test with correct password
-        start = time.perf_counter()
         result1 = verify_password(password, salt, hashed)
-        time1 = time.perf_counter() - start
 
         # Test with incorrect password (same length)
         wrong_password = "WrongPassword123!"
-        start = time.perf_counter()
         result2 = verify_password(wrong_password, salt, hashed)
-        time2 = time.perf_counter() - start
 
         assert result1 is True
         assert result2 is False
@@ -387,3 +380,116 @@ class TestPasswordHashingEdgeCases:
         hash_current = hash_password(password, salt, version=PASSWORD_HASH_VERSION_CURRENT)
 
         assert hash_invalid == hash_current
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HIGH-13 — Long Password Denial of Service
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# The hash_password() function above happily hashes 10MB of input — that is
+# correct and NOT the bug (test_hash_password_very_long_password confirms it).
+# The bug is that nothing stops a 10MB password from REACHING hash_password()
+# via the login endpoint. F-24 raised iterations to 600,000 — a 10MB body now
+# costs minutes of CPU per request. The fix is a bound on the request model,
+# so Pydantic rejects with 422 before the hasher is ever called.
+#
+# These tests exercise LoginRequest directly. Model validation is where the
+# DoS is stopped — hash_password() is never reached for rejected inputs.
+
+
+from pydantic import ValidationError
+from backend.api.auth import LoginRequest
+
+
+class TestLoginRequestPasswordLengthBounds:
+    """HIGH-13 regression — LoginRequest.password rejects DoS-sized inputs."""
+
+    # ── max_length: the DoS guard ──────────────────────────────────────────
+
+    def test_rejects_password_over_128_chars(self):
+        """
+        HIGH-13 PRIMARY REGRESSION. 129 chars must fail model validation.
+        Pre-fix: accepted, fed to 600k-iteration PBKDF2 → CPU hostage.
+        Post-fix: ValidationError at the Pydantic layer, hasher never runs.
+        """
+        with pytest.raises(ValidationError) as exc:
+            LoginRequest(email="a@b.com", password="A" * 129)
+        # Confirm it's the length bound that fired, not something incidental
+        assert any(
+            e["type"] == "string_too_long" and e["loc"] == ("password",)
+            for e in exc.value.errors()
+        ), f"expected string_too_long on password, got {exc.value.errors()}"
+
+    def test_accepts_password_exactly_128_chars(self):
+        """Boundary — 128 is the max, inclusive. NIST SP 800-63B requires
+        accepting ≥64; 128 gives headroom for passphrase users without
+        opening a DoS window."""
+        req = LoginRequest(email="a@b.com", password="A" * 128)
+        assert len(req.password) == 128
+
+    @pytest.mark.parametrize("size", [256, 1024, 10_000, 1_000_000])
+    def test_rejects_dos_sized_passwords(self, size):
+        """
+        HIGH-13 PROOF OF IMPACT across sizes. The 1MB case is the attack —
+        pre-fix, that single request ties up a PBKDF2 worker for minutes.
+        A handful of concurrent 1MB logins = service unavailable.
+        """
+        payload = "A" * size
+        with pytest.raises(ValidationError):
+            LoginRequest(email="a@b.com", password=payload)
+        # Explicitly confirm the hasher is never reached: model validation
+        # raised, so we never got a LoginRequest instance to pass downstream.
+
+    # ── min_length: incidental hardening (MED-4 partial) ───────────────────
+
+    def test_rejects_password_under_8_chars(self):
+        """Not the DoS — the other end of the range. MED-4's length floor."""
+        with pytest.raises(ValidationError) as exc:
+            LoginRequest(email="a@b.com", password="short")  # 5
+        assert any(
+            e["type"] == "string_too_short" and e["loc"] == ("password",)
+            for e in exc.value.errors()
+        )
+
+    def test_rejects_empty_password(self):
+        """Pre-fix min_length=1 would reject empty too — but min_length=8 is
+        the intentional floor now. Explicit so a revert to =1 is visible."""
+        with pytest.raises(ValidationError):
+            LoginRequest(email="a@b.com", password="")
+
+    def test_accepts_password_exactly_8_chars(self):
+        """Boundary — 8 is the min, inclusive."""
+        req = LoginRequest(email="a@b.com", password="Pass123!")
+        assert req.password == "Pass123!"
+
+    # ── realistic inputs still work ────────────────────────────────────────
+
+    @pytest.mark.parametrize("pw", [
+        "Correct Horse Battery Staple",            # 28 — XKCD passphrase
+        "Tr0ub4dor&3",                             # 11 — classic
+        "a-64-char-token-" + "x" * 48,             # 64 — NIST floor
+        "🔒" * 30,                                 # 30 codepoints, unicode
+    ])
+    def test_accepts_realistic_passwords(self, pw):
+        """Sanity — the fix doesn't break normal use. Every realistic
+        password lands in [8, 128] codepoints."""
+        req = LoginRequest(email="a@b.com", password=pw)
+        assert req.password == pw
+
+    # ── tripwire: bounds pinned on the Field itself ────────────────────────
+
+    def test_field_constraints_pinned(self):
+        """
+        Source-level pin. If someone changes the Field definition — e.g.
+        drops max_length during a "harmless" refactor — this fails even if
+        the runtime tests above happen to pass for other reasons.
+        """
+        meta = LoginRequest.model_fields["password"].metadata
+        max_lens = [m.max_length for m in meta if hasattr(m, "max_length")]
+        min_lens = [m.min_length for m in meta if hasattr(m, "min_length")]
+        assert 128 in max_lens, (
+            f"HIGH-13 REGRESSION: LoginRequest.password has no max_length=128 "
+            f"constraint. Field metadata: {meta}. Unbounded passwords × 600k "
+            f"PBKDF2 iterations = CPU exhaustion DoS."
+        )
+        assert 8 in min_lens, f"min_length=8 missing. Field metadata: {meta}"

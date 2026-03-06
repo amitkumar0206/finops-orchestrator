@@ -8,7 +8,6 @@ Tests multi-layer rate limiting:
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 from fastapi import Request, HTTPException
 
 from backend.middleware.rate_limiting import (
@@ -16,7 +15,6 @@ from backend.middleware.rate_limiting import (
     check_athena_export_rate_limit,
     RateLimiter,
 )
-from backend.services.request_context import RequestContext, OrganizationInfo
 
 
 class TestPerUserLimitRetrieval:

@@ -83,19 +83,15 @@ class TestCloudFormationSecretKey:
         # Find all Environment blocks and ensure SECRET_KEY is not there
         lines = ecs_services_yaml.splitlines()
         in_environment = False
-        in_secrets = False
         for line in lines:
             stripped = line.strip()
             if stripped == "Environment:":
                 in_environment = True
-                in_secrets = False
             elif stripped == "Secrets:":
-                in_secrets = True
                 in_environment = False
             elif stripped and not stripped.startswith("-") and not stripped.startswith("Name:") and not stripped.startswith("Value"):
                 if not stripped.startswith("'") and not stripped.startswith('"') and not stripped.startswith("!"):
                     in_environment = False
-                    in_secrets = False
 
             if in_environment and "SECRET_KEY" in stripped:
                 pytest.fail(

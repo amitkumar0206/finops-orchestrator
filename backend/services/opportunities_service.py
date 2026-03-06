@@ -6,7 +6,7 @@ Handles CRUD, filtering, sorting, and aggregations.
 """
 
 import psycopg2
-from psycopg2.extras import RealDictCursor, execute_values
+from psycopg2.extras import RealDictCursor
 from typing import List, Dict, Any, Optional, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
@@ -14,11 +14,9 @@ import json
 import structlog
 
 from backend.config.settings import get_settings
-from backend.utils.sql_constants import build_sql_placeholders, SQL_VALUE_SEPARATOR
+from backend.utils.sql_constants import build_sql_placeholders
 from backend.models.opportunities import (
     OpportunityStatus,
-    OpportunitySource,
-    OpportunityCategory,
     OpportunityFilter,
     OpportunitySort,
     OpportunitySummary,
@@ -132,7 +130,7 @@ class OpportunitiesService:
         # Organization scoping
         if self.organization_id:
             params.append(str(self.organization_id))
-            conditions.append(f"organization_id = %s")
+            conditions.append("organization_id = %s")
 
         if not filter:
             return " AND ".join(conditions) if conditions else "1=1"

@@ -4,8 +4,7 @@ Provides OLAP-style dimensional navigation for cost analysis.
 """
 
 import structlog
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from typing import Dict, Any, List
 
 logger = structlog.get_logger(__name__)
 

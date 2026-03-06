@@ -3,8 +3,7 @@ Chat API endpoints for natural language cost analysis
 Handles conversation management and agent orchestration with conversation history tracking
 """
 
-import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Optional
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
@@ -12,7 +11,7 @@ import json
 from fastapi.responses import StreamingResponse
 import structlog
 
-from backend.models.schemas import ChatRequest, ChatResponse, MessageRole
+from backend.models.schemas import ChatRequest, ChatResponse
 from backend.services.conversation_manager import conversation_manager
 from backend.agents.multi_agent_workflow import execute_multi_agent_query
 from backend.config.settings import get_settings
@@ -131,15 +130,20 @@ async def chat(
     )
 
     try:
-        # Persist user message and build context
-        user_message_id = conversation_manager.add_message(
+        # Persist user message and build context.
+        # HIGH-14: user_id passed to the service layer — defense-in-depth beneath
+        # require_conversation_owner(). If F-33's API check is ever bypassed
+        # (new endpoint, scheduled job), the service layer now enforces ownership.
+        caller_user_id = str(context.user_id)
+        conversation_manager.add_message(
             thread_id=conversation_id,
+            user_id=caller_user_id,
             role="user",
             content=request.message,
             message_type="query",
             metadata={"include_reasoning": request.include_reasoning},
         )
-        derived_context = conversation_manager.get_context_for_query(conversation_id)
+        derived_context = conversation_manager.get_context_for_query(conversation_id, user_id=caller_user_id)
 
         # Execute multi-agent workflow with tenant scoping
         response = await execute_multi_agent_query(
@@ -215,6 +219,7 @@ async def chat(
             try:
                 assistant_message_id = conversation_manager.add_message(
                     thread_id=conversation_id,
+                    user_id=caller_user_id,
                     role="assistant",
                     content=message_text,
                     message_type="response",
@@ -222,6 +227,7 @@ async def chat(
                 )
                 conversation_manager.save_agent_execution(
                     thread_id=conversation_id,
+                    user_id=caller_user_id,
                     agent_name="MultiAgentSupervisor",
                     agent_type="supervisor",
                     input_query=request.message,
@@ -292,7 +298,12 @@ async def get_conversation(
     try:
         require_conversation_owner(conversation_id, context, action="read")
 
-        messages = conversation_manager.get_conversation_history(conversation_id, limit=limit)
+        # HIGH-14 — service layer filters by user_id too. Belt-and-braces with
+        # the require_conversation_owner() check directly above: that one gives
+        # 403 + audit log, this one gives empty-result. Both must match.
+        messages = conversation_manager.get_conversation_history(
+            conversation_id, user_id=str(context.user_id), limit=limit
+        )
 
         logger.info(
             "conversation_accessed",
@@ -420,7 +431,7 @@ async def chat_stream(
         yield f"data: {{'type': 'start', 'conversation_id': '{conversation_id}'}}\n\n"
 
         try:
-            yield f"data: {{'type': 'status', 'message': 'Analyzing your query (multi-agent)...'}}\n\n"
+            yield "data: {{'type': 'status', 'message': 'Analyzing your query (multi-agent)...'}}\n\n"
             # Non-incremental streaming: emit final results as a set of events
             response = await execute_multi_agent_query(
                 query=request.message,
@@ -437,7 +448,7 @@ async def chat_stream(
                 yield f"data: {{'type': 'charts', 'data': {json.dumps(response['charts'])}}}\n\n"
             if response.get("suggestions"):
                 yield f"data: {{'type': 'suggestions', 'data': {json.dumps(response['suggestions'])}}}\n\n"
-            yield f"data: {{'type': 'complete'}}\n\n"
+            yield "data: {{'type': 'complete'}}\n\n"
 
         except Exception as e:
             logger.error(

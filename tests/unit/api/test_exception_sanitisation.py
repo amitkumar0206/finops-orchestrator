@@ -14,7 +14,6 @@ Verifies two things across every API file that was patched:
 """
 
 import ast
-import inspect
 import os
 import json
 
@@ -22,7 +21,7 @@ import sys
 import types
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch
 from fastapi import HTTPException
 
 # ---------------------------------------------------------------------------
@@ -258,14 +257,17 @@ class TestAnalyticsExceptionSanitisation:
         mock_client = Mock()
         mock_client.get_cost_and_usage = Mock(side_effect=error)
 
-        # Create mock request and context
+        # Create mock request and context.
+        # HIGH-15: allowed_account_ids required — empty scope 403s before
+        # the try block and we never reach the ClientError handler under test.
         mock_request = Mock()
         mock_context = RequestContext(
             user_id=uuid4(),
             user_email="test@example.com",
             organization_id=uuid4(),
             is_admin=False,
-            org_role="member"
+            org_role="member",
+            allowed_account_ids=["111111111111"],
         )
 
         with patch('backend.api.analytics.create_aws_client', return_value=mock_client):
@@ -290,14 +292,17 @@ class TestAnalyticsExceptionSanitisation:
         mock_client = Mock()
         mock_client.get_cost_and_usage = Mock(side_effect=Exception(secret))
 
-        # Create mock request and context
+        # Create mock request and context.
+        # HIGH-15: allowed_account_ids required — empty scope 403s before
+        # the try block and we never reach the generic Exception handler.
         mock_request = Mock()
         mock_context = RequestContext(
             user_id=uuid4(),
             user_email="test@example.com",
             organization_id=uuid4(),
             is_admin=False,
-            org_role="member"
+            org_role="member",
+            allowed_account_ids=["111111111111"],
         )
 
         with patch('backend.api.analytics.create_aws_client', return_value=mock_client):
@@ -320,14 +325,17 @@ class TestAnalyticsExceptionSanitisation:
 
         secret = "NoCredentialsError: Unable to locate credentials in /home/deploy/.aws"
 
-        # Create mock request and context
+        # Create mock request and context.
+        # HIGH-15: allowed_account_ids required — empty scope 403s before
+        # the outer try/except that returns the error-dict under test.
         mock_request = Mock()
         mock_context = RequestContext(
             user_id=uuid4(),
             user_email="test@example.com",
             organization_id=uuid4(),
             is_admin=False,
-            org_role="member"
+            org_role="member",
+            allowed_account_ids=["111111111111"],
         )
 
         with patch('backend.api.analytics.create_aws_session', side_effect=Exception(secret)):
@@ -355,14 +363,17 @@ class TestAnalyticsExceptionSanitisation:
         # having the background task addition raise
         mock_bg.add_task = Mock(side_effect=Exception(secret))
 
-        # Create mock request and context
+        # Create mock request and context.
+        # HIGH-15: allowed_account_ids required — empty scope 403s before
+        # add_task is ever called, and the side_effect Exception never fires.
         mock_request = Mock()
         mock_context = RequestContext(
             user_id=uuid4(),
             user_email="test@example.com",
             organization_id=uuid4(),
             is_admin=False,
-            org_role="member"
+            org_role="member",
+            allowed_account_ids=["111111111111"],
         )
 
         with patch('backend.api.analytics.logger') as mock_log:
@@ -591,9 +602,24 @@ class TestOrganizationsExceptionSanitisation:
 
     @pytest.mark.asyncio
     async def test_switch_organization_value_error_is_generic(self):
-        """ValueError in switch_organization → generic 400, error logged."""
+        """
+        ValueError from the SERVICE layer → generic 400, error logged.
+
+        The HIGH-17 API-layer membership guard is mocked to pass (user IS a
+        member of target_org_id below) so we reach the service call. The
+        service's own check may still raise ValueError — e.g. membership
+        revoked between the API check and the service transaction (TOCTOU),
+        or any future internal validation. That path must still sanitise.
+        """
+        from uuid import uuid4
+        target_org_id = uuid4()
+
         secret = "User finops@company.com is not a member of org uuid-abc-123 (table: org_memberships)"
         mock_service = Mock()
+        # API-layer membership guard: user IS a member → passes through
+        mock_service.get_user_organizations = AsyncMock(
+            return_value=[{"id": str(target_org_id), "name": "Test Org"}]
+        )
         mock_service.switch_organization = AsyncMock(side_effect=ValueError(secret))
 
         mock_context = Mock(user_id="user-1")
@@ -602,9 +628,8 @@ class TestOrganizationsExceptionSanitisation:
         with patch('backend.api.organizations.organization_service', mock_service):
             with patch('backend.api.organizations.logger') as mock_log:
                 from backend.api.organizations import switch_organization
-                from uuid import uuid4
                 with pytest.raises(HTTPException) as exc_info:
-                    await switch_organization(uuid4(), mock_request, mock_context)
+                    await switch_organization(target_org_id, mock_request, mock_context)
 
         assert exc_info.value.status_code == 400
         assert exc_info.value.detail == "Invalid request. Please check your input."

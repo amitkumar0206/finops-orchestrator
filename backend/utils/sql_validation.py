@@ -11,8 +11,7 @@ being included in queries.
 """
 
 import re
-from typing import Optional, List, Set
-from enum import Enum
+from typing import List, Set
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -303,7 +302,7 @@ def validate_account_id(value: str) -> str:
     value = str(value).strip()
 
     if not AWS_ACCOUNT_ID_PATTERN.match(value):
-        raise ValidationError(f"Invalid account ID: must be 12 digits")
+        raise ValidationError("Invalid account ID: must be 12 digits")
 
     return value
 

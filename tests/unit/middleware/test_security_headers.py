@@ -6,8 +6,6 @@ all required security headers to HTTP responses.
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock
-from starlette.responses import Response
 from starlette.testclient import TestClient
 from fastapi import FastAPI
 

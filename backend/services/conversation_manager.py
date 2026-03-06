@@ -25,7 +25,6 @@ import json
 import threading
 import uuid
 
-import psycopg2
 from psycopg2.extras import Json, RealDictCursor, register_uuid
 from psycopg2.pool import ThreadedConnectionPool
 import structlog
@@ -79,6 +78,42 @@ def _json(obj: Any) -> Json:
     return Json(obj, dumps=lambda o: json.dumps(o, default=str))
 
 
+def _assert_thread_owner(cur, thread_id: str, user_id: str, *, for_update: bool = False) -> None:
+    """
+    HIGH-14 ownership guard for write paths. Raises PermissionError if the
+    caller's user_id does not own thread_id (or the thread doesn't exist —
+    we don't distinguish, so existence doesn't leak to non-owners).
+
+    Runs inside the caller's transaction; `for_update=True` additionally
+    locks the thread row (used by add_message for ordering_index safety).
+
+    The API layer (F-33, require_conversation_owner) checks first, so
+    production traffic never reaches a raise here. This is the floor for
+    callers that bypass api/chat.py — scheduled jobs, admin tooling, new
+    endpoints that forget the API check.
+    """
+    lock = " FOR UPDATE" if for_update else ""
+    cur.execute(
+        f"SELECT 1 FROM conversation_threads WHERE thread_id = %s AND user_id = %s{lock}",
+        (thread_id, user_id),
+    )
+    if cur.fetchone() is None:
+        raise PermissionError(
+            "HIGH-14: user_id does not own thread_id (or thread does not exist)"
+        )
+
+
+# HIGH-14 — ownership predicate for SELECTs on child tables.
+# conversation_messages / query_intents / agent_executions have no user_id
+# column; ownership is FK'd through conversation_threads. The EXISTS subquery
+# short-circuits to 0 rows for non-owners (silent filter — reads return empty,
+# which is the "WHERE user_id = $N" remediation semantic for reads).
+_OWNED_THREAD = (
+    "EXISTS (SELECT 1 FROM conversation_threads ct "
+    "WHERE ct.thread_id = %s AND ct.user_id = %s)"
+)
+
+
 class ConversationManager:
     """Thread-aware conversation persistence and context extraction."""
 
@@ -104,6 +139,7 @@ class ConversationManager:
     def add_message(
         self,
         thread_id: str,
+        user_id: str,
         role: str,
         content: str,
         message_type: str,
@@ -113,7 +149,10 @@ class ConversationManager:
         try:
             with conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT 1 FROM conversation_threads WHERE thread_id = %s FOR UPDATE", (thread_id,))
+                    # HIGH-14 — the FOR UPDATE lock was already here for ordering_index
+                    # race-safety; it now also carries the ownership check. Non-owners
+                    # (and nonexistent threads) raise before any write.
+                    _assert_thread_owner(cur, thread_id, user_id, for_update=True)
                     cur.execute(
                         "SELECT COALESCE(MAX(ordering_index), 0) FROM conversation_messages WHERE thread_id = %s",
                         (thread_id,),
@@ -136,16 +175,22 @@ class ConversationManager:
         finally:
             _put_conn(conn)
 
-    def get_conversation_history(self, thread_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_conversation_history(self, thread_id: str, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        # HIGH-14 — conversation_messages has no user_id column; ownership is
+        # enforced via EXISTS on conversation_threads. Non-owners get [] (the
+        # thread simply doesn't exist from their perspective). F-33's API-layer
+        # require_conversation_owner() checks first and 403s with an audit log;
+        # this is the defense-in-depth floor for bypassing callers.
         sql = (
             "SELECT id, thread_id, role, content, message_type, metadata, ordering_index, created_at, updated_at "
-            "FROM conversation_messages WHERE thread_id = %s ORDER BY ordering_index DESC LIMIT %s"
+            f"FROM conversation_messages WHERE thread_id = %s AND {_OWNED_THREAD} "
+            "ORDER BY ordering_index DESC LIMIT %s"
         )
         conn = _get_conn()
         try:
             with conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute(sql, (thread_id, limit))
+                    cur.execute(sql, (thread_id, thread_id, user_id, limit))
                     rows = cur.fetchall() or []
                     rows.reverse()
                     for r in rows:
@@ -165,6 +210,16 @@ class ConversationManager:
         """
         Get thread metadata including user_id for ownership validation.
         Returns None if thread doesn't exist.
+
+        HIGH-14 — INTENTIONALLY UNSCOPED. This is the ownership-lookup primitive:
+        require_conversation_owner() at api/chat.py:65 calls this to FETCH the
+        owner's user_id and compare it against the caller's. Adding a user_id
+        filter here would make that comparison circular (caller would need to
+        already know they're the owner to look up whether they're the owner)
+        and would collapse F-33's 404/403 distinction. Every OTHER method in
+        this class is scoped — this is the one exempted by design. The CI
+        tripwire at test_conversation_manager_isolation.py explicitly asserts
+        this exemption so a well-meaning "fix" doesn't break the API layer.
         """
         sql = (
             "SELECT thread_id, user_id, title, metadata, created_at, updated_at, is_active "
@@ -197,6 +252,7 @@ class ConversationManager:
     def save_query_intent(
         self,
         thread_id: str,
+        user_id: str,
         message_id: str,
         original_query: str,
         rewritten_query: Optional[str],
@@ -219,6 +275,7 @@ class ConversationManager:
         try:
             with conn:
                 with conn.cursor() as cur:
+                    _assert_thread_owner(cur, thread_id, user_id)  # HIGH-14
                     cur.execute(
                         sql,
                         (
@@ -242,6 +299,7 @@ class ConversationManager:
     def save_agent_execution(
         self,
         thread_id: str,
+        user_id: str,
         agent_name: str,
         agent_type: str,
         input_query: str,
@@ -261,6 +319,7 @@ class ConversationManager:
         try:
             with conn:
                 with conn.cursor() as cur:
+                    _assert_thread_owner(cur, thread_id, user_id)  # HIGH-14
                     cur.execute(
                         sql,
                         (
@@ -287,9 +346,9 @@ class ConversationManager:
     # endregion
 
     # region Context extraction
-    def get_context_for_query(self, thread_id: str) -> Dict[str, Any]:
-        intents = self._fetch_recent_intents(thread_id, limit=25)
-        messages = self._fetch_recent_messages(thread_id, limit=20)
+    def get_context_for_query(self, thread_id: str, user_id: str) -> Dict[str, Any]:
+        intents = self._fetch_recent_intents(thread_id, user_id, limit=25)
+        messages = self._fetch_recent_messages(thread_id, user_id, limit=20)
 
         context: Dict[str, Any] = {
             "time_range": None,  # Changed from date_range to time_range for consistency with multi_agent_workflow
@@ -317,7 +376,7 @@ class ConversationManager:
                 if isinstance(tr, str):
                     try:
                         context["time_range"] = json.loads(tr)
-                        logger.warning(f"Deserialized time_range from JSON string in context merge")
+                        logger.warning("Deserialized time_range from JSON string in context merge")
                     except:
                         logger.error(f"Failed to parse time_range string from context: {tr[:100]}")
                         context["time_range"] = {}
@@ -397,16 +456,17 @@ class ConversationManager:
 
         return context
 
-    def _fetch_recent_intents(self, thread_id: str, limit: int) -> List[Dict[str, Any]]:
+    def _fetch_recent_intents(self, thread_id: str, user_id: str, limit: int) -> List[Dict[str, Any]]:
         sql = (
             "SELECT id, intent_type, intent_confidence, extracted_dimensions, created_at "
-            "FROM query_intents WHERE thread_id = %s ORDER BY created_at DESC LIMIT %s"
+            f"FROM query_intents WHERE thread_id = %s AND {_OWNED_THREAD} "
+            "ORDER BY created_at DESC LIMIT %s"
         )
         conn = _get_conn()
         try:
             with conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute(sql, (thread_id, limit))
+                    cur.execute(sql, (thread_id, thread_id, user_id, limit))
                     rows = cur.fetchall() or []
                     for r in rows:
                         if isinstance(r.get("extracted_dimensions"), str):
@@ -421,16 +481,17 @@ class ConversationManager:
         finally:
             _put_conn(conn)
 
-    def _fetch_recent_messages(self, thread_id: str, limit: int) -> List[Dict[str, Any]]:
+    def _fetch_recent_messages(self, thread_id: str, user_id: str, limit: int) -> List[Dict[str, Any]]:
         sql = (
             "SELECT id, role, content, message_type, metadata, ordering_index, created_at "
-            "FROM conversation_messages WHERE thread_id = %s ORDER BY ordering_index DESC LIMIT %s"
+            f"FROM conversation_messages WHERE thread_id = %s AND {_OWNED_THREAD} "
+            "ORDER BY ordering_index DESC LIMIT %s"
         )
         conn = _get_conn()
         try:
             with conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute(sql, (thread_id, limit))
+                    cur.execute(sql, (thread_id, thread_id, user_id, limit))
                     rows = cur.fetchall() or []
                     for r in rows:
                         if isinstance(r.get("metadata"), str):

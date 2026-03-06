@@ -26,7 +26,7 @@ class TestCreateAwsSession:
         with patch('backend.utils.aws_session.boto3.Session') as mock_session:
             mock_session.return_value = MagicMock()
 
-            session = create_aws_session()
+            create_aws_session()
 
             # Should be called without explicit credentials
             mock_session.assert_called_once()
@@ -40,7 +40,7 @@ class TestCreateAwsSession:
         with patch('backend.utils.aws_session.boto3.Session') as mock_session:
             mock_session.return_value = MagicMock()
 
-            session = create_aws_session(region_name='eu-west-1')
+            create_aws_session(region_name='eu-west-1')
 
             call_kwargs = mock_session.call_args[1]
             assert call_kwargs['region_name'] == 'eu-west-1'
@@ -50,7 +50,7 @@ class TestCreateAwsSession:
         with patch('backend.utils.aws_session.boto3.Session') as mock_session:
             mock_session.return_value = MagicMock()
 
-            session = create_aws_session(profile_name='dev-profile')
+            create_aws_session(profile_name='dev-profile')
 
             call_kwargs = mock_session.call_args[1]
             assert call_kwargs['profile_name'] == 'dev-profile'
@@ -68,7 +68,13 @@ class TestCreateAwsSession:
                     aws_region='us-east-1'
                 )
 
-                session = create_aws_session()
+                # We deliberately provisioned fake creds above, so the
+                # intended warnings.warn() at aws_session.py:70 WILL fire.
+                # Capture it so it doesn't leak into test output — this also
+                # asserts the warning path works when creds ARE set, which is
+                # a useful side-assertion for this test.
+                with pytest.warns(DeprecationWarning, match="Explicit AWS credentials"):
+                    create_aws_session()
 
             # Verify no credentials passed
             call_kwargs = mock_session.call_args[1]
@@ -105,7 +111,7 @@ class TestExplicitCredentialsWarning:
                 aws_secret_access_key=None,
             )
 
-            with warnings.catch_warnings(record=True) as w:
+            with warnings.catch_warnings(record=True):
                 warnings.simplefilter("always")
                 result = _check_explicit_credentials_configured()
 
@@ -137,7 +143,7 @@ class TestCreateAwsClient:
             mock_session = MagicMock()
             mock_session_fn.return_value = mock_session
 
-            client = create_aws_client('athena', config=custom_config)
+            create_aws_client('athena', config=custom_config)
 
             mock_session.client.assert_called_once_with('athena', config=custom_config)
 

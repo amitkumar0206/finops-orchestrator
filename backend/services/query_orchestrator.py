@@ -7,11 +7,11 @@ and ensures every query gets answered intelligently.
 This is the controller in the MVC pattern - all business logic lives here,
 keeping data sources pure and presentation layer focused on formatting.
 """
-from typing import Optional, List
+from typing import Optional
 import structlog
 from backend.services.data_source import DataSource
 from backend.services.query_spec import QuerySpec
-from backend.services.query_result import QueryResult, ResultMetadata
+from backend.services.query_result import QueryResult
 from backend.agents.intent_classifier import IntentType
 
 logger = structlog.get_logger(__name__)

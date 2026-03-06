@@ -5,7 +5,6 @@ Tracks all user actions for security and compliance
 
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 import structlog
-from datetime import datetime
 from uuid import UUID, uuid4
 from fastapi import Request
 

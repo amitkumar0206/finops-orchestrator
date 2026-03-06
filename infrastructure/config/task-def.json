@@ -80,6 +80,10 @@
                 {
                     "name": "BEDROCK_MODEL_ID",
                     "value": "amazon.nova-premier-v1:0"
+                },
+                {
+                    "name": "TRUSTED_PROXY_COUNT",
+                    "value": "1"
                 }
             ],
             "environmentFiles": [],

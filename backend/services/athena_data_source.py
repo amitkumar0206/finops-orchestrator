@@ -4,9 +4,8 @@ Athena data source implementation.
 Wraps the existing athena_executor into the unified DataSource interface.
 Handles all Athena/CUR queries through a single fetch() method.
 """
-from typing import Dict, Any, List
 import time
-from backend.services.data_source import DataSource, DataSourceError
+from backend.services.data_source import DataSource
 from backend.services.query_spec import QuerySpec
 from backend.services.query_result import QueryResult, ResultMetadata
 from backend.services.athena_templates import AthenaCURTemplates

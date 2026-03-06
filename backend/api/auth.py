@@ -40,7 +40,13 @@ router = APIRouter(prefix="/api/auth", tags=["authentication"])
 class LoginRequest(BaseModel):
     """Login request with email and password"""
     email: EmailStr
-    password: str = Field(..., min_length=1)
+    # SECURITY (HIGH-13): max_length=128 prevents CPU-exhaustion DoS. Unbounded
+    # passwords × 600k PBKDF2 iterations (F-24) = request-level compute bomb —
+    # a 10MB body hashes for minutes per attempt. 128 chars is well above any
+    # real password (NIST SP 800-63B requires ≥64 be accepted; we double that).
+    # Pydantic rejects at model validation → 422 before hash_password() runs.
+    # min_length=8 partially addresses MED-4 (complexity regex still open).
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 class LoginResponse(BaseModel):

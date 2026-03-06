@@ -1702,7 +1702,7 @@ if response.startswith("```"):
 **Debug:**
 ```python
 # Check what context is available
-logger.info("Context", context=conversation_manager.get_context_for_query(thread_id))
+logger.info("Context", context=conversation_manager.get_context_for_query(thread_id, user_id=caller_user_id))
 
 # Verify LLM receives it
 logger.info("Prompt", prompt=prompt)

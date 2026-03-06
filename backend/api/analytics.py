@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, date
 from typing import Optional
 from pydantic import BaseModel
 from botocore.exceptions import ClientError
+import hashlib
 import structlog
 
 from backend.config.settings import get_settings
@@ -20,6 +21,52 @@ logger = structlog.get_logger(__name__)
 async def get_request_context(request: Request) -> RequestContext:
     """Dependency to get request context and enforce authentication"""
     return require_context(request)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# HIGH-15 — Tenant isolation for Cost Explorer
+#
+# Every get_cost_and_usage() call in this module MUST be filtered to the
+# requester's allowed_account_ids. Without this, CE returns spend across
+# ALL linked accounts under the management account — any authenticated user
+# sees every tenant's costs.
+#
+# The filter is built once at the top of each handler (before any try/except
+# that catches Exception) so that an empty scope fail-closes to 403 and
+# propagates cleanly to FastAPI rather than being swallowed as 500/error-dict.
+# ──────────────────────────────────────────────────────────────────────────
+
+def _build_account_filter(allowed_account_ids: list[str]) -> dict:
+    """
+    Build a Cost Explorer Filter dict scoped to the caller's accounts.
+
+    Fail-closed: an empty list means the caller's org has no accounts
+    configured, the caller has no account permissions, or their active
+    saved-view selection intersected to nothing. In all three cases they
+    must see zero data — and since CE rejects an empty Values list anyway,
+    we raise 403 here rather than let boto raise a confusing ClientError.
+    """
+    if not allowed_account_ids:
+        raise HTTPException(
+            status_code=403,
+            detail="No AWS accounts in scope for this request",
+        )
+    return {
+        "Dimensions": {
+            "Key": "LINKED_ACCOUNT",
+            "Values": list(allowed_account_ids),
+        }
+    }
+
+
+def _scope_cache_key(allowed_account_ids: list[str]) -> str:
+    """
+    Stable tenant segment for Valkey keys. Sorted-then-hashed so the same
+    set of accounts in a different order produces the same key, and the raw
+    12-digit account IDs never appear in Valkey keyspace.
+    """
+    canonical = ",".join(sorted(allowed_account_ids))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
 class CacheInitRequest(BaseModel):
@@ -60,6 +107,11 @@ async def check_historical_data_availability(
     Check how many months of historical cost data are available
     via Cost Explorer API. Requires authentication.
     """
+    # HIGH-15: build the tenant filter BEFORE the try block. The except
+    # clauses below catch broad Exception → 500; an empty-scope 403 must
+    # propagate directly to FastAPI, not be downgraded.
+    account_filter = _build_account_filter(context.allowed_account_ids)
+
     try:
         logger.info(
             "historical_availability_checked",
@@ -69,18 +121,19 @@ async def check_historical_data_availability(
         # Initialize Cost Explorer client using IAM role credentials
         # Cost Explorer API is only available in us-east-1
         ce_client = create_aws_client(AwsService.COST_EXPLORER, region_name=COST_EXPLORER_REGION)
-        
+
         # Query for maximum available historical data (13 months)
         end_date = date.today()
         start_date = end_date - timedelta(days=395)  # ~13 months
-        
+
         response = ce_client.get_cost_and_usage(
             TimePeriod={
                 'Start': start_date.strftime('%Y-%m-%d'),
                 'End': end_date.strftime('%Y-%m-%d')
             },
             Granularity='MONTHLY',
-            Metrics=['BlendedCost']
+            Metrics=['BlendedCost'],
+            Filter=account_filter,
         )
         
         months_available = len(response.get('ResultsByTime', []))
@@ -114,20 +167,33 @@ async def check_historical_data_availability(
         )
 
 
-async def _load_historical_data_to_cache(months: int):
+async def _load_historical_data_to_cache(
+    months: int,
+    account_filter: dict,
+    scope_key: str,
+):
     """
     Background task to load historical data into cache/database
     This preloads commonly accessed data for better performance
+
+    HIGH-15: This runs via BackgroundTasks AFTER the response is sent, so
+    RequestContext is not in scope. The handler validates and passes:
+      - account_filter: the already-validated CE Filter dict (empty-scope
+        has already raised 403 in the handler; this task is never scheduled
+        for a zero-scope caller)
+      - scope_key: tenant segment for the Valkey keys. Without this,
+        scoping the CE calls but NOT the cache keys means tenant A's
+        filtered data overwrites tenant B's entry under the same date key.
     """
     try:
         logger.info(f"Starting historical data cache initialization for {months} months")
 
         # Use IAM role credentials via default credential chain
         ce_client = create_aws_client(AwsService.COST_EXPLORER, region_name=COST_EXPLORER_REGION)
-        
+
         end_date = date.today()
         start_date = end_date - timedelta(days=months * 30)
-        
+
         # Load monthly aggregates
         monthly_data = ce_client.get_cost_and_usage(
             TimePeriod={
@@ -136,9 +202,10 @@ async def _load_historical_data_to_cache(months: int):
             },
             Granularity='MONTHLY',
             Metrics=['BlendedCost', 'UsageQuantity'],
-            GroupBy=[{'Type': 'DIMENSION', 'Key': 'SERVICE'}]
+            GroupBy=[{'Type': 'DIMENSION', 'Key': 'SERVICE'}],
+            Filter=account_filter,
         )
-        
+
         # Load daily data for recent period (last 90 days)
         recent_start = end_date - timedelta(days=90)
         daily_data = ce_client.get_cost_and_usage(
@@ -148,10 +215,10 @@ async def _load_historical_data_to_cache(months: int):
             },
             Granularity='DAILY',
             Metrics=['BlendedCost'],
-            GroupBy=[{'Type': 'DIMENSION', 'Key': 'SERVICE'}]
+            GroupBy=[{'Type': 'DIMENSION', 'Key': 'SERVICE'}],
+            Filter=account_filter,
         )
-        
-                
+
         # Store this data in Valkey cache (if available)
         try:
             import valkey
@@ -162,11 +229,11 @@ async def _load_historical_data_to_cache(months: int):
                 socket_timeout=2
             )
             valkey_client.set(
-                f"analytics:monthly:{start_date}:{end_date}",
+                f"analytics:monthly:{scope_key}:{start_date}:{end_date}",
                 str(monthly_data)
             )
             valkey_client.set(
-                f"analytics:daily:{recent_start}:{end_date}",
+                f"analytics:daily:{scope_key}:{recent_start}:{end_date}",
                 str(daily_data)
             )
             logger.info("Analytics data persisted to Valkey cache.")
@@ -203,6 +270,11 @@ async def initialize_historical_cache(
     This endpoint loads commonly accessed historical data into cache.
     Requires authentication.
     """
+    # HIGH-15: validate scope before scheduling anything. A zero-scope caller
+    # never reaches add_task, so the background task never runs unscoped.
+    account_filter = _build_account_filter(context.allowed_account_ids)
+    scope_key = _scope_cache_key(context.allowed_account_ids)
+
     try:
         logger.info(
             "cache_initialization_requested",
@@ -218,7 +290,12 @@ async def initialize_historical_cache(
             )
 
         # Start background task to load data
-        background_tasks.add_task(_load_historical_data_to_cache, cache_request.months)
+        background_tasks.add_task(
+            _load_historical_data_to_cache,
+            cache_request.months,
+            account_filter,
+            scope_key,
+        )
 
         return {
             "success": True,
@@ -247,6 +324,11 @@ async def get_data_sources_info(
     Returns only availability status without exposing infrastructure details.
     Requires authentication.
     """
+    # HIGH-15: scope check before the outer try. That try block's broad except
+    # returns an error-dict instead of re-raising — a 403 raised inside it
+    # would be silently swallowed as {"error": "Unable to retrieve..."}.
+    account_filter = _build_account_filter(context.allowed_account_ids)
+
     try:
         logger.info(
             "data_sources_info_accessed",
@@ -267,7 +349,8 @@ async def get_data_sources_info(
                     'End': date.today().strftime('%Y-%m-%d')
                 },
                 Granularity='DAILY',
-                Metrics=['BlendedCost']
+                Metrics=['BlendedCost'],
+                Filter=account_filter,
             )
             ce_available = True
             logger.info("Cost Explorer check: Available")

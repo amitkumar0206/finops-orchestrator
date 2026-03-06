@@ -5,7 +5,7 @@ role_arn and external_id are encrypted on write and decrypted on read.
 
 import os
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from backend.utils.encryption import FieldEncryptor, reset_field_encryptor
 

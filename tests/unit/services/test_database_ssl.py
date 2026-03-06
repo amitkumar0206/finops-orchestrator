@@ -9,7 +9,6 @@ import os
 import ssl
 import tempfile
 import pytest
-from unittest.mock import patch, MagicMock
 
 from backend.services.database import create_ssl_context
 

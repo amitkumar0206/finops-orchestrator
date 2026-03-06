@@ -7,7 +7,6 @@ to prevent running with insecure configurations in production.
 
 import os
 import pytest
-from unittest.mock import patch
 
 from backend.config.settings import Settings, clear_settings_cache
 

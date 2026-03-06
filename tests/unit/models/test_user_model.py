@@ -8,7 +8,6 @@ defined across migrations 008, 011, and 013.
 import uuid
 from datetime import datetime, timezone
 
-import pytest
 from sqlalchemy import inspect as sa_inspect
 
 from backend.models.database_models import Base, User

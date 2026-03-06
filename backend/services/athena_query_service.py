@@ -10,7 +10,7 @@ import json
 import io
 import re
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
-from datetime import datetime, timedelta, date
+from datetime import datetime
 import structlog
 
 from backend.config.settings import get_settings
@@ -18,7 +18,6 @@ from backend.utils.aws_session import create_aws_session
 from backend.utils.aws_constants import AwsService
 from backend.utils.sql_validation import validate_service_code, validate_date, ValidationError
 from backend.utils.sql_constants import (
-    SQL_QUOTED_SEPARATOR,
     build_sql_in_list,
     format_display_list,
 )

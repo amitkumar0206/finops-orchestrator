@@ -10,15 +10,14 @@ Ingests optimization signals from various AWS sources:
 Converts signals to unified Opportunity format for storage and display.
 """
 
-from botocore.exceptions import ClientError, BotoCoreError
+from botocore.exceptions import ClientError
 
 from backend.utils.aws_session import create_aws_session
 from backend.utils.aws_constants import AwsService, TRUSTED_ADVISOR_REGION
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime, timezone, timedelta
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
-import json
 import structlog
 
 from backend.config.settings import get_settings
@@ -150,7 +149,7 @@ class AWSOptimizationSignalsService:
             'ElastiCache': f"https://{region}.console.aws.amazon.com/elasticache/home?region={region}#/redis/{resource_id}",
         }
 
-        return deep_links.get(service, f"https://console.aws.amazon.com/")
+        return deep_links.get(service, "https://console.aws.amazon.com/")
 
     async def fetch_cost_explorer_recommendations(self) -> List[Dict[str, Any]]:
         """
@@ -302,7 +301,7 @@ class AWSOptimizationSignalsService:
         else:
             target_type = target.get('InstanceType', 'smaller') if target else 'smaller'
             steps = [
-                {"step": 1, "action": f"Schedule maintenance window for instance modification"},
+                {"step": 1, "action": "Schedule maintenance window for instance modification"},
                 {"step": 2, "action": "Create AMI backup of current instance"},
                 {"step": 3, "action": "Stop the instance"},
                 {"step": 4, "action": f"Modify instance type to {target_type}"},

@@ -174,7 +174,7 @@ class ChartRecommendationEngine:
         top_service_breakdown = metadata.get("top_service_breakdown")
         if top_service_breakdown:
             logger.info(
-                f"Detected top service breakdown - using pie chart",
+                "Detected top service breakdown - using pie chart",
                 service=top_service_breakdown.get("service")
             )
             # For single service breakdown showing cost drivers, pie chart is most intuitive

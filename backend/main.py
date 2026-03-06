@@ -9,11 +9,11 @@ from typing import Any, Dict
 
 import structlog
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram
+from prometheus_client import generate_latest, Counter, Histogram
 
 from backend.config.settings import get_settings
 from backend.api import chat, health, reports, analytics, athena_queries

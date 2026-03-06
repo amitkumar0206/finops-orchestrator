@@ -6,15 +6,13 @@ Tests token blacklisting functionality for JWT revocation.
 
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 import hashlib
 
 from backend.services.cache_service import (
     CacheService,
     get_cache_service,
-    initialize_cache_service,
     shutdown_cache_service,
-    VALKEY_AVAILABLE,
 )
 
 

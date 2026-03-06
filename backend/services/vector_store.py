@@ -2,7 +2,6 @@
 Vector Store Service - Manages Chroma DB operations for semantic search
 """
 
-import asyncio
 from typing import List, Dict, Any, Optional
 import chromadb
 from chromadb.config import Settings

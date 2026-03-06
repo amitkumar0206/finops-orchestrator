@@ -15,38 +15,38 @@ def test_imports():
     print("Testing imports...")
     
     try:
-        from backend.agents.multi_agent_workflow import execute_multi_agent_query
+        from backend.agents.multi_agent_workflow import execute_multi_agent_query  # noqa: F401
         print("✓ multi_agent_workflow import OK")
     except Exception as e:
         print(f"✗ multi_agent_workflow import FAILED: {e}")
         return False
     
     try:
-        from backend.agents.execute_query_v2 import execute_query_simple, AthenaExecutor
+        from backend.agents.execute_query_v2 import execute_query_simple, AthenaExecutor  # noqa: F401
         print("✓ execute_query_v2 import OK")
     except Exception as e:
         print(f"✗ execute_query_v2 import FAILED: {e}")
         return False
     
     try:
-        from backend.services.text_to_sql_service import text_to_sql_service, TextToSQLService
+        from backend.services.text_to_sql_service import text_to_sql_service, TextToSQLService  # noqa: F401
         print("✓ text_to_sql_service import OK")
     except Exception as e:
         print(f"✗ text_to_sql_service import FAILED: {e}")
         return False
     
     try:
-        from backend.services.chart_recommendation import chart_engine
+        from backend.services.chart_recommendation import chart_engine  # noqa: F401
         print("✓ chart_recommendation import OK")
     except Exception as e:
         print(f"✗ chart_recommendation import FAILED: {e}")
         return False
     
     try:
-        from backend.services.chart_data_builder import chart_data_builder
+        from backend.services.chart_data_builder import chart_data_builder  # noqa: F401
         print("✓ chart_data_builder import OK")
     except Exception as e:
-        print("✗ chart_data_builder import FAILED: {e}")
+        print(f"✗ chart_data_builder import FAILED: {e}")
         return False
     
     return True
@@ -69,7 +69,7 @@ def test_function_signatures():
     if params == expected:
         print(f"✓ execute_multi_agent_query signature OK: {params}")
     else:
-        print(f"✗ execute_multi_agent_query signature mismatch")
+        print("✗ execute_multi_agent_query signature mismatch")
         print(f"  Expected: {expected}")
         print(f"  Got: {params}")
         return False
@@ -81,16 +81,16 @@ def test_function_signatures():
     if params == expected:
         print(f"✓ execute_query_simple signature OK: {params}")
     else:
-        print(f"✗ execute_query_simple signature mismatch")
+        print("✗ execute_query_simple signature mismatch")
         print(f"  Expected: {expected}")
         print(f"  Got: {params}")
         return False
     
     # Check text_to_sql_service
     if hasattr(text_to_sql_service, 'generate_sql'):
-        print(f"✓ text_to_sql_service.generate_sql exists")
+        print("✓ text_to_sql_service.generate_sql exists")
     else:
-        print(f"✗ text_to_sql_service.generate_sql not found")
+        print("✗ text_to_sql_service.generate_sql not found")
         return False
     
     return True
@@ -145,7 +145,7 @@ def test_settings():
                 print(f"✗ Missing setting: {attr}")
                 return False
         
-        print(f"✓ All required settings present")
+        print("✓ All required settings present")
         print(f"  - AWS Region: {settings.aws_region}")
         print(f"  - CUR Database: {settings.aws_cur_database}")
         print(f"  - CUR Table: {settings.aws_cur_table}")

@@ -9,10 +9,7 @@ Tests cover:
 """
 
 import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock, AsyncMock
 from uuid import uuid4
-import json
 
 # We'll need to mock the database for these tests
 # Import the app

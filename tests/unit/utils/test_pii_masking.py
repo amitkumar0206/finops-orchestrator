@@ -2,7 +2,6 @@
 Tests for PII Masking Utilities
 """
 
-import pytest
 
 from backend.utils.pii_masking import (
     mask_email,

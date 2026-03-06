@@ -6,7 +6,6 @@ credentials stored in the database (CRIT-9 remediation).
 """
 
 import base64
-import hashlib
 import json
 import logging
 import os

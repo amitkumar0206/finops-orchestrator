@@ -4,7 +4,6 @@ SQLAlchemy database models for the FinOps platform
 
 import uuid
 from datetime import datetime
-from typing import Dict, Any, List, Optional
 from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Boolean, Float, ForeignKey, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship

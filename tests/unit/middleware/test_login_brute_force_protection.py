@@ -15,7 +15,6 @@ These tests cover the throttle in four layers:
 """
 
 import ast
-import hashlib
 import inspect
 import textwrap
 import time
@@ -144,6 +143,24 @@ def _req(ip: str = "203.0.113.7", xff: str | None = None):
     r.headers = {"X-Forwarded-For": xff} if xff else {}
     r.client = Mock(host=ip)
     return r
+
+
+@pytest.fixture(autouse=True)
+def _pin_trusted_proxy_count():
+    """
+    SECURITY (HIGH-35): LoginThrottle._get_client_ip delegates to
+    utils.client_ip.get_client_ip, which reads trusted_proxy_count from
+    the lru_cached get_settings(). Pin to 1 (single ALB) so every test in
+    this module sees deterministic hops[-1] behavior regardless of what
+    an earlier test module left in the settings cache.
+
+    Existing single-entry-XFF tests are unaffected: for a 1-element list,
+    hops[-1] == hops[0]. Only multi-entry XFF tests (the HIGH-35 regression
+    class below) actually depend on this.
+    """
+    fake = Mock(trusted_proxy_count=1)
+    with patch("backend.utils.client_ip.get_settings", return_value=fake):
+        yield
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -286,7 +303,7 @@ class TestPerIpLimit:
     async def test_x_forwarded_for_used_when_present(self, throttle):
         """
         Behind ALB, client.host is the ALB's IP. XFF carries the real client.
-        Matches rate_limiting.py:60-65.
+        Single-entry XFF → hops[-1] == that entry (unchanged by HIGH-35 fix).
         """
         # Same client.host, different XFF → different counters
         for i in range(LoginThrottle.IP_LIMIT):
@@ -299,6 +316,120 @@ class TestPerIpLimit:
 
         # Same ALB IP, different XFF — clear
         await throttle.check(_req(ip="10.0.0.1", xff="203.0.113.99"), "a@x.com")
+
+
+class TestXffSpoofingDoesNotBypassIpLayer:
+    """
+    HIGH-35 REGRESSION — X-Forwarded-For spoofing in login throttle.
+
+    The bug (inherited by F-40 from rate_limiting.py's HIGH-12):
+    _get_client_ip took X-Forwarded-For.split(",")[0] — the LEFTMOST
+    entry. AWS ALB *appends* the connecting peer's IP; it does not strip
+    inbound spoofed entries. An attacker password-spraying from one real
+    IP could set a random XFF prefix on each request → each request saw
+    a fresh "IP" → Layer 1 (per-IP, IP_LIMIT=20) never fired.
+
+    Layer 2 (per-email) still caught TARGETED attacks — the email doesn't
+    change — but SPRAY attacks (one IP, many emails, common passwords)
+    were completely unprotected.
+
+    Fix: delegate to utils.client_ip.get_client_ip which uses trusted-
+    proxy-depth semantics (hops[-N]). With N=1 (single ALB), the
+    ALB-appended rightmost entry is the real client. Attacker can prepend
+    garbage but cannot modify what the ALB appends.
+    """
+
+    @pytest.mark.asyncio
+    async def test_spray_with_rotating_spoofed_xff_blocked(self, throttle):
+        """
+        HIGH-35 PRIMARY REGRESSION.
+
+        One real attacker IP (203.0.113.66) behind the ALB. On each
+        request, the attacker sets a different spoofed X-Forwarded-For
+        prefix. The ALB appends the real IP as the rightmost entry.
+
+        Pre-fix: .split(",")[0] → each request sees a fresh spoofed IP →
+                 IP counter never accumulates → spray runs forever.
+        Post-fix: hops[-1] → every request sees 203.0.113.66 → IP counter
+                  accumulates normally → 21st request blocked with 429.
+        """
+        real_attacker_ip = "203.0.113.66"
+        alb_ip = "10.0.0.1"  # TCP peer — constant, but irrelevant when XFF present
+
+        # 20 spray attempts across 20 different emails (no email trips
+        # Layer 2), each with a DIFFERENT spoofed leftmost XFF entry but
+        # the SAME real rightmost entry (what the ALB would append).
+        for i in range(LoginThrottle.IP_LIMIT):
+            spoofed_xff = f"99.99.{i}.{i}, {real_attacker_ip}"
+            await throttle.check(
+                _req(ip=alb_ip, xff=spoofed_xff), f"spray{i}@example.com"
+            )  # no raise — budget not yet exhausted
+            await throttle.record_failure(
+                _req(ip=alb_ip, xff=spoofed_xff), f"spray{i}@example.com"
+            )
+
+        # 21st attempt with yet another fresh spoof — if the leftmost
+        # entry were trusted, this would look like a brand-new IP.
+        # Post-fix: the real rightmost IP has 20 failures → BLOCKED.
+        with pytest.raises(HTTPException) as exc:
+            await throttle.check(
+                _req(ip=alb_ip, xff=f"99.99.255.255, {real_attacker_ip}"),
+                "spray-next@example.com",
+            )
+
+        assert exc.value.status_code == 429, (
+            "HIGH-35 REGRESSION: varying the spoofed X-Forwarded-For "
+            "prefix must NOT reset the per-IP counter. If this fails, "
+            "the leftmost-XFF bug is back and password-spray protection "
+            "(Layer 1) is bypassable by setting a random XFF on each "
+            "request. Fix: ensure LoginThrottle._get_client_ip delegates "
+            "to utils.client_ip.get_client_ip."
+        )
+        assert "address" in exc.value.detail["message"]
+
+    @pytest.mark.asyncio
+    async def test_spoofed_leftmost_ignored_for_key_derivation(self, throttle):
+        """
+        Unit-level pin: the spoofed leftmost entry does not affect the key.
+        Two requests from the same real client with different spoofs share
+        a counter.
+        """
+        real = "203.0.113.66"
+
+        # Exhaust the IP limit under spoof A
+        for i in range(LoginThrottle.IP_LIMIT):
+            await throttle.record_failure(
+                _req(ip="10.0.0.1", xff=f"1.1.1.1, {real}"), f"e{i}@x.com"
+            )
+
+        # Check under spoof B — same real IP, so still blocked.
+        # Pre-fix: "2.2.2.2" would be a fresh bucket → clear.
+        with pytest.raises(HTTPException):
+            await throttle.check(
+                _req(ip="10.0.0.1", xff=f"2.2.2.2, {real}"), "new@x.com"
+            )
+
+    @pytest.mark.asyncio
+    async def test_genuinely_different_clients_still_independent(self, throttle):
+        """
+        Sanity: the fix doesn't over-collapse. Two DIFFERENT real clients
+        (different rightmost entries) behind the same ALB keep independent
+        counters. The ALB's own IP (TCP peer) being constant is irrelevant.
+        """
+        alb_ip = "10.0.0.1"
+
+        # Client A exhausts their budget
+        for i in range(LoginThrottle.IP_LIMIT):
+            await throttle.record_failure(
+                _req(ip=alb_ip, xff="203.0.113.10"), f"a{i}@x.com"
+            )
+        with pytest.raises(HTTPException):
+            await throttle.check(_req(ip=alb_ip, xff="203.0.113.10"), "a@x.com")
+
+        # Client B (different rightmost entry) — fresh budget
+        await throttle.check(
+            _req(ip=alb_ip, xff="203.0.113.20"), "b@x.com"
+        )  # no raise
 
 
 class TestProgressiveBackoff:
@@ -559,7 +690,7 @@ class TestLoginEndpointThrottleWiring:
              patch("backend.api.auth.get_db", mock_get_db):
             with pytest.raises(HTTPException) as exc:
                 await login(
-                    LoginRequest(email="any@example.com", password="x"),
+                    LoginRequest(email="any@example.com", password="whatever8"),
                     _req(),
                 )
 
@@ -620,7 +751,7 @@ class TestLoginEndpointThrottleWiring:
         try:
             with pytest.raises(HTTPException) as exc:
                 await login(
-                    LoginRequest(email="victim@example.com", password="wrong"),
+                    LoginRequest(email="victim@example.com", password="wrong-pw"),
                     _req(ip="203.0.113.1"),
                 )
         finally:
@@ -655,7 +786,7 @@ class TestLoginEndpointThrottleWiring:
              patch("backend.api.auth.get_authenticator", return_value=authenticator), \
              patch("backend.api.auth.get_settings", return_value=settings):
             resp = await login(
-                LoginRequest(email="alice@example.com", password="correct"),
+                LoginRequest(email="alice@example.com", password="correct!"),
                 _req(),
             )
 
@@ -695,7 +826,7 @@ class TestLoginEndpointEndToEnd:
             for i in range(LoginThrottle.EMAIL_LIMIT):
                 with pytest.raises(HTTPException) as exc:
                     await login(
-                        LoginRequest(email="target@example.com", password=f"guess{i}"),
+                        LoginRequest(email="target@example.com", password=f"guess-{i:02d}"),
                         _req(),
                     )
                 assert exc.value.status_code == 401, (
@@ -705,7 +836,7 @@ class TestLoginEndpointEndToEnd:
             # Attempt 6: 429 — the fix in action
             with pytest.raises(HTTPException) as exc:
                 await login(
-                    LoginRequest(email="target@example.com", password="guess6"),
+                    LoginRequest(email="target@example.com", password="guess-06"),
                     _req(),
                 )
             assert exc.value.status_code == 429
@@ -728,14 +859,14 @@ class TestLoginEndpointEndToEnd:
             for i in range(LoginThrottle.IP_LIMIT):
                 with pytest.raises(HTTPException) as exc:
                     await login(
-                        LoginRequest(email=f"spray{i}@example.com", password="common"),
+                        LoginRequest(email=f"spray{i}@example.com", password="common123"),
                         _req(ip=ip),
                     )
                 assert exc.value.status_code == 401
 
             with pytest.raises(HTTPException) as exc:
                 await login(
-                    LoginRequest(email="spray-next@example.com", password="common"),
+                    LoginRequest(email="spray-next@example.com", password="common123"),
                     _req(ip=ip),
                 )
             assert exc.value.status_code == 429

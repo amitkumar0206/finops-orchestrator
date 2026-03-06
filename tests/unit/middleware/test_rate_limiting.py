@@ -3,13 +3,12 @@ Tests for Rate Limiting Middleware
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock
 from fastapi import HTTPException
 
 from backend.middleware.rate_limiting import (
     RateLimiter,
     check_rate_limit,
-    check_ingest_rate_limit,
     get_default_limiter,
     get_ingest_limiter,
 )
@@ -39,17 +38,40 @@ def mock_request(mock_auth_user):
 
 @pytest.fixture
 def mock_request_with_forwarded(mock_auth_user):
-    """Create a mock request with X-Forwarded-For header and authenticated user"""
+    """
+    Mock request with a REALISTIC X-Forwarded-For chain behind an ALB.
+
+    Three distinct IPs so assertions unambiguously prove which one was used:
+      - 1.1.1.1       → leftmost XFF entry (attacker-controlled spoof)
+      - 203.0.113.1   → rightmost XFF entry (ALB-appended = real client)
+      - 10.0.0.99     → TCP peer (the ALB's own IP)
+    """
     request = Mock()
     request.client = Mock()
-    request.client.host = "10.0.0.1"
+    request.client.host = "10.0.0.99"  # ALB's IP, NOT the client
     request.headers = {
-        "X-Forwarded-For": "203.0.113.1, 10.0.0.1",
+        "X-Forwarded-For": "1.1.1.1, 203.0.113.1",
     }
     # Set up authenticated user in request state
     request.state = Mock()
     request.state.auth_user = mock_auth_user
     return request
+
+
+@pytest.fixture(autouse=True)
+def _pin_trusted_proxy_count():
+    """
+    SECURITY (HIGH-12): pin trusted_proxy_count=1 for every test in this
+    module. rate_limiting._get_client_key() calls get_client_ip() with no
+    override, which reads from the lru_cached get_settings(). In CI the
+    cache may already be populated by an earlier test with a different env,
+    so patch at the point of use (client_ip.get_settings) to guarantee
+    deterministic depth=1 behavior here.
+    """
+    from unittest.mock import patch
+    fake = Mock(trusted_proxy_count=1)
+    with patch("backend.utils.client_ip.get_settings", return_value=fake):
+        yield
 
 
 class TestRateLimiter:
@@ -84,15 +106,76 @@ class TestRateLimiter:
         assert info["remaining"] == 0
 
     @pytest.mark.asyncio
-    async def test_uses_forwarded_ip(self, mock_request_with_forwarded):
-        """Test that X-Forwarded-For header is used for client identification"""
+    async def test_uses_trusted_xff_entry_not_spoofed_leftmost(
+        self, mock_request_with_forwarded
+    ):
+        """
+        HIGH-12 REGRESSION — INVERTED FROM THE PRE-FIX TEST.
+
+        This test previously asserted the LEFTMOST XFF entry was used —
+        which is exactly the vulnerable behavior. It was a test pinning a
+        bug, the same pattern as F-41 where a test asserted fail-open was
+        correct for the token blacklist.
+
+        With trusted_proxy_count=1, the ALB-appended rightmost entry is the
+        real client. The attacker-prependable leftmost entry must be IGNORED.
+
+        Fixture chain: "1.1.1.1, 203.0.113.1" with client.host="10.0.0.99".
+        All three IPs are distinct, so these assertions unambiguously prove
+        trusted-depth parsing (not leftmost, not TCP-peer fallback).
+        """
         limiter = RateLimiter(requests_per_window=5, window_seconds=60)
 
         key = limiter._get_client_key(mock_request_with_forwarded, "test")
 
-        # Should use the first IP from X-Forwarded-For
+        # Real client (ALB-appended, rightmost) IS in the key
         assert "203.0.113.1" in key
-        assert "10.0.0.1" not in key
+        # Spoofed leftmost is NOT — attacker cannot choose their bucket
+        assert "1.1.1.1" not in key
+        # ALB's own IP is NOT — XFF was present and parsed, not ignored
+        assert "10.0.0.99" not in key
+
+    @pytest.mark.asyncio
+    async def test_spoofed_xff_does_not_evade_rate_limit(self, mock_auth_user):
+        """
+        HIGH-12 END-TO-END REGRESSION — the actual attack.
+
+        Pre-fix: one attacker IP behind the ALB, varying the spoofed
+        X-Forwarded-For prefix on each request → each request got a fresh
+        rate-limit bucket → unlimited requests. Post-fix: the ALB-appended
+        rightmost entry is constant (it's the real client) → all requests
+        share one bucket → 4th request blocked.
+        """
+        limiter = RateLimiter(requests_per_window=3, window_seconds=60)
+
+        def spoofed_request(fake_leftmost: str):
+            # Same real client (203.0.113.1) every time. Same ALB peer.
+            # Only the attacker-controlled leftmost prefix varies.
+            r = Mock()
+            r.client = Mock(host="10.0.0.99")
+            r.headers = {"X-Forwarded-For": f"{fake_leftmost}, 203.0.113.1"}
+            r.state = Mock(auth_user=mock_auth_user)
+            return r
+
+        # 3 requests with 3 different spoofed prefixes — all from the SAME
+        # real client, so all land in the same bucket post-fix.
+        for i in range(3):
+            allowed, _ = await limiter.is_allowed(
+                spoofed_request(f"99.99.99.{i}"), "spray"
+            )
+            assert allowed is True
+
+        # 4th with yet another spoof — pre-fix: allowed (fresh bucket);
+        # post-fix: BLOCKED (same real-client bucket, now at limit).
+        allowed, info = await limiter.is_allowed(
+            spoofed_request("99.99.99.255"), "spray"
+        )
+        assert allowed is False, (
+            "HIGH-12 REGRESSION: varying the spoofed X-Forwarded-For prefix "
+            "must NOT evade the rate limit. If this fails, the leftmost-XFF "
+            "bug is back — an attacker can bypass all IP-based controls."
+        )
+        assert info["remaining"] == 0
 
     @pytest.mark.asyncio
     async def test_different_endpoints_have_separate_limits(self, mock_request):

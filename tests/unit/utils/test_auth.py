@@ -2,7 +2,6 @@
 Tests for JWT Authentication Utilities
 """
 
-import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -16,7 +15,6 @@ from backend.utils.auth import (
     TokenExpiredError,
     TokenInvalidError,
     TokenMissingError,
-    AuthError,
     extract_token_from_header,
     generate_secure_secret_key,
     initialize_authenticator,

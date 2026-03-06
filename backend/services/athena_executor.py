@@ -5,7 +5,6 @@ Integrates with AthenaCURTemplates for query generation
 
 import asyncio
 import time
-import os
 from typing import Dict, List, Any, Optional, Tuple
 from botocore.exceptions import ClientError
 import structlog
@@ -16,7 +15,6 @@ from backend.utils.aws_constants import AwsService
 from backend.services.athena_cur_templates import AthenaCURTemplates
 from backend.services.service_resolver import ServiceResolver, ResolutionResult
 from backend.agents.intent_classifier import IntentType
-from backend.models.schemas import AgentType
 from backend.utils.date_parser import date_parser
 
 logger = structlog.get_logger(__name__)
@@ -197,7 +195,6 @@ class EnhancedAthenaQueryExecutor:
             start_date, end_date = self._resolve_date_range(extracted_params)
             
             # Check if we should use Cost Explorer for long time ranges
-            from datetime import date
             if isinstance(start_date, str):
                 from datetime import datetime
                 start_date_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -217,7 +214,6 @@ class EnhancedAthenaQueryExecutor:
             # 1. "AWS Cost Explorer" appearing as a cost driver (API usage fees)
             # 2. Missing account-level details
             # 3. Incorrect data for service breakdowns
-            from backend.agents.intent_classifier import IntentType
             
             logger.info(
                 "Using Athena (CUR) for query",
@@ -682,7 +678,7 @@ class EnhancedAthenaQueryExecutor:
         elif intent == IntentType.COMPARATIVE:
             # Explicit period-over-period comparison (current vs previous)
             # Determine current period boundaries (already normalized as start_date/end_date)
-            from datetime import datetime, timedelta, date
+            from datetime import datetime, timedelta
             try:
                 if isinstance(start_date, str):
                     current_start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -885,12 +881,12 @@ class EnhancedAthenaQueryExecutor:
             # BUT: Allow 'account' dimension to pass through for account-level cost attribution
             if "cloudwatch" in normalized_service and dimensions[0] == "region":
                 logger.info(
-                    f"Overriding requested 'region' dimension to 'usage_type' for CloudWatch (global service)",
+                    "Overriding requested 'region' dimension to 'usage_type' for CloudWatch (global service)",
                     service=service
                 )
                 return "usage_type", False
             logger.info(
-                f"Using explicitly requested dimension for service breakdown",
+                "Using explicitly requested dimension for service breakdown",
                 service=service,
                 dimension=dimensions[0]
             )
@@ -900,38 +896,38 @@ class EnhancedAthenaQueryExecutor:
 
         # Direct keyword hints in the query
         if any(term in query_lower for term in ["account", "payer", "linked account"]):
-            logger.info(f"Inferring 'account' dimension from query keywords", service=service)
+            logger.info("Inferring 'account' dimension from query keywords", service=service)
             return "account", False
         if "usage type" in query_lower or "usage_type" in query_lower or "usage" in query_lower:
-            logger.info(f"Inferring 'usage_type' dimension from query keywords", service=service)
+            logger.info("Inferring 'usage_type' dimension from query keywords", service=service)
             return "usage_type", False
         if any(term in query_lower for term in ["operation", "api", "call", "request"]):
-            logger.info(f"Inferring 'operation' dimension from query keywords", service=service)
+            logger.info("Inferring 'operation' dimension from query keywords", service=service)
             return "operation", False
 
         # Service-specific heuristics
         if "cloudwatch log" in query_lower:
             # User is drilling into CloudWatch logs specifically; show API operations
-            logger.info(f"Using 'operation' dimension for CloudWatch Logs drill-down", service=service)
+            logger.info("Using 'operation' dimension for CloudWatch Logs drill-down", service=service)
             return "operation", False
         if "cloudwatch" in normalized_service:
             # CloudWatch costs are most meaningful when broken down by usage type (Logs, Metrics, etc.)
             logger.info(
-                f"Using 'usage_type' dimension for CloudWatch service breakdown",
+                "Using 'usage_type' dimension for CloudWatch service breakdown",
                 service=service,
                 normalized_service=normalized_service
             )
             return "usage_type", True
         if "lambda" in normalized_service:
-            logger.info(f"Using 'usage_type' dimension for Lambda service breakdown", service=service)
+            logger.info("Using 'usage_type' dimension for Lambda service breakdown", service=service)
             return "usage_type", True
         if any(token in normalized_service for token in ["s3", "storage", "glacier"]):
-            logger.info(f"Using 'usage_type' dimension for storage service breakdown", service=service)
+            logger.info("Using 'usage_type' dimension for storage service breakdown", service=service)
             return "usage_type", True
 
         # Default fallback - ASK FOR CLARIFICATION instead of assuming region
         logger.warning(
-            f"No explicit dimension for service breakdown - should request clarification",
+            "No explicit dimension for service breakdown - should request clarification",
             service=service
         )
         return None, False

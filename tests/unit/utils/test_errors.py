@@ -11,7 +11,6 @@ from backend.utils.errors import (
     create_error_response,
     raise_not_found,
     raise_validation_error,
-    raise_internal_error,
     raise_aws_error,
     handle_opportunity_error,
 )

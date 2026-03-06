@@ -18,7 +18,6 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import asyncio
 from backend.services.text_to_sql_service import text_to_sql_service
-from backend.services.response_formatter import response_formatter
 from backend.services.chart_recommendation import chart_engine
 from backend.services.chart_data_builder import chart_data_builder
 from backend.config.settings import get_settings
@@ -238,7 +237,7 @@ async def execute_query_simple(
         if should_drill_down:
             try:
                 # Build drill-down SQL to get usage_type breakdown
-                drill_down_sql = f"""
+                drill_down_sql = """
 SELECT 
     line_item_usage_type AS usage_type,
     ROUND(SUM(
@@ -302,7 +301,7 @@ ORDER BY cost_usd DESC
 LIMIT 20
 """
                 
-                logger.info(f"Executing drill-down query for usage types")
+                logger.info("Executing drill-down query for usage types")
                 drill_down_results = await executor.execute_sql(drill_down_sql)
                 
                 # Use drill-down results if we got multiple rows

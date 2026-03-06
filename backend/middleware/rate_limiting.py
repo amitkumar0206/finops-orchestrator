@@ -6,15 +6,15 @@ with optional Redis/Valkey backend for distributed deployments.
 """
 
 import time
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict
 from collections import defaultdict
-from functools import wraps
 import asyncio
 
 import structlog
 from fastapi import Request, HTTPException, status
 
 from backend.config.settings import get_settings
+from backend.utils.client_ip import get_client_ip
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -54,15 +54,12 @@ class RateLimiter:
         """
         Generate a unique key for the client.
 
-        Uses X-Forwarded-For header if behind a proxy, otherwise client host.
+        SECURITY (HIGH-12): Uses trusted-proxy-depth XFF parsing via the
+        shared utils.client_ip helper. The prior .split(",")[0] pattern took
+        the leftmost entry — attacker-controlled, allowing rate-limit bypass
+        by spoofing X-Forwarded-For on each request.
         """
-        # Check for forwarded IP (behind load balancer/proxy)
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            # Take the first IP in the chain (original client)
-            client_ip = forwarded.split(",")[0].strip()
-        else:
-            client_ip = request.client.host if request.client else "unknown"
+        client_ip = get_client_ip(request)
 
         # Get user email from authenticated user (set by AuthenticationMiddleware)
         # SECURITY: Never trust X-User-Email header - use authenticated user only
@@ -512,7 +509,7 @@ async def check_athena_export_rate_limit(request: Request) -> dict:
         await check_rate_limit(
             request,
             limiter=user_limiter,
-            endpoint=f"athena_export_user"
+            endpoint="athena_export_user"
         )
     except HTTPException as e:
         # Per-user limit exceeded

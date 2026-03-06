@@ -6,10 +6,8 @@ Tests the fix for HIGH-6: Unmasked PII (Email) in Authentication Logs
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock, Mock
 from fastapi import HTTPException
-import structlog
-from structlog.testing import LogCapture
 
-from backend.api.auth import router, LoginRequest
+from backend.api.auth import LoginRequest
 from backend.utils.pii_masking import mask_email
 
 

@@ -43,32 +43,45 @@ from backend.services.opportunities_service import (
     OpportunitiesService,
     get_opportunities_service,
 )
-from backend.services.aws_optimization_signals import (
-    AWSOptimizationSignalsService,
-    get_optimization_signals_service,
-)
-from backend.services.request_context import get_context_from_request
+from backend.services.aws_optimization_signals import get_optimization_signals_service
+from backend.services.request_context import require_context, RequestContext
 from backend.middleware.rate_limiting import check_ingest_rate_limit
 from backend.utils.errors import (
     raise_not_found,
     raise_internal_error,
     raise_validation_error,
-    raise_aws_error,
     handle_opportunity_error,
     create_error_response,
     ErrorCode,
 )
-from backend.utils.pii_masking import mask_email, hash_identifier
+from backend.utils.pii_masking import hash_identifier
 
 router = APIRouter(prefix="/opportunities", tags=["opportunities"])
 logger = structlog.get_logger(__name__)
 
 
-def get_service(request: Request) -> OpportunitiesService:
-    """Get opportunities service with organization scoping from request context"""
-    context = get_context_from_request(request)
-    org_id = context.organization_id if context else None
-    return get_opportunities_service(org_id)
+async def get_request_context(request: Request) -> RequestContext:
+    """
+    FastAPI dependency: require authenticated RequestContext or raise 401.
+
+    SECURITY (HIGH-20): Every route in this module MUST depend on this. The
+    previous nullable get_context_from_request() pattern returned None when
+    unauthenticated, which propagated as org_id=None to the service layer →
+    opportunities ran without tenant scoping. An unauthenticated caller could
+    list/export/mutate/delete ALL organizations' opportunity data.
+
+    require_context() raises HTTPException(401) before any handler body runs,
+    so service code never sees an unauthenticated request. The router-level
+    tripwire at test_opportunities_security.py::TestOpportunitiesRouterAuthTripwire
+    asserts this dependency is present on every route — adding an endpoint
+    without it will fail CI.
+    """
+    return require_context(request)
+
+
+def get_service(context: RequestContext) -> OpportunitiesService:
+    """Get opportunities service scoped to the authenticated caller's organization"""
+    return get_opportunities_service(context.organization_id)
 
 
 @router.get("", response_model=OpportunityListResponse)
@@ -94,6 +107,7 @@ async def list_opportunities(
     search: Optional[str] = Query(None, max_length=500, description="Full-text search"),
     first_detected_after: Optional[datetime] = Query(None, description="Filter by detection date"),
     first_detected_before: Optional[datetime] = Query(None, description="Filter by detection date"),
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     List optimization opportunities with filtering, sorting, and pagination.
@@ -101,7 +115,7 @@ async def list_opportunities(
     Returns a paginated list with aggregations for filtering UI.
     """
     try:
-        svc = get_service(request)
+        svc = get_service(context)
 
         # Build filter from query params
         filter_obj = OpportunityFilter(
@@ -153,6 +167,7 @@ async def list_opportunities(
 async def search_opportunities(
     request: Request,
     body: OpportunityListRequest,
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Search opportunities with complex filter criteria.
@@ -160,7 +175,7 @@ async def search_opportunities(
     Accepts filter object in request body for complex queries.
     """
     try:
-        svc = get_service(request)
+        svc = get_service(context)
 
         result = svc.list_opportunities(
             filter=body.filter,
@@ -181,14 +196,17 @@ async def search_opportunities(
 
 
 @router.get("/stats", response_model=OpportunitiesStats)
-async def get_stats(request: Request):
+async def get_stats(
+    request: Request,
+    context: RequestContext = Depends(get_request_context),
+):
     """
     Get statistics summary for opportunities dashboard.
 
     Returns counts, savings totals, and top opportunities.
     """
     try:
-        svc = get_service(request)
+        svc = get_service(context)
         stats = svc.get_stats()
 
         logger.info(
@@ -212,17 +230,16 @@ async def get_stats(request: Request):
 async def get_opportunity(
     request: Request,
     opportunity_id: UUID,
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Get full details of a single opportunity including evidence.
     Requires ownership validation - users can only access their own opportunities.
     """
     try:
-        svc = get_service(request)
-        context = get_context_from_request(request)
-        user_id = context.user_id if context else None
+        svc = get_service(context)
 
-        opportunity = svc.get_opportunity(opportunity_id, user_id=user_id)
+        opportunity = svc.get_opportunity(opportunity_id, user_id=context.user_id)
 
         if not opportunity:
             raise_not_found("optimization opportunity", str(opportunity_id))
@@ -230,7 +247,7 @@ async def get_opportunity(
         logger.info(
             "Retrieved opportunity",
             opportunity_id=str(opportunity_id),
-            user_id=str(user_id) if user_id else None
+            user_id=str(context.user_id),
         )
         return opportunity
 
@@ -244,6 +261,7 @@ async def get_opportunity(
 async def create_opportunity(
     request: Request,
     body: OpportunityCreate,
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Create a manual opportunity.
@@ -251,20 +269,16 @@ async def create_opportunity(
     For creating opportunities not detected automatically by AWS signals.
     """
     try:
-        svc = get_service(request)
-
-        # Get user from context
-        context = get_context_from_request(request)
-        user_email = context.user_email if context else None
-        user_id = context.user_id if context else None
+        svc = get_service(context)
 
         data = body.model_dump(exclude_none=True)
         data['source'] = OpportunitySource.MANUAL.value
         data['status'] = OpportunityStatus.OPEN.value
-
-        # Store creator user_id for ownership validation
-        if user_id:
-            data['created_by_user_id'] = str(user_id)
+        # HIGH-20: context.user_id is guaranteed (required dataclass field,
+        # require_context() ensures we never reach here unauthenticated) —
+        # the old `if user_id:` guard existed only because the nullable
+        # pattern could leave user_id=None. Now always stamp ownership.
+        data['created_by_user_id'] = str(context.user_id)
 
         if body.implementation_steps:
             data['implementation_steps'] = [s.model_dump() for s in body.implementation_steps]
@@ -279,8 +293,8 @@ async def create_opportunity(
             "Created manual opportunity",
             id=str(opportunity.id),
             title=opportunity.title,
-            created_by=hash_identifier(user_email, "user"),
-            created_by_user_id=str(user_id) if user_id else None
+            created_by=hash_identifier(context.user_email, "user"),
+            created_by_user_id=str(context.user_id),
         )
 
         return opportunity
@@ -294,22 +308,21 @@ async def update_opportunity(
     request: Request,
     opportunity_id: UUID,
     body: OpportunityUpdate,
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Update an opportunity's details.
     Requires ownership validation - users can only update their own opportunities.
     """
     try:
-        svc = get_service(request)
-        context = get_context_from_request(request)
-        user_id = context.user_id if context else None
+        svc = get_service(context)
 
         data = body.model_dump(exclude_none=True)
 
         if body.implementation_steps:
             data['implementation_steps'] = [s.model_dump() for s in body.implementation_steps]
 
-        opportunity = svc.update_opportunity(opportunity_id, data, user_id=user_id)
+        opportunity = svc.update_opportunity(opportunity_id, data, user_id=context.user_id)
 
         if not opportunity:
             raise_not_found("optimization opportunity", str(opportunity_id))
@@ -317,7 +330,7 @@ async def update_opportunity(
         logger.info(
             "Updated opportunity",
             opportunity_id=str(opportunity_id),
-            user_id=str(user_id) if user_id else None
+            user_id=str(context.user_id),
         )
         return opportunity
 
@@ -332,6 +345,7 @@ async def update_opportunity_status(
     request: Request,
     opportunity_id: UUID,
     body: OpportunityStatusUpdate,
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Update an opportunity's status.
@@ -345,19 +359,14 @@ async def update_opportunity_status(
     - in_progress -> implemented (implementation complete)
     """
     try:
-        svc = get_service(request)
-
-        # Get user from context
-        context = get_context_from_request(request)
-        user_email = context.user_email if context else None
-        user_id = context.user_id if context else None
+        svc = get_service(context)
 
         opportunity = svc.update_status(
             opportunity_id,
             body.status,
             body.reason,
-            user_email,
-            user_id=user_id
+            context.user_email,
+            user_id=context.user_id,
         )
 
         if not opportunity:
@@ -368,8 +377,8 @@ async def update_opportunity_status(
             id=str(opportunity_id),
             new_status=body.status.value,
             reason=body.reason,
-            changed_by=hash_identifier(user_email, "user"),
-            user_id=str(user_id) if user_id else None
+            changed_by=hash_identifier(context.user_email, "user"),
+            user_id=str(context.user_id),
         )
 
         return opportunity
@@ -384,22 +393,19 @@ async def update_opportunity_status(
 async def bulk_update_status(
     request: Request,
     body: BulkStatusUpdateRequest,
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Update status for multiple opportunities at once.
     """
     try:
-        svc = get_service(request)
-
-        # Get user from context
-        context = get_context_from_request(request)
-        user_email = context.user_email if context else None
+        svc = get_service(context)
 
         updated, failed, errors = svc.bulk_update_status(
             body.opportunity_ids,
             body.status,
             body.reason,
-            user_email
+            context.user_email,
         )
 
         logger.info(
@@ -437,6 +443,7 @@ async def bulk_update_status(
 async def delete_opportunity(
     request: Request,
     opportunity_id: UUID,
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Delete an opportunity.
@@ -445,11 +452,9 @@ async def delete_opportunity(
     Typically used for manually created opportunities.
     """
     try:
-        svc = get_service(request)
-        context = get_context_from_request(request)
-        user_id = context.user_id if context else None
+        svc = get_service(context)
 
-        deleted = svc.delete_opportunity(opportunity_id, user_id=user_id)
+        deleted = svc.delete_opportunity(opportunity_id, user_id=context.user_id)
 
         if not deleted:
             raise_not_found("optimization opportunity", str(opportunity_id))
@@ -457,7 +462,7 @@ async def delete_opportunity(
         logger.info(
             "Deleted opportunity",
             opportunity_id=str(opportunity_id),
-            user_id=str(user_id) if user_id else None
+            user_id=str(context.user_id),
         )
         return Response(status_code=204)
 
@@ -476,6 +481,7 @@ async def ingest_signals(
         description="Specific source to ingest from (all sources if not specified)"
     ),
     rate_limit_info: dict = Depends(check_ingest_rate_limit),
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Trigger ingestion of optimization signals from AWS APIs.
@@ -490,13 +496,8 @@ async def ingest_signals(
     Rate Limited: 5 requests per hour per user/IP.
     """
     try:
-        context = get_context_from_request(request)
-        org_id = context.organization_id if context else None
-
-        # Get AWS account info from context if available
-        # For now, use settings default
         signals_svc = get_optimization_signals_service(
-            organization_id=org_id
+            organization_id=context.organization_id
         )
 
         # Fetch signals based on source filter
@@ -533,7 +534,7 @@ async def ingest_signals(
         signals = signals_svc.deduplicate_opportunities(signals)
 
         # Ingest into database
-        opp_svc = get_service(request)
+        opp_svc = get_service(context)
         result = opp_svc.ingest_signals(signals)
 
         # Add any errors to result message
@@ -562,12 +563,13 @@ async def ingest_signals(
 async def export_opportunities(
     request: Request,
     body: OpportunityExportRequest,
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Export opportunities to CSV, JSON, or Excel format.
     """
     try:
-        svc = get_service(request)
+        svc = get_service(context)
 
         data = svc.export_opportunities(
             filter=body.filter,
@@ -639,6 +641,7 @@ async def export_opportunities(
 async def get_top_opportunities(
     request: Request,
     limit: int = Query(10, ge=1, le=50, description="Number of top opportunities"),
+    context: RequestContext = Depends(get_request_context),
 ):
     """
     Get top opportunities by potential savings.
@@ -646,7 +649,7 @@ async def get_top_opportunities(
     Quick endpoint for dashboard widgets.
     """
     try:
-        svc = get_service(request)
+        svc = get_service(context)
 
         filter_obj = OpportunityFilter(
             statuses=[OpportunityStatus.OPEN]

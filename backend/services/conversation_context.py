@@ -9,11 +9,9 @@ This module is retained for compatibility with existing tests and legacy code pa
 
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
-import json
 import re
 import structlog
 
-from backend.utils.date_parser import date_parser
 from backend.services.database import DatabaseService
 from backend.models.database_models import Conversation
 from backend.services.column_constants import CHARGE_TYPE_SYNONYMS

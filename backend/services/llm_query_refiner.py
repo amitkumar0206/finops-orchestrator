@@ -3,7 +3,7 @@ LLM-based Query Refinement Service
 Uses LLM to understand conversation context and generate structured filters
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import json
 import re
 import structlog

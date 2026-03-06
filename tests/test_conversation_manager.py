@@ -1,4 +1,3 @@
-import pytest
 
 from backend.services.conversation_manager import ConversationManager
 
@@ -41,10 +40,10 @@ def test_get_context_for_query_merges_dimensions(monkeypatch):
         }
     ]
 
-    monkeypatch.setattr(cm, "_fetch_recent_intents", lambda thread_id, limit: intents)
-    monkeypatch.setattr(cm, "_fetch_recent_messages", lambda thread_id, limit: messages)
+    monkeypatch.setattr(cm, "_fetch_recent_intents", lambda thread_id, user_id, limit: intents)
+    monkeypatch.setattr(cm, "_fetch_recent_messages", lambda thread_id, user_id, limit: messages)
 
-    ctx = cm.get_context_for_query("thread-123")
+    ctx = cm.get_context_for_query("thread-123", user_id="user-abc")
 
     assert ctx["time_range"]["description"] == "Last 30 days"
     # Services merged and unique, preserve order of first appearance

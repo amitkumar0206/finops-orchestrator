@@ -28,7 +28,6 @@ from backend.utils.auth import (
     TokenPayload,
     TokenExpiredError,
     TokenInvalidError,
-    TokenMissingError,
     extract_token_from_header,
     get_authenticator,
 )

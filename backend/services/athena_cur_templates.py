@@ -4,9 +4,8 @@ Implements all SQL patterns from APPENDIX B with safe partitioning and effective
 Updated: 2025-12-02 05:30 UTC - Force cache invalidation for ARN cost filter fixes
 """
 
-from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, date, timedelta
-from dateutil.relativedelta import relativedelta
+from typing import Dict, List, Optional, Tuple
+from datetime import date, timedelta
 import structlog
 
 from backend.services.column_constants import (
@@ -23,11 +22,9 @@ from backend.utils.sql_validation import (
     validate_resource_id,
     escape_sql_string,
     escape_like_pattern,
-    build_safe_in_clause,
     ValidationError,
 )
 from backend.utils.sql_constants import (
-    SQL_VALUE_SEPARATOR,
     SQL_AND,
     SQL_OR,
     SQL_UNION_ALL,
@@ -322,18 +319,7 @@ class AthenaCURTemplates:
         """
         partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
         effective_cost = self._effective_cost_expr()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        line_item_type_clause = self._line_item_type_clause()
-        
+
         # Validate instance type if provided
         instance_filter = ""
         if instance_type:
@@ -1031,7 +1017,7 @@ ORDER BY dt DESC, ABS(z_score) DESC NULLS LAST;
             validated_env2 = validate_tag_value(env2)
         except ValidationError as e:
             logger.error("Invalid environment value", error=str(e))
-            raise ValueError(f"Invalid environment value")
+            raise ValueError("Invalid environment value")
 
         query = f"""
 SELECT

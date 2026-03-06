@@ -116,6 +116,26 @@ async def switch_organization(
 ):
     """Switch to a different organization"""
     try:
+        # SECURITY (HIGH-17): defense-in-depth membership guard at the API
+        # layer. The service layer also checks (organization_service.py:258-266
+        # raises ValueError → 400 below), but that is the LAST line of defense,
+        # not the only one. An API-layer 403 fails fast with correct semantics
+        # and survives a future service refactor that drops the inner check.
+        # get_user_organizations returns id as str(UUID) — compare as strings.
+        user_orgs = await organization_service.get_user_organizations(
+            user_id=context.user_id
+        )
+        if str(org_id) not in {o["id"] for o in user_orgs}:
+            logger.warning(
+                "organization_switch_denied_not_member",
+                user_id=str(context.user_id),
+                org_id=str(org_id),
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="You are not a member of this organization",
+            )
+
         await organization_service.switch_organization(
             user_id=context.user_id,
             org_id=org_id
@@ -136,6 +156,10 @@ async def switch_organization(
             "message": f"Switched to organization: {org['name'] if org else 'Unknown'}"
         }
 
+    except HTTPException:
+        # Re-raise the 403 membership denial (and any future explicit
+        # HTTPException) so the generic 500 handler below doesn't swallow it.
+        raise
     except ValueError as e:
         logger.error("switch_organization_validation_failed", error=str(e), exc_info=True)
         raise HTTPException(status_code=400, detail="Invalid request. Please check your input.")

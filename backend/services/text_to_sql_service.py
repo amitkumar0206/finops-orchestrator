@@ -14,7 +14,7 @@ import structlog
 from backend.services.llm_service import llm_service
 from backend.config.settings import get_settings
 from backend.utils.sql_constants import build_sql_in_list, format_display_list
-from backend.utils.sql_validation import SQL_INJECTION_PATTERNS, ValidationError
+from backend.utils.sql_validation import ValidationError
 from backend.services.rbac_permission_service import get_rbac_service
 
 if TYPE_CHECKING:
@@ -944,7 +944,6 @@ class TextToSQLService:
         Returns:
             Tuple of (sql_query, metadata) with scope information
         """
-        from backend.services.request_context import RequestContext
 
         # Build enhanced context with account scoping
         enhanced_context = previous_context.copy() if previous_context else {}
@@ -1080,7 +1079,6 @@ class TextToSQLService:
         if not sql or not sql.strip():
             return
 
-        sql_upper = sql.upper()
         sql_stripped = sql.strip()
 
         # 1. Reject multi-statement queries (prevent stacked queries)

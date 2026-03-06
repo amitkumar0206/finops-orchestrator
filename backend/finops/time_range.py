@@ -12,7 +12,7 @@ Precedence rules for merge_time_range:
 """
 
 from datetime import datetime, date, timedelta
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple
 from enum import Enum
 from dataclasses import dataclass, field
 import re

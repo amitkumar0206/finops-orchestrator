@@ -8,7 +8,6 @@ Create Date: 2025-11-12 10:05:00.000000
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy import text as sa_text
 
 # revision identifiers, used by Alembic.
 revision = '002'

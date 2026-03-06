@@ -13,12 +13,11 @@ import structlog
 from datetime import datetime
 
 from backend.services.database import DatabaseService
-from backend.utils.encryption import get_field_encryptor, DecryptionError
+from backend.utils.encryption import get_field_encryptor
 from backend.utils.sql_validation import (
     validate_date,
     validate_account_id,
     validate_identifier,
-    ValidationError,
 )
 
 logger = structlog.get_logger(__name__)
@@ -252,10 +251,10 @@ class MultiAccountService:
             return []
         
         # Get Athena client for this account
-        athena_client = await self.get_athena_client_for_account(account_id)
-        
+        athena_client = await self.get_athena_client_for_account(account_id)  # noqa: F841
+
         # Build query based on group_by
-        athena_query = self._build_aggregation_query(
+        athena_query = self._build_aggregation_query(  # noqa: F841
             account['cur_database'],
             account['cur_table'],
             start_date,
@@ -263,10 +262,10 @@ class MultiAccountService:
             group_by,
             account_id
         )
-        
+
         # Execute query (simplified - would use actual Athena executor)
         # results = await athena_executor.execute_query(athena_query, athena_client)
-        
+
         return []  # Placeholder
     
     def _build_aggregation_query(

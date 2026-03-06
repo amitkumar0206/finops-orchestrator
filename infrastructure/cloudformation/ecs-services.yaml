@@ -58,6 +58,20 @@ Parameters:
     Default: ''
     Description: S3 bucket name for CUR reports (Parquet files). Defaults to S3BucketName if not specified.
 
+  # SECURITY (HIGH-12, HIGH-35): Number of trusted reverse proxies between the
+  # client and the backend. Controls which X-Forwarded-For entry is trusted as
+  # the real client IP for rate-limiting and login brute-force throttling.
+  # Per-tenant: 0 = direct/no-proxy, 1 = single ALB (this stack's default
+  # topology), 2 = CloudFront -> ALB. MUST match the actual proxy chain or
+  # IP-based security controls are either bypassable (too low) or attribute all
+  # traffic to the proxy's own IP (too high).
+  TrustedProxyCount:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 5
+    Description: Number of trusted reverse proxies for X-Forwarded-For parsing (1 = ALB only, 2 = CloudFront+ALB)
+
   CurDatabase:
     Type: String
     Default: cost_usage_db
@@ -149,6 +163,8 @@ Resources:
               Value: !Ref AWS::Region
             - Name: ENVIRONMENT
               Value: production
+            - Name: TRUSTED_PROXY_COUNT
+              Value: !Ref TrustedProxyCount
             - Name: LLM_PROVIDER
               Value: 'bedrock'
             - Name: BEDROCK_MODEL_ID

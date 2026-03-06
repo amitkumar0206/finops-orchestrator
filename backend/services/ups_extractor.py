@@ -17,7 +17,6 @@ If LLM unavailable or invalid JSON output, falls back to heuristic extraction.
 
 import json
 import os
-import re
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta
 import structlog

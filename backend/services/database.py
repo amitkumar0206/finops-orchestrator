@@ -19,7 +19,7 @@ https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 import asyncio
 import ssl
 import os
-from typing import Dict, Any, Optional
+from typing import Optional
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
