@@ -165,6 +165,13 @@ Resources:
               ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:finops/secret-key'
             - Name: POSTGRES_PASSWORD
               ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:finops/database-password'
+            # SECURITY (HIGH-33): encryption.py:97 raises ValueError on boot when
+            # ENVIRONMENT=production (line 151 above) and FIELD_ENCRYPTION_KEY is
+            # unset or <32 chars. Without this entry the backend container crash-loops
+            # on the first call to get_field_encryptor(). Secret resource + IAM grant
+            # are in main-stack.yaml (FieldEncryptionKeySecret).
+            - Name: FIELD_ENCRYPTION_KEY
+              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:finops/field-encryption-key'
           LogConfiguration:
             LogDriver: awslogs
             Options:

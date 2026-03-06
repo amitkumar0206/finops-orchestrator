@@ -14,6 +14,12 @@ from datetime import datetime
 
 from backend.services.database import DatabaseService
 from backend.utils.encryption import get_field_encryptor, DecryptionError
+from backend.utils.sql_validation import (
+    validate_date,
+    validate_account_id,
+    validate_identifier,
+    ValidationError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -273,14 +279,27 @@ class MultiAccountService:
         account_id: str
     ) -> str:
         """Build Athena query for cost aggregation"""
-        
+        # SECURITY (CRIT-12 sibling): this method is reachable from
+        # GET /accounts/aggregate-costs which declares start_date/end_date
+        # as raw ``str`` query params with NO upstream validation.
+        # Athena has no bind parameters, so every interpolated value must
+        # be provably safe before reaching the f-string below.
+        start_date = validate_date(start_date)
+        end_date = validate_date(end_date)
+        account_id = validate_account_id(account_id)
+        # database/table come from the aws_accounts row, but that row is
+        # populated by register_account() which accepts caller-provided
+        # cur_database/cur_table — validate as SQL identifiers.
+        database = validate_identifier(database, "database")
+        table = validate_identifier(table, "table")
+
         group_clause = {
             'account': f"'{account_id}' as account_id",
             'service': "line_item_product_code as service",
             'region': "product_region as region",
             'account_service': f"'{account_id}' as account_id, line_item_product_code as service"
         }.get(group_by, f"'{account_id}' as account_id")
-        
+
         return f"""
             SELECT
                 {group_clause},

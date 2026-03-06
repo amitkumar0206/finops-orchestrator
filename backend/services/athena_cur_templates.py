@@ -280,18 +280,32 @@ class AthenaCURTemplates:
     def _build_partition_filter(self, start_date: str, end_date: str) -> Tuple[str, List[str], List[str]]:
         """
         Build partition filter for date range.
-        
+
         Note: CUR tables partitioned by billing_period (YYYYMM format), not year/month separately.
         Since date filtering is done via line_item_usage_start_date in WHERE clause,
         we return a simple 1=1 to avoid partition column errors.
-        
+
+        SECURITY (CRIT-12 sibling): This method is the universal choke-point —
+        every public query method in this class calls it with (start_date, end_date)
+        BEFORE reaching its f-string. By validating here, any malformed date is
+        rejected before it can be interpolated into SQL by the caller. Accepts
+        both ``date`` objects and YYYY-MM-DD strings (``validate_date`` calls
+        ``str(value)`` internally).
+
         Args:
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
-            
+
         Returns:
             Tuple of (where_clause, years, months) - returns 1=1 and empty lists
+
+        Raises:
+            ValidationError: if either date is not strictly YYYY-MM-DD.
         """
+        # Validate-and-discard: we don't use the return value here, but the
+        # validation raises before the caller's f-string runs if input is malformed.
+        validate_date(start_date)
+        validate_date(end_date)
         # Return 1=1 (always true) since we filter by date in WHERE clause
         # and the table doesn't have year/month partitions
         return "1=1", [], []
@@ -459,6 +473,16 @@ ORDER BY week_start;
         S3 spike driver analysis comparing two periods.
         FEW-SHOT EXAMPLE 2: Why did S3 costs spike in September?
         """
+        # SECURITY (CRIT-12 sibling): this method takes FOUR date params but only
+        # min()/max() of them would reach the _build_partition_filter choke-point.
+        # {sep_start} and {aug_start} are f-stringed directly below (lines ~504-507),
+        # so if aug_start is valid but sep_start is malformed, min() could return the
+        # valid one, the choke-point would pass, and the malformed sep_start would
+        # still be interpolated raw. Validate each individually BEFORE min/max.
+        aug_start = validate_date(aug_start)
+        aug_end = validate_date(aug_end)
+        sep_start = validate_date(sep_start)
+        sep_end = validate_date(sep_end)
         # Build partition filters for both periods
         all_start = min(aug_start, sep_start)
         all_end = max(aug_end, sep_end)

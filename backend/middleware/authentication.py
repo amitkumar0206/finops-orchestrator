@@ -218,8 +218,22 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         except TokenInvalidError:
             raise
         except Exception as e:
-            # Log but don't fail if cache is unavailable
-            logger.debug("blacklist_check_skipped", error=str(e))
+            # SECURITY (HIGH-8): Fail CLOSED. cache.is_access_token_blacklisted()
+            # already fails closed internally (returns True on Valkey errors —
+            # F-25), but if get_cache_service() itself raises, or any other
+            # exception escapes, we MUST NOT let the request through. A revoked
+            # token is known-compromised — rejecting valid tokens during a
+            # cache outage is the lesser harm vs accepting revoked ones.
+            #
+            # Contrast: login_throttle.py fails OPEN — that's a rate limit
+            # (degraded protection OK, PBKDF2 still slows brute force). This
+            # is a revocation check (degraded == bypassed entirely).
+            logger.error(
+                "blacklist_check_unavailable_denied",
+                user_id=payload.user_id,
+                error=str(e),
+            )
+            raise TokenInvalidError("Unable to verify token status") from e
 
         return AuthenticatedUser(
             user_id=payload.user_id,

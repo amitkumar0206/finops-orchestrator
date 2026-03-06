@@ -411,8 +411,20 @@ class TestTokenBlacklist:
         assert auth_user.email == "test@example.com"
 
     @pytest.mark.asyncio
-    async def test_blacklist_check_failure_allows_token(self, authenticator, valid_access_token):
-        """Test that cache failures don't block valid tokens (fail open)"""
+    async def test_blacklist_check_failure_rejects_token(self, authenticator, valid_access_token):
+        """
+        HIGH-8 REGRESSION: cache-infrastructure failure must fail CLOSED.
+
+        If get_cache_service() raises (or any exception escapes the blacklist
+        check), the request is REJECTED. A revoked token is known-compromised —
+        we cannot distinguish "cache down" from "cache down AND this token was
+        revoked yesterday". Rejecting valid tokens during an outage is the
+        lesser harm.
+
+        Pre-fix: the except Exception at authentication.py:220 swallowed the
+        error, logged at debug, and let the request through — defeating
+        the cache service's own fail-closed design (F-25) one layer up.
+        """
         app = Mock()
         middleware = AuthenticationMiddleware(app, authenticator=authenticator)
 
@@ -421,18 +433,177 @@ class TestTokenBlacklist:
         request.url.path = "/api/v1/protected"
         request.headers = {"Authorization": f"Bearer {valid_access_token}"}
         request.state = Mock()
+        request.client = Mock()
+        request.client.host = "127.0.0.1"
 
         call_next = AsyncMock(return_value=Mock())
 
-        # Mock cache service to raise an exception
+        # Mock get_cache_service itself to raise — simulates the gap that
+        # is_access_token_blacklisted's internal fail-closed can't cover.
         async def raise_error():
-            raise Exception("Cache unavailable")
+            raise ConnectionError("Cache unavailable")
 
         with patch('backend.middleware.authentication.get_cache_service', side_effect=raise_error):
             response = await middleware.dispatch(request, call_next)
 
-        # Should still allow the request (fail open)
-        call_next.assert_called_once()
+        # FAIL CLOSED: 401, handler NOT reached, auth_user NOT set.
+        assert response.status_code == 401
+        call_next.assert_not_called()
 
-        auth_user = request.state.auth_user
-        assert isinstance(auth_user, AuthenticatedUser)
+        # Error code is TOKEN_INVALID (not TOKEN_REVOKED — we don't know
+        # if it's revoked, only that we can't verify). The user-facing message
+        # is the generic "Invalid authentication token" — doesn't leak that
+        # the cache is down.
+        import json
+        body = json.loads(response.body.decode())
+        assert body["error"] == "TOKEN_INVALID"
+        assert "cache" not in body["message"].lower()
+        assert "unavailable" not in body["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_blacklist_check_failure_logs_at_error_level(self, authenticator, valid_access_token):
+        """
+        HIGH-8: the deny event must be visible to ops. The old code logged at
+        DEBUG ("blacklist_check_skipped") — silent in production. The fix logs
+        at ERROR ("blacklist_check_unavailable_denied") so cache outages
+        surfacing as auth denials trigger alerts.
+        """
+        app = Mock()
+        middleware = AuthenticationMiddleware(app, authenticator=authenticator)
+
+        request = Mock()
+        request.url = Mock()
+        request.url.path = "/api/v1/protected"
+        request.headers = {"Authorization": f"Bearer {valid_access_token}"}
+        request.state = Mock()
+        request.client = Mock()
+        request.client.host = "127.0.0.1"
+
+        call_next = AsyncMock(return_value=Mock())
+
+        async def raise_error():
+            raise RuntimeError("Valkey connection pool exhausted")
+
+        with patch('backend.middleware.authentication.get_cache_service', side_effect=raise_error), \
+             patch('backend.middleware.authentication.logger') as mock_logger:
+            await middleware.dispatch(request, call_next)
+
+        # ERROR logged with the new event name — not debug, not the old name.
+        mock_logger.error.assert_any_call(
+            "blacklist_check_unavailable_denied",
+            user_id="user-123",
+            error="Valkey connection pool exhausted",
+        )
+        # The old fail-open debug event must NOT be emitted.
+        for call in mock_logger.debug.call_args_list:
+            assert call.args[0] != "blacklist_check_skipped", (
+                "Old fail-open debug event emitted — HIGH-8 regressed"
+            )
+
+    @pytest.mark.asyncio
+    async def test_blacklist_check_exception_in_is_blacklisted_rejects(self, authenticator, valid_access_token):
+        """
+        HIGH-8 secondary path: get_cache_service() succeeds but the blacklist
+        check method itself raises. Same result — fail closed.
+
+        (In practice cache_service.is_access_token_blacklisted catches its own
+        exceptions and returns True — F-25 — so this path is defense-in-depth.
+        But the middleware's except Exception must handle it correctly if
+        something ever escapes.)
+        """
+        app = Mock()
+        middleware = AuthenticationMiddleware(app, authenticator=authenticator)
+
+        request = Mock()
+        request.url = Mock()
+        request.url.path = "/api/v1/protected"
+        request.headers = {"Authorization": f"Bearer {valid_access_token}"}
+        request.state = Mock()
+        request.client = Mock()
+        request.client.host = "127.0.0.1"
+
+        call_next = AsyncMock(return_value=Mock())
+
+        mock_cache = Mock()
+        mock_cache.is_access_token_blacklisted = AsyncMock(
+            side_effect=OSError("Socket timeout")
+        )
+
+        with patch('backend.middleware.authentication.get_cache_service', return_value=mock_cache):
+            response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 401
+        call_next.assert_not_called()
+
+
+class TestHigh8SourceTripwire:
+    """
+    Source-level guard: the old fail-open line must not reappear.
+    """
+
+    def test_no_blacklist_check_skipped_debug_log(self):
+        """
+        The old code had:
+            logger.debug("blacklist_check_skipped", error=str(e))
+
+        That string is the signature of the fail-open bug. It must not exist
+        in authentication.py. If someone re-adds it (e.g. merge conflict,
+        copy-paste from old branch), this test fails.
+        """
+        import backend.middleware.authentication as auth_mw
+        import inspect
+        source = inspect.getsource(auth_mw)
+        assert "blacklist_check_skipped" not in source, (
+            "Found 'blacklist_check_skipped' in authentication.py — this is "
+            "the signature of the HIGH-8 fail-open bug. The blacklist check "
+            "must fail closed: raise TokenInvalidError when the cache is "
+            "unavailable."
+        )
+
+    def test_except_exception_block_raises_token_invalid(self):
+        """
+        AST tripwire: the except-Exception handler in _authenticate_jwt must
+        contain a Raise node. Prevents someone from replacing the raise with
+        a pass/log/return and re-opening HIGH-8 without triggering the
+        string-match test above.
+        """
+        import ast
+        import backend.middleware.authentication as auth_mw
+        import inspect
+
+        tree = ast.parse(inspect.getsource(auth_mw))
+
+        # Find _authenticate_jwt
+        func = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_authenticate_jwt":
+                func = node
+                break
+        assert func is not None, "_authenticate_jwt not found"
+
+        # Find the Try node containing the blacklist check
+        try_nodes = [n for n in ast.walk(func) if isinstance(n, ast.Try)]
+        assert len(try_nodes) >= 1, "No try block in _authenticate_jwt"
+
+        # For each except-Exception handler (the bare Exception catch, not
+        # TokenInvalidError), verify it contains a Raise
+        found_exception_handler = False
+        for try_node in try_nodes:
+            for handler in try_node.handlers:
+                # handler.type is the exception class; None = bare except
+                if handler.type is None:
+                    continue
+                if isinstance(handler.type, ast.Name) and handler.type.id == "Exception":
+                    found_exception_handler = True
+                    raises = [n for n in ast.walk(handler) if isinstance(n, ast.Raise)]
+                    assert len(raises) >= 1, (
+                        "except Exception handler in _authenticate_jwt does not "
+                        "contain a raise statement. HIGH-8: the blacklist check "
+                        "must fail closed — raise TokenInvalidError when the "
+                        "cache is unavailable, do not swallow the exception."
+                    )
+
+        assert found_exception_handler, (
+            "No 'except Exception' handler found in _authenticate_jwt's try "
+            "block — structure changed; update this tripwire."
+        )

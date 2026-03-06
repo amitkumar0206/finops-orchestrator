@@ -241,14 +241,27 @@ async def chat(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
+        # SECURITY (HIGH-34 / F-33 regression): do NOT log request content.
+        # ChatRequest.message, .chat_history, and .context routinely contain
+        # PII (emails, names, AWS account IDs, cost figures, project codenames)
+        # and this handler fires on ANY exception — a DB timeout, an Anthropic
+        # 5xx, a serialization bug. With 7-day CloudWatch retention (MED-22)
+        # and broad logs:FilterLogEvents IAM (HIGH-25), logging request.dict()
+        # here exposes all-tenant chat content to anyone with log access.
+        #
+        # Log SHAPE (lengths, booleans, type names) — never CONTENT.
+        # exc_info=True gives structlog the traceback; processors can gate it.
+        # error_type (not str(e)) because upstream exceptions — LLM client,
+        # agent workflow, asyncpg — may embed request fragments in messages.
         logger.error(
             "Chat request failed",
             conversation_id=conversation_id,
-            error=str(e),
-            request_payload=request.dict() if hasattr(request, "dict") else str(request),
-            chat_history_len=len(request.chat_history) if hasattr(request, "chat_history") and request.chat_history else 0,
-            traceback=traceback.format_exc(),
+            user_id=str(context.user_id),
+            organization_id=str(context.organization_id),
+            message_length=len(request.message or ""),
+            has_history=bool(request.chat_history),
+            has_context=bool(request.context),
+            error_type=type(e).__name__,
             exc_info=True,
         )
         execution_time = (datetime.utcnow() - start_time).total_seconds()

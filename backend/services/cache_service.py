@@ -317,6 +317,56 @@ class CacheService:
             logger.error("cache_delete_failed", key=key, error=str(e))
             return False
 
+    async def incr_with_window(self, key: str, window_seconds: int) -> Optional[int]:
+        """
+        Atomically increment a counter and set its TTL on first write.
+
+        Uses INCR (atomic, returns the new value) followed by EXPIRE with the
+        NX flag (set TTL only if none exists). This means the window starts at
+        the FIRST increment and does not slide — the counter expires exactly
+        window_seconds after it was created, regardless of subsequent INCRs.
+
+        Returns None if the cache is unavailable (caller decides fail-open vs
+        fail-closed — e.g. login throttle fails open, token blacklist fails
+        closed). Returns the post-increment count on success.
+        """
+        if self._client is None:
+            return None
+
+        try:
+            count = await self._client.incr(key)
+            # NX: only set TTL if the key has no TTL (i.e. this is the first
+            # INCR in the window). Without NX, every INCR would push the
+            # expiry forward and the window would never close under sustained
+            # traffic.
+            await self._client.expire(key, window_seconds, nx=True)
+            return int(count)
+        except Exception as e:
+            logger.error("cache_incr_failed", key=key, error=str(e))
+            return None
+
+    async def ttl(self, key: str) -> Optional[int]:
+        """
+        Get remaining TTL on a key in seconds.
+
+        Returns:
+            Remaining seconds if the key exists and has a TTL.
+            0 if the key does not exist (Valkey returns -2; we normalize).
+            None if the cache is unavailable.
+        """
+        if self._client is None:
+            return None
+
+        try:
+            remaining = await self._client.ttl(key)
+            # Valkey TTL returns -2 for missing key, -1 for key with no TTL.
+            # Normalize both to 0 — callers use this for "lockout remaining"
+            # where either case means "not locked out".
+            return max(0, int(remaining))
+        except Exception as e:
+            logger.error("cache_ttl_failed", key=key, error=str(e))
+            return None
+
 
 # Module-level singleton access
 _cache_service: Optional[CacheService] = None

@@ -93,6 +93,10 @@
                 {
                     "name": "POSTGRES_PASSWORD",
                     "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:finops/database-password"
+                },
+                {
+                    "name": "FIELD_ENCRYPTION_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:finops/field-encryption-key"
                 }
             ],
             "dnsServers": [],

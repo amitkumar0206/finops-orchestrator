@@ -166,7 +166,8 @@ class RateLimiter:
 # Global rate limiter instances for different use cases
 _default_limiter: Optional[RateLimiter] = None
 _ingest_limiter: Optional[RateLimiter] = None
-_athena_export_limiters: Dict[str, RateLimiter] = {}  # Cached tier-specific limiters
+_athena_export_limiters: Dict[str, RateLimiter] = {}  # Cached tier-specific limiters (org-level, layer 2)
+_athena_export_per_user_limiters: Dict[int, RateLimiter] = {}  # Cached by limit value (user-level, layer 1) — HIGH-32
 
 
 def get_default_limiter() -> RateLimiter:
@@ -233,6 +234,43 @@ def get_athena_export_limiter(subscription_tier: str = 'standard') -> RateLimite
     _athena_export_limiters[subscription_tier] = limiter
 
     return limiter
+
+
+def _get_athena_export_per_user_limiter(per_user_limit: int) -> RateLimiter:
+    """
+    Get cached per-user limiter for Athena exports (Layer 1 of the two-layer design).
+
+    SECURITY (HIGH-32): RateLimiter._storage is INSTANCE-scoped (see line ~50:
+    self._storage = defaultdict(list)). Before this fix, check_athena_export_rate_limit()
+    constructed a fresh RateLimiter on every request — so _storage was always empty,
+    every user always had "0 prior requests", and the per-user limit NEVER fired.
+    Layer 1 of the two-layer fairness design was a silent no-op; only the org-level
+    limit (layer 2, which uses get_athena_export_limiter — already cached) ever
+    engaged. A single user could exhaust the entire org quota.
+
+    Cache key is per_user_limit (int), NOT (user_id, endpoint):
+      - _get_client_key() at line ~72 already keys _storage by {endpoint}:{ip}:{email}
+        internally — one limiter instance correctly separates all users at a given limit.
+      - Keying by user_id would be unbounded memory (one RateLimiter + asyncio.Lock per
+        user who ever hits the endpoint) with each limiter's _storage holding exactly
+        one entry. Redundant.
+      - Keying by limit bounds memory to the number of DISTINCT limit values
+        (~20: 3 tiers × 3 roles = 9 settings defaults, plus DB overrides).
+      - This exactly mirrors _athena_export_limiters above (keyed by tier, which
+        is just a proxy for limit).
+
+    Known tradeoff — if a user's limit changes mid-window (admin updates a DB override),
+    they move to a different cached limiter and their count resets. Acceptable: limit
+    changes are rare manual admin actions, and the alternative ((user_id, endpoint)
+    keying) would cache the STALE limit forever until process restart, which is worse.
+    """
+    if per_user_limit not in _athena_export_per_user_limiters:
+        _athena_export_per_user_limiters[per_user_limit] = RateLimiter(
+            requests_per_window=per_user_limit,
+            window_seconds=3600,
+            use_org_key=False,  # user-level key: {endpoint}:{ip}:{email}
+        )
+    return _athena_export_per_user_limiters[per_user_limit]
 
 
 async def check_rate_limit(
@@ -465,12 +503,10 @@ async def check_athena_export_rate_limit(request: Request) -> dict:
     # Checks user-specific override first, then role-based, then defaults
     per_user_limit = await get_per_user_limit(user_id, org_id, subscription_tier, user_role, "athena_export")
 
-    # Create per-user limiter (uses user email as key, not org)
-    user_limiter = RateLimiter(
-        requests_per_window=per_user_limit,
-        window_seconds=3600,
-        use_org_key=False  # Use user email as key
-    )
+    # SECURITY (HIGH-32): MUST use cached limiter. RateLimiter._storage is instance-scoped;
+    # constructing a fresh one here (the old code) meant _storage was empty on every request
+    # and the per-user limit never engaged. See _get_athena_export_per_user_limiter docstring.
+    user_limiter = _get_athena_export_per_user_limiter(per_user_limit)
 
     try:
         await check_rate_limit(

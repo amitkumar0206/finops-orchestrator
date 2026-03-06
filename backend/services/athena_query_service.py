@@ -16,7 +16,7 @@ import structlog
 from backend.config.settings import get_settings
 from backend.utils.aws_session import create_aws_session
 from backend.utils.aws_constants import AwsService
-from backend.utils.sql_validation import validate_service_code, ValidationError
+from backend.utils.sql_validation import validate_service_code, validate_date, ValidationError
 from backend.utils.sql_constants import (
     SQL_QUOTED_SEPARATOR,
     build_sql_in_list,
@@ -29,6 +29,59 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
+
+# SECURITY (CRIT-12): maximum rows any generated query may request.
+# Athena charges per-byte-scanned, so we also cap LIMIT to prevent
+# a caller from passing an absurdly large value that bloats query cost.
+MAX_QUERY_LIMIT = 10000
+
+
+def _validate_date_param(value: Any, field_name: str) -> str:
+    """
+    SECURITY (CRIT-12): Validate a date parameter before f-string interpolation
+    into Athena SQL.
+
+    Athena does not support bind parameters, so every value that reaches an
+    f-string MUST be provably safe. This wraps the shared ``validate_date``
+    from ``sql_validation.py`` and accepts both ``datetime.date`` objects
+    (the API layer passes these via ``date.fromisoformat()``) and strings.
+
+    Args:
+        value: date, datetime, or YYYY-MM-DD string
+        field_name: name for error context
+
+    Returns:
+        Validated YYYY-MM-DD string safe for SQL interpolation.
+
+    Raises:
+        ValidationError: if value is missing, malformed, or out of range.
+    """
+    if value is None:
+        raise ValidationError(f"{field_name} is required")
+    # validate_date() calls str(value).strip() internally, so date objects
+    # become their ISO repr ('2025-01-01') and are accepted; anything else
+    # fails the ^\d{4}-\d{2}-\d{2}$ regex. No SQL metacharacter survives.
+    return validate_date(value)
+
+
+def _validate_limit_param(value: Any) -> int:
+    """
+    SECURITY (CRIT-12): Coerce and bound-check a LIMIT clause value.
+
+    ``int()`` raises on non-numeric strings (e.g. "10; DROP TABLE x"),
+    and the bounds check prevents both negative values and resource
+    exhaustion via huge result sets.
+
+    Raises:
+        ValidationError: if value is non-numeric or out of bounds.
+    """
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        raise ValidationError(f"Invalid limit: must be an integer, got {type(value).__name__}")
+    if limit < 1 or limit > MAX_QUERY_LIMIT:
+        raise ValidationError(f"Invalid limit: must be between 1 and {MAX_QUERY_LIMIT}, got {limit}")
+    return limit
 
 
 class AthenaQueryService:
@@ -152,9 +205,12 @@ class AthenaQueryService:
     
     def _generate_top_services_query(self, time_range: Dict[str, Any], limit: int = 5) -> str:
         """Generate SQL for top N services by cost"""
-        start_date = time_range.get("start_date")
-        end_date = time_range.get("end_date")
-        
+        # SECURITY (CRIT-12): validate BEFORE f-string interpolation.
+        # Rejects e.g. "2025-01-01' OR '1'='1" and "10; DROP TABLE x".
+        start_date = _validate_date_param(time_range.get("start_date"), "start_date")
+        end_date = _validate_date_param(time_range.get("end_date"), "end_date")
+        limit = _validate_limit_param(limit)
+
         query = f"""
 SELECT 
     line_item_product_code as service_name,
@@ -179,8 +235,9 @@ LIMIT {limit};
         services: Optional[List[str]] = None
     ) -> str:
         """Generate SQL for daily cost breakdown"""
-        start_date = time_range.get("start_date")
-        end_date = time_range.get("end_date")
+        # SECURITY (CRIT-12): validate dates before f-string interpolation
+        start_date = _validate_date_param(time_range.get("start_date"), "start_date")
+        end_date = _validate_date_param(time_range.get("end_date"), "end_date")
 
         # SECURITY FIX: Validate services to prevent SQL injection
         service_filter = ""
@@ -216,8 +273,9 @@ ORDER BY
         services: Optional[List[str]] = None
     ) -> str:
         """Generate SQL for service cost breakdown"""
-        start_date = time_range.get("start_date")
-        end_date = time_range.get("end_date")
+        # SECURITY (CRIT-12): validate dates before f-string interpolation
+        start_date = _validate_date_param(time_range.get("start_date"), "start_date")
+        end_date = _validate_date_param(time_range.get("end_date"), "end_date")
 
         # SECURITY FIX: Validate services to prevent SQL injection
         service_filter = ""
@@ -250,9 +308,10 @@ ORDER BY
     
     def _generate_region_breakdown_query(self, time_range: Dict[str, Any]) -> str:
         """Generate SQL for regional cost breakdown"""
-        start_date = time_range.get("start_date")
-        end_date = time_range.get("end_date")
-        
+        # SECURITY (CRIT-12): validate dates before f-string interpolation
+        start_date = _validate_date_param(time_range.get("start_date"), "start_date")
+        end_date = _validate_date_param(time_range.get("end_date"), "end_date")
+
         query = f"""
 SELECT 
     product_region as region,
@@ -275,9 +334,10 @@ ORDER BY
     
     def _generate_account_breakdown_query(self, time_range: Dict[str, Any]) -> str:
         """Generate SQL for account cost breakdown"""
-        start_date = time_range.get("start_date")
-        end_date = time_range.get("end_date")
-        
+        # SECURITY (CRIT-12): validate dates before f-string interpolation
+        start_date = _validate_date_param(time_range.get("start_date"), "start_date")
+        end_date = _validate_date_param(time_range.get("end_date"), "end_date")
+
         query = f"""
 SELECT 
     line_item_usage_account_id as account_id,
@@ -302,8 +362,9 @@ ORDER BY
         services: Optional[List[str]] = None
     ) -> str:
         """Generate comprehensive SQL query"""
-        start_date = time_range.get("start_date")
-        end_date = time_range.get("end_date")
+        # SECURITY (CRIT-12): validate dates before f-string interpolation
+        start_date = _validate_date_param(time_range.get("start_date"), "start_date")
+        end_date = _validate_date_param(time_range.get("end_date"), "end_date")
 
         # SECURITY FIX: Validate services to prevent SQL injection
         service_filter = ""

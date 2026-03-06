@@ -458,6 +458,28 @@ Resources:
       Description: PostgreSQL database password for the FinOps platform
       SecretString: !Ref DatabasePassword
 
+  # Secrets Manager — Field Encryption Key
+  # SECURITY (HIGH-33): encryption.py:95-101 raises ValueError on boot if
+  # FIELD_ENCRYPTION_KEY is unset/short when ENVIRONMENT=production. The
+  # ECS task def (ecs-services.yaml:151) sets ENVIRONMENT=production, so
+  # without this secret the backend container crashes on first call to
+  # get_field_encryptor() — which the multi-account service triggers at
+  # import time. PasswordLength=64 satisfies both the >=32 requirement in
+  # encryption.py and the >=48 audit recommendation, and matches SecretKeySecret
+  # above for consistency. ExcludePunctuation matches the existing pattern and
+  # avoids shell-escaping hazards if the key ever ends up in a CLI context.
+  FieldEncryptionKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: finops/field-encryption-key
+      Description: >-
+        Field-level encryption key for sensitive database columns (AWS role ARNs,
+        external IDs, ticketing credentials). Read by backend/utils/encryption.py
+        via the FIELD_ENCRYPTION_KEY env var.
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
   # ECS Cluster
   ECSCluster:
     Type: AWS::ECS::Cluster
@@ -528,6 +550,7 @@ Resources:
                 Resource:
                   - !Ref SecretKeySecret
                   - !Ref DatabasePasswordSecret
+                  - !Ref FieldEncryptionKeySecret
 
   ECSTaskRole:
     Type: AWS::IAM::Role
@@ -749,6 +772,12 @@ Outputs:
     Value: !Ref DatabasePasswordSecret
     Export:
       Name: !Sub '${AWS::StackName}-db-password-secret-arn'
+
+  FieldEncryptionKeySecretArn:
+    Description: ARN of the Field Encryption Key Secret
+    Value: !Ref FieldEncryptionKeySecret
+    Export:
+      Name: !Sub '${AWS::StackName}-field-encryption-key-arn'
 
   S3BucketName:
     Description: S3 Bucket Name

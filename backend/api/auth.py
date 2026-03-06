@@ -26,6 +26,7 @@ from backend.utils.auth import (
 from backend.services.database import DatabaseService
 from backend.services.cache_service import get_cache_service
 from backend.middleware.authentication import AuthenticatedUser, require_auth
+from backend.middleware.login_throttle import get_login_throttle
 from backend.config.settings import get_settings
 from backend.utils.pii_masking import mask_email
 
@@ -173,12 +174,21 @@ def generate_salt() -> str:
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, http_request: Request):
     """
     Authenticate user with email and password.
 
     Returns JWT access and refresh tokens on successful authentication.
     """
+    # SECURITY (HIGH-1): Brute-force protection. MUST run before any DB access —
+    # (1) no DB timing oracle for attackers, (2) the 429 response is identical
+    # whether the email corresponds to a real account or not (MED-15 defense).
+    # Fails open if Valkey is down (password check still runs — PBKDF2 600k
+    # iterations slows brute force regardless). See login_throttle.py docstring
+    # for the full design + why fail-open here differs from token-blacklist.
+    throttle = await get_login_throttle()
+    await throttle.check(http_request, request.email)
+
     db = await get_db()
 
     async with db.engine.begin() as conn:
@@ -195,6 +205,7 @@ async def login(request: LoginRequest):
         user_row = result.mappings().first()
 
         if not user_row:
+            await throttle.record_failure(http_request, request.email)
             logger.warning("login_failed_user_not_found", email=mask_email(request.email))
             raise HTTPException(
                 status_code=401,
@@ -202,6 +213,7 @@ async def login(request: LoginRequest):
             )
 
         if not user_row['is_active']:
+            await throttle.record_failure(http_request, request.email)
             logger.warning("login_failed_user_inactive", email=mask_email(request.email))
             raise HTTPException(
                 status_code=401,
@@ -210,6 +222,7 @@ async def login(request: LoginRequest):
 
         # Verify password
         if not user_row['password_hash'] or not user_row['password_salt']:
+            await throttle.record_failure(http_request, request.email)
             logger.warning("login_failed_no_password", email=mask_email(request.email))
             raise HTTPException(
                 status_code=401,
@@ -226,6 +239,7 @@ async def login(request: LoginRequest):
             user_row['password_hash'],
             version=password_version
         ):
+            await throttle.record_failure(http_request, request.email)
             logger.warning("login_failed_wrong_password", email=mask_email(request.email))
             raise HTTPException(
                 status_code=401,
@@ -300,6 +314,13 @@ async def login(request: LoginRequest):
             """,
             {"now": datetime.now(timezone.utc), "user_id": user_row['id']}
         )
+
+        # SECURITY (HIGH-1): Successful login proves the user knows the password.
+        # Clear email-keyed throttle state (failures, lockout, strikes). The IP
+        # counter is NOT cleared — it's shared across everyone behind the same
+        # NAT, and one user's success mustn't reset protection against a spray
+        # attack from the same egress.
+        await throttle.clear_on_success(request.email)
 
         logger.info(
             "login_successful",

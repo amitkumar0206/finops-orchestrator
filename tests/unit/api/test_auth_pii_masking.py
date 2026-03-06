@@ -4,13 +4,44 @@ Tests the fix for HIGH-6: Unmasked PII (Email) in Authentication Logs
 """
 
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock, AsyncMock, Mock
 from fastapi import HTTPException
 import structlog
 from structlog.testing import LogCapture
 
 from backend.api.auth import router, LoginRequest
 from backend.utils.pii_masking import mask_email
+
+
+# ── Shared fixtures for login() signature change (HIGH-1) ────────────────────
+
+def _make_http_request(ip: str = "203.0.113.7") -> MagicMock:
+    """
+    Minimal Request mock for login()'s http_request param.
+    Wires the attributes LoginThrottle._get_client_ip actually reads.
+    """
+    req = MagicMock()
+    req.headers = {}
+    req.client = Mock(host=ip)
+    return req
+
+
+@pytest.fixture
+def noop_throttle():
+    """
+    No-op throttle for tests that exercise login()'s auth logic, not the
+    throttle itself. check() returns None (clear), record/clear do nothing.
+    The throttle is tested directly in test_login_brute_force_protection.py.
+    """
+    throttle = AsyncMock()
+    throttle.check = AsyncMock(return_value=None)
+    throttle.record_failure = AsyncMock(return_value=None)
+    throttle.clear_on_success = AsyncMock(return_value=None)
+    with patch(
+        "backend.api.auth.get_login_throttle",
+        new=AsyncMock(return_value=throttle),
+    ):
+        yield throttle
 
 
 class TestEmailMaskingInAuthLogs:
@@ -32,7 +63,7 @@ class TestEmailMaskingInAuthLogs:
             assert result == expected_masked, f"Failed for {email}"
 
     @pytest.mark.asyncio
-    async def test_login_failed_user_not_found_masks_email(self):
+    async def test_login_failed_user_not_found_masks_email(self, noop_throttle):
         """Test that email is masked when user is not found"""
         from backend.api.auth import login
 
@@ -59,7 +90,7 @@ class TestEmailMaskingInAuthLogs:
             # Capture logs
             with patch('backend.api.auth.logger') as mock_logger:
                 with pytest.raises(HTTPException) as exc_info:
-                    await login(request)
+                    await login(request, _make_http_request())
 
                 # Verify 401 status
                 assert exc_info.value.status_code == 401
@@ -72,7 +103,7 @@ class TestEmailMaskingInAuthLogs:
                 assert "nonexistent@example.com" not in str(call_args)  # Raw email not present
 
     @pytest.mark.asyncio
-    async def test_login_failed_user_inactive_masks_email(self):
+    async def test_login_failed_user_inactive_masks_email(self, noop_throttle):
         """Test that email is masked when user is inactive"""
         from backend.api.auth import login
 
@@ -108,7 +139,7 @@ class TestEmailMaskingInAuthLogs:
             # Capture logs
             with patch('backend.api.auth.logger') as mock_logger:
                 with pytest.raises(HTTPException) as exc_info:
-                    await login(request)
+                    await login(request, _make_http_request())
 
                 # Verify 401 status
                 assert exc_info.value.status_code == 401
@@ -121,7 +152,7 @@ class TestEmailMaskingInAuthLogs:
                 assert "inactive@example.com" not in str(call_args)  # Raw email not present
 
     @pytest.mark.asyncio
-    async def test_login_failed_no_password_masks_email(self):
+    async def test_login_failed_no_password_masks_email(self, noop_throttle):
         """Test that email is masked when user has no password set"""
         from backend.api.auth import login
 
@@ -156,7 +187,7 @@ class TestEmailMaskingInAuthLogs:
             # Capture logs
             with patch('backend.api.auth.logger') as mock_logger:
                 with pytest.raises(HTTPException) as exc_info:
-                    await login(request)
+                    await login(request, _make_http_request())
 
                 # Verify 401 status
                 assert exc_info.value.status_code == 401
@@ -169,7 +200,7 @@ class TestEmailMaskingInAuthLogs:
                 assert "nopass@example.com" not in str(call_args)  # Raw email not present
 
     @pytest.mark.asyncio
-    async def test_login_failed_wrong_password_masks_email(self):
+    async def test_login_failed_wrong_password_masks_email(self, noop_throttle):
         """Test that email is masked when password is wrong"""
         from backend.api.auth import login
 
@@ -207,7 +238,7 @@ class TestEmailMaskingInAuthLogs:
                 # Capture logs
                 with patch('backend.api.auth.logger') as mock_logger:
                     with pytest.raises(HTTPException) as exc_info:
-                        await login(request)
+                        await login(request, _make_http_request())
 
                     # Verify 401 status
                     assert exc_info.value.status_code == 401
@@ -220,7 +251,7 @@ class TestEmailMaskingInAuthLogs:
                     assert "wrongpass@example.com" not in str(call_args)  # Raw email not present
 
     @pytest.mark.asyncio
-    async def test_login_successful_masks_email(self):
+    async def test_login_successful_masks_email(self, noop_throttle):
         """Test that email is masked on successful login"""
         from backend.api.auth import login
 
@@ -291,7 +322,7 @@ class TestEmailMaskingInAuthLogs:
 
                         # Capture logs
                         with patch('backend.api.auth.logger') as mock_logger:
-                            response = await login(request)
+                            response = await login(request, _make_http_request())
 
                             # Verify successful response
                             assert response.access_token == "access123"

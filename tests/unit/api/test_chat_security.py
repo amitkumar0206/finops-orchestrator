@@ -924,3 +924,380 @@ class TestChatModuleNoOptionalAuthImport:
         assert hasattr(chat_module, "require_context"), (
             "chat.py must import require_context (the fail-closed 401 variant)"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HIGH-34 — Full Request Body Logged on Chat Error (F-33 regression)
+#
+# The F-33 rewrite of /chat added an error handler that dumped request.dict()
+# into structured logs on ANY exception — leaking message, chat_history, and
+# context (all PII-bearing fields) to CloudWatch. These tests pin the fixed
+# behaviour: the error handler must log SHAPE (lengths, booleans, type names)
+# and NEVER content.
+#
+# See FIXED_SECURITY_ISSUES.md F-37.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Canary constants — if these leak into log kwargs, the test fails.
+# Using distinctive strings that cannot appear in normal log metadata.
+_PII_CANARY_MESSAGE = "CANARY-MSG: What did finance@acme-corp.example spend on account 123456789012 last quarter?"
+_PII_CANARY_HISTORY = "CANARY-HIST: Previous question about confidential-project-nightingale budget"
+_PII_CANARY_CONTEXT = "CANARY-CTX: client-internal-ref-7f3a9b2e"
+
+
+@pytest.fixture
+def pii_laden_chat_request():
+    """ChatRequest with canary PII in every user-controlled field."""
+    return ChatRequest(
+        message=_PII_CANARY_MESSAGE,
+        conversation_id=None,
+        chat_history=[
+            {"role": "user", "content": _PII_CANARY_HISTORY},
+            {"role": "assistant", "content": "Here is the cost breakdown..."},
+        ],
+        context={"client_ref": _PII_CANARY_CONTEXT, "timezone": "UTC"},
+        include_reasoning=False,
+    )
+
+
+@pytest.fixture
+def mock_background_tasks():
+    """BackgroundTasks stub — we don't care about persistence in error-path tests."""
+    bg = Mock()
+    bg.add_task = Mock()
+    return bg
+
+
+def _collect_all_strings(value, _depth=0):
+    """Recursively walk any structure and yield every string found."""
+    if _depth > 10:
+        return
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _collect_all_strings(k, _depth + 1)
+            yield from _collect_all_strings(v, _depth + 1)
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            yield from _collect_all_strings(item, _depth + 1)
+
+
+def _find_chat_failed_call(mock_logger):
+    """Locate the 'Chat request failed' logger.error call among all calls."""
+    for call in mock_logger.error.call_args_list:
+        if call.args and call.args[0] == "Chat request failed":
+            return call
+    raise AssertionError(
+        f"Expected logger.error('Chat request failed', ...) but got: "
+        f"{[c.args[0] if c.args else c for c in mock_logger.error.call_args_list]}"
+    )
+
+
+class TestChatErrorHandlerNoPIILeak:
+    """
+    HIGH-34 primary regression suite: trigger an exception inside /chat and
+    inspect every kwarg passed to logger.error. No PII canary may appear.
+    """
+
+    @pytest.mark.asyncio
+    async def test_error_log_contains_no_pii_canaries(
+        self,
+        pii_laden_chat_request,
+        sample_request_context,
+        mock_conversation_manager,
+        mock_background_tasks,
+    ):
+        """
+        Core assertion: make the endpoint fail, then recursively scan every
+        string in the captured log kwargs. The canary substrings must NOT
+        appear anywhere.
+        """
+        # New conversation path — resolve_owned_conversation creates a thread
+        mock_conversation_manager.create_thread.return_value = "new-thread-xyz"
+        # add_message succeeds (it's inside the try)
+        mock_conversation_manager.add_message.return_value = "msg-1"
+        mock_conversation_manager.get_context_for_query.return_value = {}
+
+        # Force the agent workflow to raise — this is the "transient failure"
+        # case (Anthropic 5xx, DB timeout, etc.) that triggers the handler.
+        with patch(
+            "backend.api.chat.execute_multi_agent_query",
+            new=AsyncMock(side_effect=RuntimeError("simulated upstream failure")),
+        ), patch("backend.api.chat.logger") as mock_logger:
+
+            response = await chat(
+                request=pii_laden_chat_request,
+                background_tasks=mock_background_tasks,
+                context=sample_request_context,
+            )
+
+        # Handler returns a graceful fallback, not a 500
+        assert response.message.startswith("I apologize")
+
+        # Find the "Chat request failed" call
+        failed_call = _find_chat_failed_call(mock_logger)
+        kwargs = failed_call.kwargs
+
+        # Recursively harvest every string in the log kwargs
+        all_strings = list(_collect_all_strings(kwargs))
+        combined = "\n".join(all_strings)
+
+        # THE assertion — no PII canary survived
+        assert _PII_CANARY_MESSAGE not in combined, (
+            "request.message leaked into error log"
+        )
+        assert _PII_CANARY_HISTORY not in combined, (
+            "request.chat_history content leaked into error log"
+        )
+        assert _PII_CANARY_CONTEXT not in combined, (
+            "request.context value leaked into error log"
+        )
+        assert "finance@acme-corp.example" not in combined, (
+            "email from user message leaked into error log"
+        )
+        assert "123456789012" not in combined, (
+            "AWS account ID from user message leaked into error log"
+        )
+
+    @pytest.mark.asyncio
+    async def test_error_log_has_no_forbidden_keys(
+        self,
+        pii_laden_chat_request,
+        sample_request_context,
+        mock_conversation_manager,
+        mock_background_tasks,
+    ):
+        """
+        Structural check: the log kwargs must not contain keys that carry
+        request content. 'request_payload', 'payload', 'traceback', and any
+        dict-valued field are red flags regardless of content.
+        """
+        mock_conversation_manager.create_thread.return_value = "new-thread-xyz"
+        mock_conversation_manager.add_message.return_value = "msg-1"
+        mock_conversation_manager.get_context_for_query.return_value = {}
+
+        with patch(
+            "backend.api.chat.execute_multi_agent_query",
+            new=AsyncMock(side_effect=RuntimeError("boom")),
+        ), patch("backend.api.chat.logger") as mock_logger:
+            await chat(
+                request=pii_laden_chat_request,
+                background_tasks=mock_background_tasks,
+                context=sample_request_context,
+            )
+
+        kwargs = _find_chat_failed_call(mock_logger).kwargs
+
+        # Exact-key blocklist (the old vulnerable keys)
+        assert "request_payload" not in kwargs
+        assert "payload" not in kwargs
+        assert "traceback" not in kwargs  # redundant with exc_info=True; was leaking str(e) twice
+        assert "request" not in kwargs
+        assert "body" not in kwargs
+        assert "chat_history" not in kwargs
+        # 'error' key removed — error_type is the safe replacement
+        assert "error" not in kwargs, (
+            "error=str(e) removed: upstream exceptions may embed request "
+            "fragments. Use error_type=type(e).__name__ instead."
+        )
+
+        # No dict-valued kwarg (catches .dict() / .model_dump() reintroduction)
+        for key, value in kwargs.items():
+            assert not isinstance(value, dict), (
+                f"log kwarg '{key}' is a dict — request models must never be "
+                f"dumped into logs"
+            )
+            assert not isinstance(value, list), (
+                f"log kwarg '{key}' is a list — chat_history must never be "
+                f"dumped into logs"
+            )
+
+    @pytest.mark.asyncio
+    async def test_error_log_has_expected_safe_fields(
+        self,
+        pii_laden_chat_request,
+        sample_request_context,
+        mock_conversation_manager,
+        mock_background_tasks,
+    ):
+        """
+        Positive check: the SAFE metadata fields must be present with the
+        correct types. This proves the handler still gives operators enough
+        signal to diagnose issues.
+        """
+        mock_conversation_manager.create_thread.return_value = "new-thread-xyz"
+        mock_conversation_manager.add_message.return_value = "msg-1"
+        mock_conversation_manager.get_context_for_query.return_value = {}
+
+        with patch(
+            "backend.api.chat.execute_multi_agent_query",
+            new=AsyncMock(side_effect=ConnectionError("simulated network failure")),
+        ), patch("backend.api.chat.logger") as mock_logger:
+            await chat(
+                request=pii_laden_chat_request,
+                background_tasks=mock_background_tasks,
+                context=sample_request_context,
+            )
+
+        kwargs = _find_chat_failed_call(mock_logger).kwargs
+
+        # Tenant correlation IDs (UUIDs → safe)
+        assert kwargs.get("conversation_id") == "new-thread-xyz"
+        assert kwargs.get("user_id") == str(sample_request_context.user_id)
+        assert kwargs.get("organization_id") == str(sample_request_context.organization_id)
+
+        # Shape metadata — LENGTHS and FLAGS, never content
+        assert kwargs.get("message_length") == len(_PII_CANARY_MESSAGE)
+        assert isinstance(kwargs.get("message_length"), int)
+        assert kwargs.get("has_history") is True
+        assert isinstance(kwargs.get("has_history"), bool)
+        assert kwargs.get("has_context") is True
+        assert isinstance(kwargs.get("has_context"), bool)
+
+        # Exception CLASS name, not str(e) — operators see "ConnectionError"
+        # without any risk of embedded request content
+        assert kwargs.get("error_type") == "ConnectionError"
+
+        # exc_info retained so structlog processors CAN opt into tracebacks
+        assert kwargs.get("exc_info") is True
+
+    @pytest.mark.asyncio
+    async def test_exception_message_embedding_user_input_does_not_leak(
+        self,
+        sample_request_context,
+        mock_conversation_manager,
+        mock_background_tasks,
+    ):
+        """
+        Defense-in-depth: if an upstream component raises an exception whose
+        MESSAGE contains the user's query (e.g., a validation error that
+        echoes the input), error_type=type(e).__name__ still doesn't leak it.
+        This is WHY we replaced error=str(e).
+        """
+        leaky_msg = "LEAKY-CANARY-in-exception-message"
+        chat_request = ChatRequest(
+            message=leaky_msg,
+            conversation_id=None,
+            chat_history=None,
+            context=None,
+        )
+
+        mock_conversation_manager.create_thread.return_value = "new-thread-xyz"
+        mock_conversation_manager.add_message.return_value = "msg-1"
+        mock_conversation_manager.get_context_for_query.return_value = {}
+
+        # Simulate an upstream component that (wrongly) echoes user input
+        # into its exception message. Our log handler must not amplify this.
+        class LeakyError(Exception):
+            pass
+
+        with patch(
+            "backend.api.chat.execute_multi_agent_query",
+            new=AsyncMock(side_effect=LeakyError(f"Failed to process: {leaky_msg}")),
+        ), patch("backend.api.chat.logger") as mock_logger:
+            await chat(
+                request=chat_request,
+                background_tasks=mock_background_tasks,
+                context=sample_request_context,
+            )
+
+        kwargs = _find_chat_failed_call(mock_logger).kwargs
+
+        # error_type is just the class name — no message content
+        assert kwargs.get("error_type") == "LeakyError"
+
+        # And the leaky canary is nowhere in the log kwargs
+        all_strings = list(_collect_all_strings(kwargs))
+        combined = "\n".join(all_strings)
+        assert leaky_msg not in combined, (
+            "error=str(e) would have leaked this; error_type=type(e).__name__ "
+            "must not"
+        )
+
+
+class TestChatErrorHandlerSourceTripwire:
+    """
+    Source-level tripwires: these break loudly if the vulnerable patterns
+    return during a future refactor. They complement the behavioural tests
+    above — behavioural tests catch the LEAK, these catch the CODE PATTERN.
+    """
+
+    def test_chat_source_does_not_call_request_dict(self):
+        """
+        request.dict() and request.model_dump() must never be CALLED.
+        AST-based (not string-match) so comments explaining the vulnerability
+        don't false-positive — we want to catch the executable pattern, not
+        penalise documentation.
+        """
+        import ast
+        import inspect
+        import textwrap
+
+        src = textwrap.dedent(inspect.getsource(chat))
+        tree = ast.parse(src)
+
+        forbidden = {"dict", "model_dump", "model_dump_json", "json"}
+        violations = []
+        for node in ast.walk(tree):
+            # Match: <anything>.dict(...) / <anything>.model_dump(...) where the
+            # receiver is the `request` name. ast.Attribute.value → the object.
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in forbidden
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "request"
+            ):
+                violations.append(ast.unparse(node))
+
+        assert not violations, (
+            f"HIGH-34: found request-model dump call(s) in chat(): {violations}. "
+            f"These serialise message/chat_history/context → PII leak."
+        )
+
+    def test_chat_source_has_no_request_payload_key(self):
+        """The literal 'request_payload' key must not reappear."""
+        import inspect
+        src = inspect.getsource(chat)
+        assert "request_payload" not in src
+
+    def test_chat_source_does_not_format_exc(self):
+        """
+        traceback.format_exc() is redundant with exc_info=True AND leaks
+        the exception message into the log event body as plain text.
+        """
+        import inspect
+        src = inspect.getsource(chat)
+        assert "traceback.format_exc()" not in src
+        assert "format_exc()" not in src
+
+    def test_chat_source_uses_error_type_not_error_str(self):
+        """
+        The error handler must use error_type=type(e).__name__ instead of
+        error=str(e). We match against the exact vulnerable idiom used in
+        the except-block rather than a bare substring, to avoid false
+        positives from comments or unrelated code.
+        """
+        import inspect
+        src = inspect.getsource(chat)
+        assert "error_type=type(e).__name__" in src
+        # Match the exact vulnerable pattern from the old error handler.
+        # (A bare 'error=str(e)' substring check would false-positive on
+        # the inner persistence handler at line ~235 which is lower-risk
+        # and out of HIGH-34 scope.)
+        assert 'error=str(e),\n            request_payload' not in src
+
+    def test_chat_module_does_not_import_traceback(self):
+        """
+        After removing traceback.format_exc(), the import is dead. If it
+        reappears, someone is probably reintroducing the leak.
+        """
+        import backend.api.chat as chat_module
+        import inspect
+        src = inspect.getsource(chat_module)
+        # The import was inline inside the except block; check module-wide
+        assert "import traceback" not in src, (
+            "traceback module no longer needed after HIGH-34 fix — its "
+            "reappearance likely means format_exc() is back"
+        )
