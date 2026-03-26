@@ -17,6 +17,44 @@ log() {
   echo "[demo-deploy] $1"
 }
 
+normalize_zone_id() {
+  local zone_id="$1"
+  zone_id="${zone_id#/hostedzone/}"
+  echo "$zone_id"
+}
+
+resolve_hosted_zone_id() {
+  local domain="$1"
+  local labels=()
+  local candidate
+  local zone_id
+
+  IFS='.' read -r -a labels <<< "$domain"
+  if [[ ${#labels[@]} -lt 2 ]]; then
+    return 1
+  fi
+
+  for ((i=0; i<${#labels[@]}-1; i++)); do
+    candidate="${labels[i]}"
+    for ((j=i+1; j<${#labels[@]}; j++)); do
+      candidate+=".${labels[j]}"
+    done
+
+    zone_id="$(aws route53 list-hosted-zones-by-name \
+      --dns-name "$candidate" \
+      --max-items 1 \
+      --query "HostedZones[?Name=='${candidate}.']|[0].Id" \
+      --output text 2>/dev/null || true)"
+
+    if [[ -n "$zone_id" && "$zone_id" != "None" ]]; then
+      normalize_zone_id "$zone_id"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 require_tool() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing required tool: $1" >&2
@@ -59,10 +97,17 @@ docker build --platform linux/amd64 -f frontend/Dockerfile -t aasmaa-frontend:de
 docker tag aasmaa-frontend:demo "$FRONTEND_IMAGE_URI"
 docker push "$FRONTEND_IMAGE_URI"
 
+if [[ -z "$HOSTED_ZONE_ID" && -n "$DOMAIN_NAME" ]]; then
+  log "HOSTED_ZONE_ID not provided, attempting auto-discovery for ${DOMAIN_NAME}"
+  HOSTED_ZONE_ID="$(resolve_hosted_zone_id "$DOMAIN_NAME" || true)"
+fi
+
 if [[ -z "$HOSTED_ZONE_ID" ]]; then
-  log "HOSTED_ZONE_ID is empty, deploying without Route53/ACM custom domain"
+  log "Hosted zone auto-discovery failed; deploying without Route53/ACM custom domain"
   DOMAIN_NAME=""
   CREATE_ACM_CERTIFICATE="false"
+else
+  log "Using hosted zone ID: ${HOSTED_ZONE_ID}"
 fi
 
 log "Deploying demo infrastructure stack (${STACK_NAME})"

@@ -33,11 +33,18 @@ Run from repo root:
 ```bash
 AWS_REGION=us-east-1 \
 DOMAIN_NAME=demo.aasmaa.ai \
-HOSTED_ZONE_ID=<your_hosted_zone_id> \
 CREATE_ACM_CERTIFICATE=true \
 DEMO_ALLOWED_ACCOUNT_IDS=123456789012,210987654321 \
 BEDROCK_MODEL=us.amazon.nova-lite-v1:0 \
 bash scripts/deployment/deploy-demo-only.sh
+```
+
+Notes:
+- `HOSTED_ZONE_ID` is optional now. The deploy script auto-discovers the parent Route53 hosted zone for `DOMAIN_NAME`.
+- If your default AWS profile is expired, run with the working profile explicitly, for example:
+
+```bash
+AWS_PROFILE=aiverse-deployer bash scripts/deployment/deploy-demo-only.sh
 ```
 
 ## Recommended low-cost settings
