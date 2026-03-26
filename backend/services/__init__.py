@@ -1,5 +1,5 @@
 """
-Services package for FinOps AI Cost Intelligence Platform
+Services package for aasmaa AI Cost Intelligence Platform
 Contains LLM, database, vector store, and Athena query services
 """
 

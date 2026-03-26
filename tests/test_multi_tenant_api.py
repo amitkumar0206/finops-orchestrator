@@ -14,7 +14,7 @@ from uuid import uuid4
 # We'll need to mock the database for these tests
 # Import the app
 import sys
-sys.path.insert(0, '/Users/agranee/Documents/mercor/finops-orchestrator/mercor/model_a/backend')
+sys.path.insert(0, '/Users/agranee/Documents/mercor/aasmaa/mercor/model_a/backend')
 
 
 # ==================== Fixtures ====================

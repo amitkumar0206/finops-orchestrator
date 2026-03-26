@@ -55,9 +55,9 @@ def load_config(env_file='deployment.env'):
     config.setdefault('AWS_CUR_DATABASE', 'cost_usage_db')
     config.setdefault('AWS_CUR_TABLE', 'cur_data')
     config.setdefault('CUR_S3_BUCKET', config.get('S3_BUCKET', ''))
-    config.setdefault('CUR_S3_PREFIX', 'cost-exports/finops-cost-export')
+    config.setdefault('CUR_S3_PREFIX', 'cost-exports/aasmaa-cost-export')
     config.setdefault('ATHENA_OUTPUT_LOCATION', f"s3://{config.get('S3_BUCKET', '')}/athena-results/")
-    config.setdefault('ATHENA_WORKGROUP', 'finops-workgroup')
+    config.setdefault('ATHENA_WORKGROUP', 'aasmaa-workgroup')
     
     return config
 

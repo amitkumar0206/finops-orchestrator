@@ -241,7 +241,7 @@ def upgrade() -> None:
             'priority_score IS NULL OR (priority_score >= 1 AND priority_score <= 100)',
             name='ck_priority_score_range'
         ),
-        comment='Table for storing FinOps optimization recommendations with savings estimates and implementation details'
+        comment='Table for storing aasmaa optimization recommendations with savings estimates and implementation details'
     )
     
     # Alter columns to use ENUM types (after table creation to avoid type recreation issues)

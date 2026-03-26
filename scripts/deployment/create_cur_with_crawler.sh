@@ -28,7 +28,7 @@ ENV_FILE="${1:-deployment.env}"
 source "$ENV_FILE"
 
 CUR_S3_BUCKET="${CUR_S3_BUCKET:-$S3_BUCKET}"
-CUR_S3_PREFIX="${CUR_S3_PREFIX:-cost-exports/finops-cost-export}"
+CUR_S3_PREFIX="${CUR_S3_PREFIX:-cost-exports/aasmaa-cost-export}"
 AWS_CUR_DATABASE="${AWS_CUR_DATABASE:-cost_usage_db}"
 AWS_CUR_TABLE="${AWS_CUR_TABLE:-cur_data}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -36,12 +36,12 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 ATHENA_RESULTS_BUCKET="${ATHENA_RESULTS_BUCKET:-}"
 if [ -z "$ATHENA_RESULTS_BUCKET" ]; then
     AWS_ACCOUNT_ID_DETECT=$(aws sts get-caller-identity --query Account --output text)
-    ATHENA_RESULTS_BUCKET="finops-intelligence-platform-athena-results-${AWS_ACCOUNT_ID_DETECT}"
+    ATHENA_RESULTS_BUCKET="aasmaa-athena-results-${AWS_ACCOUNT_ID_DETECT}"
 fi
 ATHENA_OUTPUT_LOCATION="${ATHENA_OUTPUT_LOCATION:-s3://${ATHENA_RESULTS_BUCKET}/}"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-CRAWLER_NAME="finops-cur-crawler"
-CRAWLER_ROLE_NAME="AWSGlueServiceRole-FinOpsCUR"
+CRAWLER_NAME="aasmaa-cur-crawler"
+CRAWLER_ROLE_NAME="AWSGlueServiceRole-aasmaaCUR"
 
 log_info "=== CUR Schema Auto-Discovery with Glue Crawler ==="
 log_info "Database: $AWS_CUR_DATABASE"
@@ -109,7 +109,7 @@ EOF
     
     aws iam put-role-policy \
         --role-name "$CRAWLER_ROLE_NAME" \
-        --policy-name "FinOpsCURAccess" \
+        --policy-name "aasmaaCURAccess" \
         --policy-document file:///tmp/glue-s3-policy.json \
         --region "$AWS_REGION"
     
@@ -278,7 +278,7 @@ QUERY_ID=$(aws athena start-query-execution \
     --query-string "$VALIDATION_SQL" \
     --query-execution-context "Database=$AWS_CUR_DATABASE" \
     --result-configuration "OutputLocation=${ATHENA_OUTPUT_LOCATION}" \
-    --work-group "${ATHENA_WORKGROUP:-finops-workgroup}" \
+    --work-group "${ATHENA_WORKGROUP:-aasmaa-workgroup}" \
     --region "$AWS_REGION" \
     --query 'QueryExecutionId' \
     --output text)

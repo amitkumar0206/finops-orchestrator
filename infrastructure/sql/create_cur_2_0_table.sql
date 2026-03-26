@@ -190,7 +190,7 @@ LOCATION 's3://${CUR_S3_BUCKET}/${CUR_S3_PREFIX}/'
 TBLPROPERTIES (
   'parquet.compression' = 'SNAPPY',
   'classification' = 'parquet',
-  'created_by' = 'finops-intelligence-platform',
+  'created_by' = 'aasmaa',
   'description' = 'AWS CUR 2.0 format (non-partitioned for date-range directories)',
   'last_updated' = '2024-11-18'
 );

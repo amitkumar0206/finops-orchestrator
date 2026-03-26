@@ -48,7 +48,7 @@ class AthenaCURTemplates:
         
         Args:
             database: Athena database name (e.g., 'cost_usage_db')
-            table: CUR table name (e.g., 'cur_dazn_linked')
+            table: CUR table name (e.g., 'cur_aasmaa_linked')
             use_lowercase_columns: If True, use lowercase column names (e.g., lineitem_usagestartdate)
                                    If False, use standard CUR names (e.g., line_item_usage_start_date)
         """

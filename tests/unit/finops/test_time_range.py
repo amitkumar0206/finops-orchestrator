@@ -12,7 +12,7 @@ import pytest
 from datetime import date
 from freezegun import freeze_time
 
-from backend.finops.time_range import (
+from backend.aasmaa.time_range import (
     parse_time_range,
     merge_time_range,
     TimeRangeResult,

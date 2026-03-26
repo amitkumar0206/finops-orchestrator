@@ -1,5 +1,5 @@
 """
-Date Parsing Utility - Comprehensive time range resolution for FinOps queries
+Date Parsing Utility - Comprehensive time range resolution for aasmaa queries
 
 ⚠️ DEPRECATION NOTICE ⚠️
 This regex-based date parser is being phased out in favor of LLM-based extraction.

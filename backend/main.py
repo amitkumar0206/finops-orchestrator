@@ -1,5 +1,5 @@
 """
-FastAPI backend for FinOps AI Cost Intelligence Platform
+FastAPI backend for aasmaa AI Cost Intelligence Platform
 Main application entry point with middleware, routes, and startup configuration
 """
 
@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown events"""
     # Startup
     setup_logging(settings.log_level)
-    logger.info("Starting FinOps AI Cost Intelligence Platform", environment=settings.environment)
+    logger.info("Starting aasmaa AI Cost Intelligence Platform", environment=settings.environment)
 
     # Validate security configuration
     security_issues = settings.validate_security_configuration()
@@ -112,14 +112,14 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize vector store service: {e}", exc_info=True)
         logger.warning("Continuing without vector store - some features may be limited")
     
-    logger.info("FinOps AI Platform startup complete", 
+    logger.info("aasmaa AI Platform startup complete", 
                 database_available=hasattr(app.state, 'db'),
                 vector_store_available=hasattr(app.state, 'vector_store'))
     
     yield
     
     # Shutdown
-    logger.info("Shutting down FinOps AI Cost Intelligence Platform")
+    logger.info("Shutting down aasmaa AI Cost Intelligence Platform")
     if hasattr(app.state, 'db') and app.state.db:
         try:
             await app.state.db.close()
@@ -137,8 +137,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI application
 app = FastAPI(
-    title="FinOps AI Cost Intelligence Platform",
-    description="AI-powered AWS cost analysis platform for DAZN with multi-agent architecture",
+    title="aasmaa AI Cost Intelligence Platform",
+    description="AI-powered AWS cost analysis platform for aasmaa with multi-agent architecture",
     version="1.0.0",
     docs_url="/docs" if settings.environment != "production" else None,
     redoc_url="/redoc" if settings.environment != "production" else None,
@@ -285,9 +285,9 @@ async def metrics():
 async def root() -> Dict[str, Any]:
     """Root endpoint with API information"""
     return {
-        "message": "FinOps AI Cost Intelligence Platform",
+        "message": "aasmaa AI Cost Intelligence Platform",
         "version": "1.0.0",
-        "description": "AI-powered AWS cost analysis platform for DAZN",
+        "description": "AI-powered AWS cost analysis platform for aasmaa",
         "docs_url": "/docs" if settings.environment != "production" else "Contact admin for API documentation",
         "health_check": "/health",
         "metrics": "/metrics"

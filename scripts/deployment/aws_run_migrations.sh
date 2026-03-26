@@ -14,14 +14,14 @@ set -euo pipefail
 #    ./scripts/deployment/aws_run_migrations.sh exec \
 #      --region us-east-1 \
 #      --cluster my-ecs-cluster \
-#      --service finops-backend-svc \
+#      --service aasmaa-backend-svc \
 #      --container backend
 #
 # 2) Run a one-off task (if no tasks are running yet):
 #    ./scripts/deployment/aws_run_migrations.sh run \
 #      --region us-east-1 \
 #      --cluster my-ecs-cluster \
-#      --task-def arn:aws:ecs:us-east-1:123456789012:task-definition/finops-backend:42 \
+#      --task-def arn:aws:ecs:us-east-1:123456789012:task-definition/aasmaa-backend:42 \
 #      --subnets subnet-abc123,subnet-def456 \
 #      --security-groups sg-0123456789abcdef0
 #

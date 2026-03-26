@@ -189,7 +189,7 @@ File contains timestamp of completion:
 3. Redeploy application
 
 ### Script Failed
-1. Check logs: `aws logs tail /ecs/finops-intelligence-platform/backend --since 10m`
+1. Check logs: `aws logs tail /ecs/aasmaa/backend --since 10m`
 2. Look for error in `/tmp/script_name.log` inside container
 3. Fix SQL syntax/logic
 4. Delete completion marker if created

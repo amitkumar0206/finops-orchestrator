@@ -1,5 +1,5 @@
 # RBAC Configuration
-# Defines roles, permissions, and their hierarchies for the FinOps platform
+# Defines roles, permissions, and their hierarchies for the aasmaa platform
 #
 # Permission Format: resource:action:scope
 # - resource: saved_views, organization, account, query, etc.

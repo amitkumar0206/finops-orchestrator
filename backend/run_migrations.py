@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Migration Runner Script for FinOps Conversation Threading System
+Migration Runner Script for aasmaa Conversation Threading System
 
 This script provides a convenient interface for managing database migrations
 with validation, backup, and rollback capabilities.

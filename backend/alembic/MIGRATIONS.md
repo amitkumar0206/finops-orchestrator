@@ -28,17 +28,17 @@ The backend container now **automatically runs database migrations on startup** 
 
 ```bash
 # Get the running task
-aws ecs list-tasks --cluster finops-intelligence-platform-cluster --query 'taskArns[0]' --output text
+aws ecs list-tasks --cluster aasmaa-cluster --query 'taskArns[0]' --output text
 
 # View the startup logs (migrations run during startup)
-aws logs tail /ecs/finops-intelligence-platform/backend --since 10m --format short
+aws logs tail /ecs/aasmaa/backend --since 10m --format short
 ```
 
 ### Check Database Directly
 
 ```bash
 # Connect to RDS (requires network access or bastion)
-psql -h <RDS_ENDPOINT> -U postgres -d finops
+psql -h <RDS_ENDPOINT> -U postgres -d aasmaa
 
 # Check current migration version
 SELECT * FROM alembic_version;
@@ -81,7 +81,7 @@ alembic revision -m "description of changes"
 
 Check the logs:
 ```bash
-aws logs tail /ecs/finops-intelligence-platform/backend --since 30m
+aws logs tail /ecs/aasmaa/backend --since 30m
 ```
 
 Common issues:
@@ -99,7 +99,7 @@ SKIP_MIGRATIONS=true
 ### Check Health After Migration
 
 ```bash
-curl https://finops.cape.dazn-dev.com/health
+curl https://aasmaa.cape.aasmaa-dev.com/health
 ```
 
 The health endpoint will show:

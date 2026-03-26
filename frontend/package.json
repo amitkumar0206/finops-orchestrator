@@ -1,7 +1,7 @@
 {
-  "name": "finops-intelligence-frontend",
+  "name": "aasmaa-frontend",
   "version": "1.0.0",
-  "description": "Frontend for FinOps AI Cost Intelligence Platform",
+  "description": "aasmaa - Autonomous Intelligence Platform",
   "private": true,
   "dependencies": {
     "@emotion/react": "^11.11.0",
@@ -9,6 +9,7 @@
     "@mui/icons-material": "^5.14.0",
     "@mui/material": "^5.14.0",
     "@mui/x-charts": "^6.0.0",
+    "@mui/x-date-pickers": "^6.20.2",
     "@reduxjs/toolkit": "^1.9.0",
     "@types/chart.js": "^2.9.35",
     "@types/lodash": "^4.14.0",
@@ -36,13 +37,12 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@rollup/rollup-darwin-arm64": "^4.60.0",
     "@types/chart.js": "^2.9.35",
     "@types/node": "^20.0.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vitejs/plugin-react": "^4.0.0",
+    "esbuild": "^0.25.9",
     "eslint": "^8.0.0",
     "eslint-plugin-react": "^7.33.0",
     "eslint-plugin-react-hooks": "^4.6.0",

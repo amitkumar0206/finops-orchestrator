@@ -211,7 +211,7 @@ TBLPROPERTIES (
   'classification' = 'parquet',
   
   -- Metadata
-  'created_by' = 'finops-intelligence-platform',
+  'created_by' = 'aasmaa',
   'description' = 'AWS Legacy CUR with automatic partition projection',
   'last_updated' = '2024-11-11'
 );

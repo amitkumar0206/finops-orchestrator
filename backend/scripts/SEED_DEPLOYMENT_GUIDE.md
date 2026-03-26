@@ -1,7 +1,7 @@
 # Seed Optimization Recommendations - Deployment Guide
 
 ## Problem
-All optimization-related queries in the FinOps UI return generic fallback messages:
+All optimization-related queries in the aasmaa UI return generic fallback messages:
 - "Unable to generate detailed optimization analysis. Showing top cost drivers."
 - "Unable to identify optimization targets. Please specify a service or ask about top cost categories."
 
@@ -34,8 +34,8 @@ If you have network access to RDS:
 # Set environment variables
 export PGHOST=<your-rds-endpoint>.rds.amazonaws.com
 export PGPORT=5432
-export PGDATABASE=finops
-export PGUSER=finops
+export PGDATABASE=aasmaa
+export PGUSER=aasmaa
 export PGPASSWORD=<your-db-password>
 
 # Run the seed script
@@ -63,10 +63,10 @@ sudo apt-get install -y postgresql-client  # Ubuntu
 aws s3 cp s3://your-deployment-bucket/seed_all_32_recommendations.sql /tmp/
 
 # 4. Run the script
-psql -h <rds-endpoint> -U finops -d finops -f /tmp/seed_all_32_recommendations.sql
+psql -h <rds-endpoint> -U aasmaa -d aasmaa -f /tmp/seed_all_32_recommendations.sql
 
 # 5. Verify
-psql -h <rds-endpoint> -U finops -d finops \
+psql -h <rds-endpoint> -U aasmaa -d aasmaa \
   -c "SELECT service, COUNT(*) FROM optimization_recommendations GROUP BY service;"
 ```
 
@@ -78,8 +78,8 @@ Run as a one-time ECS task in the same VPC:
 # 1. Update the backend Docker image to include the seed script (already done)
 # 2. Run ECS task with override command
 aws ecs run-task \
-  --cluster finops-cluster \
-  --task-definition finops-backend:latest \
+  --cluster aasmaa-cluster \
+  --task-definition aasmaa-backend:latest \
   --launch-type FARGATE \
   --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx],securityGroups=[sg-xxx]}" \
   --overrides '{
@@ -142,7 +142,7 @@ LIMIT 5;
 
 ## Testing in UI
 
-After seeding, test these queries in the FinOps chat UI:
+After seeding, test these queries in the aasmaa chat UI:
 
 1. **"What are my optimization opportunities?"**
    - Should now return LLM-generated analysis with specific recommendations

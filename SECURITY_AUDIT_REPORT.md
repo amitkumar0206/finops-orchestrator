@@ -1,6 +1,6 @@
 # Security Audit Report
 
-## FinOps AI Cost Intelligence Platform
+## aasmaa AI Cost Intelligence Platform
 
 | | |
 |---|---|
@@ -496,7 +496,7 @@ On a multi-user deploy host, another process can:
 
 **Remediation (pattern for all sites):**
 ```bash
-TMPDIR=$(mktemp -d -t finops-deploy.XXXXXXXX)
+TMPDIR=$(mktemp -d -t aasmaa-deploy.XXXXXXXX)
 trap 'rm -rf "$TMPDIR"' EXIT
 cat > "$TMPDIR/lifecycle-config.json" << 'EOF'
 ...
@@ -508,7 +508,7 @@ aws s3api put-bucket-lifecycle-configuration \
 **Claude Code Fix Instructions:**
 ```
 1. At the top of deploy.sh (after set -euo pipefail), add:
-   TMPDIR=$(mktemp -d -t finops-deploy.XXXXXXXX)
+   TMPDIR=$(mktemp -d -t aasmaa-deploy.XXXXXXXX)
    Update the existing `trap cleanup EXIT` at line ~3013 to also rm -rf "$TMPDIR".
 2. Replace every /tmp/<name> with "$TMPDIR/<name>" at the 4 sites listed.
 3. Repeat for scripts/setup/setup_cur_pipeline.sh (5 sites) and setup-cur.sh.

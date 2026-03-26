@@ -1,4 +1,4 @@
-# FinOps Conversation Threading Migrations - Deployment Summary
+# aasmaa Conversation Threading Migrations - Deployment Summary
 
 **Created:** November 12, 2025  
 **Version:** 1.0.0  
@@ -139,7 +139,7 @@ alembic current
 python run_migrations.py status
 
 # Verify tables in PostgreSQL
-psql -d finops -c "\dt"
+psql -d aasmaa -c "\dt"
 ```
 
 ### Step 4: Test the Schema
@@ -183,7 +183,7 @@ DELETE FROM conversation_threads WHERE user_id = 'test_user';
 ### Safe Rollback Process
 ```bash
 # 1. Create backup
-pg_dump -U user -d finops > backup_before_rollback.sql
+pg_dump -U user -d aasmaa > backup_before_rollback.sql
 
 # 2. Rollback one migration
 alembic downgrade -1
@@ -193,7 +193,7 @@ alembic downgrade base
 
 # 4. Verify rollback
 alembic current
-psql -d finops -c "\dt"
+psql -d aasmaa -c "\dt"
 ```
 
 ### Rollback by Migration

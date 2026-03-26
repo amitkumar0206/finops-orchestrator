@@ -4,7 +4,7 @@ Description: 'AWS Glue Crawler for CUR 2.0 Data Discovery'
 Parameters:
   ProjectName:
     Type: String
-    Default: finops-intelligence-platform
+    Default: aasmaa
     Description: Project name for resource naming
   
   CurS3Bucket:
@@ -13,7 +13,7 @@ Parameters:
   
   CurS3Prefix:
     Type: String
-    Default: cost-exports/finops-cost-export
+    Default: cost-exports/aasmaa-cost-export
     Description: S3 prefix for CUR data
   
   CurDatabase:

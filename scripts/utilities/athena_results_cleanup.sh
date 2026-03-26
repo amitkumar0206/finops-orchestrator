@@ -31,7 +31,7 @@ Options:
 
 Environment detection:
   - Canonical results bucket is read from ATHENA_RESULTS_BUCKET in deployment.env.
-  - If unset, defaults to finops-intelligence-platform-athena-results-<account>.
+  - If unset, defaults to aasmaa-athena-results-<account>.
 
 Examples:
   $0 show
@@ -67,7 +67,7 @@ if [[ -f "$ENV_FILE" ]]; then
   RESULTS_BUCKET=$(awk -F'=' '$1=="ATHENA_RESULTS_BUCKET"{print $2}' "$ENV_FILE")
 fi
 if [[ -z "$RESULTS_BUCKET" ]]; then
-  RESULTS_BUCKET="finops-intelligence-platform-athena-results-${ACCOUNT_ID}"
+  RESULTS_BUCKET="aasmaa-athena-results-${ACCOUNT_ID}"
 fi
 
 # Helper: ensure results bucket exists
@@ -86,7 +86,7 @@ ensure_results_bucket(){
 
 # Detect current workgroup output
 current_workgroup_output(){
-  local wg="${ATHENA_WORKGROUP:-finops-workgroup}"
+  local wg="${ATHENA_WORKGROUP:-aasmaa-workgroup}"
   aws athena get-work-group --work-group "$wg" --region "$AWS_REGION" \
     --query 'WorkGroup.Configuration.ResultConfiguration.OutputLocation' --output text 2>/dev/null || echo "UNKNOWN"
 }
@@ -94,12 +94,12 @@ current_workgroup_output(){
 # Find buckets that look like results buckets
 find_candidate_buckets(){
   aws s3api list-buckets --query 'Buckets[].Name' --output text | tr '\t' '\n' | \
-    grep -E "finops|athena|result|analytics|query" || true
+    grep -E "aasmaa|athena|result|analytics|query" || true
 }
 
 # Show
 if [[ "$cmd" == "show" ]]; then
-  log_info "Athena workgroup: ${ATHENA_WORKGROUP:-finops-workgroup}"
+  log_info "Athena workgroup: ${ATHENA_WORKGROUP:-aasmaa-workgroup}"
   log_info "Workgroup OutputLocation: $(current_workgroup_output)"
   log_info "Canonical results bucket: s3://$RESULTS_BUCKET/"
   echo ""

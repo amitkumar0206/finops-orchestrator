@@ -1,4 +1,4 @@
-# Quick Start Guide - Multi-Agent FinOps Platform
+# Quick Start Guide - Multi-Agent aasmaa Platform
 
 ## What Was Fixed
 
@@ -17,7 +17,7 @@ backend/
 │   └── multi_agent_workflow.py        # LangGraph-based multi-agent orchestration (default)
 ├── services/
 │   ├── athena_executor.py             # Async Athena query execution
-│   ├── response_formatter.py          # Structured FinOps template formatter
+│   ├── response_formatter.py          # Structured aasmaa template formatter
 │   ├── chart_recommendation.py        # Intelligent chart suggestions
 │   └── conversation_manager.py        # Postgres-backed conversation threads + context
 └── api/
@@ -191,7 +191,7 @@ Before using, ensure these are set:
 # Required
 AWS_REGION=us-east-1
 AWS_CUR_DATABASE=cost_usage_db
-AWS_CUR_TABLE=cur_dazn_linked
+AWS_CUR_TABLE=cur_aasmaa_linked
 
 # AWS credentials via IAM role (recommended) or default credential chain
 # For local dev: uses ~/.aws/credentials or environment variables

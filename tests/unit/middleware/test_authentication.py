@@ -150,7 +150,7 @@ class TestJWTAuthentication:
             "type": "access",
             "iat": datetime.now(timezone.utc) - timedelta(hours=1),
             "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
-            "iss": "finops-platform",
+            "iss": "aasmaa-platform",
         }
         expired_token = jwt.encode(payload, secret_key, algorithm="HS256")
 

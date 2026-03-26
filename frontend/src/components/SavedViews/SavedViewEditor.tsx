@@ -133,7 +133,6 @@ const SavedViewEditor: React.FC<SavedViewEditorProps> = ({ view, onSave, onCance
   };
 
   const getTimeRangeFromPreset = (preset: string): Record<string, unknown> => {
-    const now = new Date();
     switch (preset) {
       case 'last7days':
         return { days: 7, type: 'relative' };
@@ -232,7 +231,7 @@ const SavedViewEditor: React.FC<SavedViewEditorProps> = ({ view, onSave, onCance
         <DatePicker
           label="Expiration Date (optional)"
           value={expiresAt}
-          onChange={(newValue) => setExpiresAt(newValue)}
+          onChange={(newValue: Date | null) => setExpiresAt(newValue)}
           slotProps={{
             textField: {
               fullWidth: true,

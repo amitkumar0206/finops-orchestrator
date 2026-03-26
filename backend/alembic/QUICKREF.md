@@ -1,4 +1,4 @@
-# FinOps Database Migrations - Quick Reference
+# aasmaa Database Migrations - Quick Reference
 
 ## 🚀 Quick Commands
 
@@ -272,12 +272,12 @@ alembic stamp head
 
 ### Backup before changes
 ```bash
-pg_dump -U username -d finops > backup_$(date +%Y%m%d_%H%M%S).sql
+pg_dump -U username -d aasmaa > backup_$(date +%Y%m%d_%H%M%S).sql
 ```
 
 ### Restore from backup
 ```bash
-psql -U username -d finops < backup_20251112_100000.sql
+psql -U username -d aasmaa < backup_20251112_100000.sql
 ```
 
 ## 📚 Files Structure

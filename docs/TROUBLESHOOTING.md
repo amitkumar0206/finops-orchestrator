@@ -1,8 +1,8 @@
-# Troubleshooting Guide - FinOps Intelligence Platform
+# Troubleshooting Guide - aasmaa Intelligence Platform
 
 ## Overview
 
-This guide covers common issues you may encounter when deploying and using the FinOps Intelligence Platform, with specific focus on CUR data integration and Athena query issues.
+This guide covers common issues you may encounter when deploying and using the aasmaa Intelligence Platform, with specific focus on CUR data integration and Athena query issues.
 
 ## Table of Contents
 
@@ -44,7 +44,7 @@ AWS takes 24 hours to deliver first CUR data after configuration.
 **Solution:** Wait 24 hours, then check:
 
 ```bash
-aws s3 ls s3://your-bucket/cur/finops-cost-report/finops-cost-report/ --recursive | head -20
+aws s3 ls s3://your-bucket/cur/aasmaa-cost-report/aasmaa-cost-report/ --recursive | head -20
 ```
 
 **3. Incorrect S3 Prefix**
@@ -55,20 +55,20 @@ Verify your CUR report path matches `CUR_S3_PREFIX` in `deployment.env`:
 # Check actual S3 structure
 aws s3 ls s3://your-bucket/cur/
 
-# Should show: finops-cost-report/
-# Then: aws s3 ls s3://your-bucket/cur/finops-cost-report/
-# Should show: finops-cost-report/ (report directory)
+# Should show: aasmaa-cost-report/
+# Then: aws s3 ls s3://your-bucket/cur/aasmaa-cost-report/
+# Should show: aasmaa-cost-report/ (report directory)
 ```
 
 Update `deployment.env` if path differs:
 
 ```bash
-CUR_S3_PREFIX=cur/finops-cost-report/finops-cost-report
+CUR_S3_PREFIX=cur/aasmaa-cost-report/aasmaa-cost-report
 ```
 
 **4. Wrong Report Name**
 
-If you used a different CUR report name than `finops-cost-report`:
+If you used a different CUR report name than `aasmaa-cost-report`:
 
 ```bash
 # Find your report name
@@ -116,7 +116,7 @@ Check backfill progress:
 
 ```bash
 # List all year/month partitions
-aws s3 ls s3://your-bucket/cur/finops-cost-report/finops-cost-report/ --recursive | grep "year=" | cut -d'/' -f5-6 | sort -u
+aws s3 ls s3://your-bucket/cur/aasmaa-cost-report/aasmaa-cost-report/ --recursive | grep "year=" | cut -d'/' -f5-6 | sort -u
 
 # Should show: year=2021/month=11/ through year=2024/month=11/
 ```
@@ -192,7 +192,7 @@ aws glue get-tables --database-name cost_usage_db --region us-east-1 --query "Ta
 # Run setup script
 bash scripts/setup/setup-athena-cur.sh \
   your-cur-bucket \
-  cur/finops-cost-report/finops-cost-report \
+  cur/aasmaa-cost-report/aasmaa-cost-report \
   cost_usage_db \
   cur_data \
   us-east-1 \
@@ -348,7 +348,7 @@ Look for:
 
 ```bash
 aws cloudformation describe-stack-events \
-  --stack-name finops-intelligence-platform \
+  --stack-name aasmaa \
   --region us-east-1 \
   --query "StackEvents[?ResourceStatus=='CREATE_FAILED']" \
   --output table
@@ -503,10 +503,10 @@ curl -s https://your-app-url/api/health | jq .
 
 ```bash
 # Get ECS task ID
-TASK_ID=$(aws ecs list-tasks --cluster finops-cluster --service-name finops-backend --query "taskArns[0]" --output text)
+TASK_ID=$(aws ecs list-tasks --cluster aasmaa-cluster --service-name aasmaa-backend --query "taskArns[0]" --output text)
 
 # Check environment
-aws ecs describe-tasks --cluster finops-cluster --tasks $TASK_ID --query "tasks[0].overrides.containerOverrides[0].environment"
+aws ecs describe-tasks --cluster aasmaa-cluster --tasks $TASK_ID --query "tasks[0].overrides.containerOverrides[0].environment"
 ```
 
 3. If database unhealthy:
@@ -537,7 +537,7 @@ WHERE year = CAST(YEAR(CURRENT_DATE) AS VARCHAR)
 
 ```bash
 # Backend logs
-aws logs tail /ecs/finops-backend --follow --region us-east-1
+aws logs tail /ecs/aasmaa-backend --follow --region us-east-1
 
 # Look for Athena errors or timeouts
 ```
@@ -769,13 +769,13 @@ ce_client.get_cost_and_usage(
 **Backend:**
 
 ```bash
-aws logs tail /ecs/finops-backend --follow --region us-east-1
+aws logs tail /ecs/aasmaa-backend --follow --region us-east-1
 ```
 
 **Frontend:**
 
 ```bash
-aws logs tail /ecs/finops-frontend --follow --region us-east-1
+aws logs tail /ecs/aasmaa-frontend --follow --region us-east-1
 ```
 
 ### Enable Debug Logging
@@ -812,16 +812,16 @@ LIMIT 1;
 
 ```bash
 # Check ECS service status
-aws ecs describe-services --cluster finops-cluster --services finops-backend
+aws ecs describe-services --cluster aasmaa-cluster --services aasmaa-backend
 
 # Check RDS instance
-aws rds describe-db-instances --query "DBInstances[?DBInstanceIdentifier=='finops-db']"
+aws rds describe-db-instances --query "DBInstances[?DBInstanceIdentifier=='aasmaa-db']"
 
 # Check ALB target health
 aws elbv2 describe-target-health --target-group-arn <arn>
 
 # Check CloudWatch logs
-aws logs tail /ecs/finops-backend --since 30m
+aws logs tail /ecs/aasmaa-backend --since 30m
 ```
 
 ### Contact Information

@@ -50,9 +50,9 @@ class LLMQueryRefiner:
         conversation_context = "\n".join(context_lines)
         
         # Build prompt for LLM
-        prompt = f"""You are an expert FinOps consultant with decades of experience analyzing cloud infrastructure costs. You have deep expertise in understanding how engineers and finance teams naturally talk about AWS costs, and you excel at interpreting conversational follow-up queries in the context of ongoing cost analysis.
+        prompt = f"""You are an expert aasmaa consultant with decades of experience analyzing cloud infrastructure costs. You have deep expertise in understanding how engineers and finance teams naturally talk about AWS costs, and you excel at interpreting conversational follow-up queries in the context of ongoing cost analysis.
 
-Your role: Understand the FULL CONVERSATION CONTEXT like a seasoned FinOps professional would.
+Your role: Understand the FULL CONVERSATION CONTEXT like a seasoned aasmaa professional would.
 
 CONVERSATION HISTORY:
 {conversation_context}
@@ -68,8 +68,8 @@ PREVIOUS QUERY CONTEXT:
 AVAILABLE SERVICES FROM PREVIOUS RESULTS:
 {json.dumps(available_services[:20], indent=2)}
 
-YOUR TASK - Think Like an Experienced FinOps Professional:
-Analyze the current query as a follow-up and determine what the user REALLY wants based on how FinOps teams naturally explore costs:
+YOUR TASK - Think Like an Experienced aasmaa Professional:
+Analyze the current query as a follow-up and determine what the user REALLY wants based on how aasmaa teams naturally explore costs:
 
 1. **Context Change Detection:**
    - Is the user asking about something COMPLETELY DIFFERENT? (Clear context switch)

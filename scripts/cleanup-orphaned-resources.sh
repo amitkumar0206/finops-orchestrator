@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Cleanup Orphaned FinOps Resources
+# Cleanup Orphaned aasmaa Resources
 # This script removes orphaned VPCs, security groups, and network interfaces
 # that weren't deleted by CloudFormation
 
@@ -33,14 +33,14 @@ log_error() {
 
 echo ""
 echo "======================================================================"
-echo "           Cleanup Orphaned FinOps Resources"
+echo "           Cleanup Orphaned aasmaa Resources"
 echo "======================================================================"
 echo ""
 
-# Find all finops-related VPCs
+# Find all aasmaa-related VPCs
 log_info "Finding orphaned VPCs..."
 VPCS=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
-    --filters "Name=tag:Name,Values=*finops*" \
+    --filters "Name=tag:Name,Values=*aasmaa*" \
     --query 'Vpcs[].VpcId' --output text 2>/dev/null || echo "")
 
 if [ -z "$VPCS" ]; then
@@ -60,7 +60,7 @@ for vpc in $VPCS; do
     
     # List security groups in this VPC
     SG_COUNT=$(aws ec2 describe-security-groups --region "$AWS_REGION" \
-        --filters "Name=vpc-id,Values=$vpc" "Name=group-name,Values=finops-*" \
+        --filters "Name=vpc-id,Values=$vpc" "Name=group-name,Values=aasmaa-*" \
         --query 'SecurityGroups[].GroupId' --output text 2>/dev/null | wc -w)
     echo "    └─ Security Groups: $SG_COUNT"
 done
@@ -274,7 +274,7 @@ log_info "Verifying remaining resources..."
 
 # Final verification
 REMAINING_VPCS=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
-    --filters "Name=tag:Name,Values=*finops*" \
+    --filters "Name=tag:Name,Values=*aasmaa*" \
     --query 'Vpcs[].VpcId' --output text 2>/dev/null || echo "")
 
 if [ -z "$REMAINING_VPCS" ]; then
@@ -285,7 +285,7 @@ else
 fi
 
 REMAINING_SGS=$(aws ec2 describe-security-groups --region "$AWS_REGION" \
-    --filters "Name=group-name,Values=finops-*" \
+    --filters "Name=group-name,Values=aasmaa-*" \
     --query 'SecurityGroups[].GroupId' --output text 2>/dev/null || echo "")
 
 if [ -z "$REMAINING_SGS" ]; then

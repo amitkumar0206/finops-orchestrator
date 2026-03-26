@@ -33,8 +33,8 @@ def test_database_connection(mock_connect):
     db_config = {
         'host': os.getenv('POSTGRES_HOST', 'localhost'),
         'port': int(os.getenv('POSTGRES_PORT', '5432')),
-        'database': os.getenv('POSTGRES_DB', 'finops'),
-        'user': os.getenv('POSTGRES_USER', 'finops'),
+        'database': os.getenv('POSTGRES_DB', 'aasmaa'),
+        'user': os.getenv('POSTGRES_USER', 'aasmaa'),
         'password': os.getenv('DB_PASSWORD', 'test')
     }
 
@@ -52,8 +52,8 @@ def test_recommendations_table(mock_connect):
     db_config = {
         'host': os.getenv('POSTGRES_HOST', 'localhost'),
         'port': int(os.getenv('POSTGRES_PORT', '5432')),
-        'database': os.getenv('POSTGRES_DB', 'finops'),
-        'user': os.getenv('POSTGRES_USER', 'finops'),
+        'database': os.getenv('POSTGRES_DB', 'aasmaa'),
+        'user': os.getenv('POSTGRES_USER', 'aasmaa'),
         'password': os.getenv('DB_PASSWORD', 'test')
     }
 

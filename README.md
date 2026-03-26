@@ -1,4 +1,4 @@
-# FinOps AI Cost Intelligence Platform
+# aasmaa AI Cost Intelligence Platform
 
 Enterprise-grade AWS cost intelligence platform powered by AI agents, featuring robust service name resolution, multi-turn conversations, and intelligent cost analysis.
 
@@ -26,7 +26,7 @@ Enterprise-grade AWS cost intelligence platform powered by AI agents, featuring 
 - 📉 **Prometheus Metrics**: Service resolution counters, query performance, and system health monitoring
 
 ### User Experience
-- 🎯 **Professional FinOps Responses**: Structured 6-section format (Summary/Scope/Results/Insights/Charts/Next Steps)
+- 🎯 **Professional aasmaa Responses**: Structured 6-section format (Summary/Scope/Results/Insights/Charts/Next Steps)
 - 💡 **Smart Follow-up Suggestions**: Context-aware clickable suggestions after every response
 - 🔄 **New Chat Reset**: Complete conversation context clearing for fresh sessions
 - 📱 **Responsive UI**: Material-UI React frontend with real-time chart rendering and markdown support
@@ -89,7 +89,7 @@ Response ← Formatter ← Chart Engine
 ```bash
 # Clone repository
 git clone <repository-url>
-cd finops-orchestrator
+cd aasmaa
 
 # Make deploy script executable
 chmod +x deploy.sh
@@ -163,7 +163,7 @@ chmod +x deploy.sh
 ```bash
 # Clone repository
 git clone <repository-url>
-cd finops-orchestrator
+cd aasmaa
 
 # Backend setup
 cd backend
@@ -262,7 +262,7 @@ The platform uses a **LangGraph state machine** with **Pydantic structured outpu
 1. **Query Analysis**: LLM classifies intent into structured `UserQueryAnalysis` with confidence scoring
 2. **Semantic Routing**: Enum-based conditional routing (NO string matching) with confidence thresholds
 3. **Query Rewriting**: Context-aware query enhancement for follow-up queries (resolves pronouns, expands relative time)
-4. **Data Retrieval**: Structured `FinOpsQueryPlan` generation and execution via Athena
+4. **Data Retrieval**: Structured `aasmaaQueryPlan` generation and execution via Athena
 5. **Response Synthesis**: Structured `ConversationalResponse` with insights, recommendations, and chart specifications
 6. **Message History**: PostgreSQL-backed conversation tracking with `RunnableWithMessageHistory`
 
@@ -297,9 +297,9 @@ The platform uses a **LangGraph state machine** with **Pydantic structured outpu
   - `ups_evaluator.py`: Confusion matrix, precision/recall, confidence stats
   - `calibrate_thresholds.py`: Generate per-intent confidence minimums
   - `drift_monitor.py`: Track accuracy over time, detect degradation
-- **Pydantic Models** (`models/finops_schemas.py`): Structured schemas for all LLM interactions
+- **Pydantic Models** (`models/aasmaa_schemas.py`): Structured schemas for all LLM interactions
   - `UserQueryAnalysis`: Intent classification output
-  - `FinOpsQueryPlan`: Athena query specification
+  - `aasmaaQueryPlan`: Athena query specification
   - `ConversationalResponse`: Final structured response
 - **LangGraph Nodes** (`nodes/`): Processing pipeline nodes
   - `analyzer.py`: Intent analysis with structured output
@@ -311,7 +311,7 @@ The platform uses a **LangGraph state machine** with **Pydantic structured outpu
 - **State Management** (`state/agent_state.py`): Separated working state and conversation memory
 - **Athena Templates** (`services/athena_cur_templates.py`): 15+ optimized SQL templates
 - **Query Executor** (`services/athena_executor.py`): Async Athena client with result parsing
-- **Response Formatter** (`services/response_formatter.py`): Structured FinOps templates
+- **Response Formatter** (`services/response_formatter.py`): Structured aasmaa templates
 - **Chart Engine** (`services/chart_recommendation.py`): Cardinality-based visualization selection
 - **LLM Service** (`services/llm_service.py`): AWS Bedrock integration for insights generation
 
@@ -338,7 +338,7 @@ Once running, visit:
 ## Project Structure
 
 ```
-finops-orchestrator/
+aasmaa/
 ├── backend/                       # FastAPI backend
 │   ├── agents/                   # Multi-agent orchestration
 │   │   ├── multi_agent_workflow.py       # LangGraph supervisor (entry point)
@@ -363,7 +363,7 @@ finops-orchestrator/
 │   │   ├── rate_limiting.py             # Sliding-window rate limits
 │   │   └── security_headers.py          # CSP, HSTS, X-Frame-Options
 │   ├── models/                   # Data models
-│   │   ├── finops_schemas.py            # Pydantic schemas for LLM I/O
+│   │   ├── aasmaa_schemas.py            # Pydantic schemas for LLM I/O
 │   │   ├── database_models.py           # SQLAlchemy ORM models
 │   │   ├── opportunities.py             # Optimization opportunity models
 │   │   └── schemas.py                   # Request/response schemas
@@ -418,7 +418,7 @@ finops-orchestrator/
 │   ├── unit/                    # Unit tests (organised by layer)
 │   │   ├── api/                 #   API sanitisation & health tests
 │   │   ├── config/              #   Settings-security tests
-│   │   ├── finops/              #   Time-range logic tests
+│   │   ├── aasmaa/              #   Time-range logic tests
 │   │   ├── middleware/          #   Auth, rate-limit, security-header tests
 │   │   ├── opportunities/       #   Opportunities API & agent tests
 │   │   ├── services/            #   Cache, DB-SSL, IAM-migration tests
@@ -449,13 +449,13 @@ BEDROCK_REGION=us-east-1
 
 # Athena Configuration (REQUIRED)
 ATHENA_WORKGROUP=primary
-ATHENA_OUTPUT_LOCATION=s3://finops-intelligence-platform-data-${AWS_ACCOUNT_ID}/athena-results/
+ATHENA_OUTPUT_LOCATION=s3://aasmaa-data-${AWS_ACCOUNT_ID}/athena-results/
 ATHENA_DATABASE=cur_database              # Your CUR database name
 ATHENA_TABLE=cur_table                    # Your CUR table name
 ATHENA_CATALOG=AwsDataCatalog
 
 # Optional: Database for conversation persistence
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/finops
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/aasmaa
 
 # Optional: Vector store for semantic search
 CHROMA_DB_PATH=./data/chroma
@@ -473,7 +473,7 @@ ENVIRONMENT=development
 
 Your CUR data must be configured in AWS:
 1. Enable Cost and Usage Reports in AWS Billing Console
-2. Configure report to deliver to S3 bucket (must be globally unique, e.g. finops-intelligence-platform-data-${AWS_ACCOUNT_ID})
+2. Configure report to deliver to S3 bucket (must be globally unique, e.g. aasmaa-data-${AWS_ACCOUNT_ID})
 3. Set up Athena database and table (see `scripts/setup/setup-cur.sh`)
 4. Grant appropriate IAM permissions for Athena and S3 access
 
@@ -681,7 +681,7 @@ cd frontend && npm run lint:fix
 
 ## License
 
-This project is proprietary to DAZN Group Limited. All rights reserved.
+This project is proprietary to aasmaa Group Limited. All rights reserved.
 
 ## Documentation
 
@@ -705,7 +705,7 @@ This project is proprietary to DAZN Group Limited. All rights reserved.
 ## Support
 
 For technical support and questions:
-- **Technical Lead**: FinOps Platform Team
+- **Technical Lead**: aasmaa Platform Team
 - **Architecture Questions**: Cloud Architecture Team
 - **Deployment Issues**: Performance Engineering Team
 
@@ -733,7 +733,7 @@ For technical support and questions:
 **Data Layer & Visualization**
 - ✅ 15+ Athena SQL templates with partition optimization
 - ✅ Async query execution with result parsing
-- ✅ Structured FinOps response formatting
+- ✅ Structured aasmaa response formatting
 - ✅ Intent-based chart recommendations
 
 ### Phase 2: Advanced Filter Support ✅ COMPLETED

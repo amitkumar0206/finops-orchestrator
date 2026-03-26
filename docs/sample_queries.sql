@@ -3,7 +3,7 @@
 -- ============================================================================
 -- 
 -- These queries help validate your CUR table setup and demonstrate
--- common cost analysis patterns for the FinOps Intelligence Platform.
+-- common cost analysis patterns for the aasmaa Intelligence Platform.
 --
 -- Replace ${DATABASE} and ${TABLE} with your actual values:
 -- - DATABASE: cost_usage_db (default)

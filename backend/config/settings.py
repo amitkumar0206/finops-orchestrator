@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     """Application settings with environment variable support"""
     
     # Application
-    app_name: str = "FinOps AI Cost Intelligence Platform"
+    app_name: str = "aasmaa AI Cost Intelligence Platform"
     environment: str = Field(default="development", env="ENVIRONMENT")
     debug: bool = Field(default=False, env="DEBUG")
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
@@ -118,7 +118,7 @@ class Settings(BaseSettings):
         description="Refresh token expiration in days"
     )
     jwt_issuer: str = Field(
-        default="finops-platform",
+        default="aasmaa-platform",
         env="JWT_ISSUER",
         description="JWT token issuer identifier"
     )
@@ -135,9 +135,9 @@ class Settings(BaseSettings):
     # Database
     postgres_host: str = Field(default="localhost", env="POSTGRES_HOST")
     postgres_port: int = Field(default=5432, env="POSTGRES_PORT")
-    postgres_db: str = Field(default="finops", env="POSTGRES_DB")
-    postgres_user: str = Field(default="finops", env="POSTGRES_USER")
-    postgres_password: str = Field(default="finops", env="POSTGRES_PASSWORD")
+    postgres_db: str = Field(default="aasmaa", env="POSTGRES_DB")
+    postgres_user: str = Field(default="aasmaa", env="POSTGRES_USER")
+    postgres_password: str = Field(default="aasmaa", env="POSTGRES_PASSWORD")
 
     # Database SSL Configuration
     # SECURITY: SSL is required for production/RDS connections
@@ -183,18 +183,18 @@ class Settings(BaseSettings):
         env="AWS_SECRET_ACCESS_KEY",
         deprecated="Use IAM roles instead. Explicit credentials are ignored for security."
     )
-    aws_s3_bucket: str = Field(default="finops-intelligence-platform-data-${AWS_ACCOUNT_ID}", env="AWS_S3_BUCKET")
+    aws_s3_bucket: str = Field(default="aasmaa-data-${AWS_ACCOUNT_ID}", env="AWS_S3_BUCKET")
     
     # AWS Athena & CUR Configuration
     aws_cur_database: str = Field(default="cost_usage_db", env="AWS_CUR_DATABASE")
     aws_cur_table: str = Field(default="cur_data", env="AWS_CUR_TABLE")
-    cur_s3_bucket: str = Field(default="finops-intelligence-platform-data-${AWS_ACCOUNT_ID}", env="CUR_S3_BUCKET")
-    cur_s3_prefix: str = Field(default="cost-exports/finops-cost-export", env="CUR_S3_PREFIX")
+    cur_s3_bucket: str = Field(default="aasmaa-data-${AWS_ACCOUNT_ID}", env="CUR_S3_BUCKET")
+    cur_s3_prefix: str = Field(default="cost-exports/aasmaa-cost-export", env="CUR_S3_PREFIX")
     athena_output_location: str = Field(
-        default="s3://finops-intelligence-platform-data-${AWS_ACCOUNT_ID}/athena-results/",
+        default="s3://aasmaa-data-${AWS_ACCOUNT_ID}/athena-results/",
         env="ATHENA_OUTPUT_LOCATION"
     )
-    athena_workgroup: str = Field(default="finops-workgroup", env="ATHENA_WORKGROUP")
+    athena_workgroup: str = Field(default="aasmaa-workgroup", env="ATHENA_WORKGROUP")
     
     # AWS Bedrock Configuration
     bedrock_model_id: str = Field(

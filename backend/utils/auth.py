@@ -95,7 +95,7 @@ class JWTAuthenticator:
         secret_key: str,
         access_token_expiry_minutes: int = DEFAULT_ACCESS_TOKEN_EXPIRY_MINUTES,
         refresh_token_expiry_days: int = DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS,
-        issuer: str = "finops-platform",
+        issuer: str = "aasmaa-platform",
     ):
         """
         Initialize the JWT authenticator.

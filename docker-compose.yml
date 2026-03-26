@@ -5,9 +5,9 @@ services:
   postgres:
     image: pgvector/pgvector:pg15
     environment:
-      POSTGRES_DB: finops
-      POSTGRES_USER: finops
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finops_password}
+      POSTGRES_DB: aasmaa
+      POSTGRES_USER: aasmaa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aasmaa_password}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8"
     ports:
       - "5432:5432"
@@ -15,9 +15,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     networks:
-      - finops_network
+      - aasmaa_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U finops -d finops"]
+      test: ["CMD-SHELL", "pg_isready -U aasmaa -d aasmaa"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -31,7 +31,7 @@ services:
     volumes:
       - valkey_data:/data
     networks:
-      - finops_network
+      - aasmaa_network
     healthcheck:
       test: ["CMD", "valkey-cli", "--raw", "incr", "ping"]
       interval: 10s
@@ -50,15 +50,15 @@ services:
       - ENVIRONMENT=development
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
-      - POSTGRES_DB=finops
-      - POSTGRES_USER=finops
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-finops_password}
+      - POSTGRES_DB=aasmaa
+      - POSTGRES_USER=aasmaa
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aasmaa_password}
       - VALKEY_HOST=valkey
       - VALKEY_PORT=6379
       - VALKEY_PASSWORD=${VALKEY_PASSWORD:-valkey_password}
       - SECRET_KEY=${SECRET_KEY:-}
       - AWS_REGION=us-east-1
-      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-finops-intelligence-platform-data-${AWS_ACCOUNT_ID}}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-aasmaa-data-${AWS_ACCOUNT_ID}}
       - AWS_CUR_DATABASE=cost_usage_db
       - AWS_CUR_TABLE=cur_data
       - CHROMA_DB_PATH=/app/data/chroma
@@ -72,7 +72,7 @@ services:
       valkey:
         condition: service_healthy
     networks:
-      - finops_network
+      - aasmaa_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -92,7 +92,7 @@ services:
     depends_on:
       - backend
     networks:
-      - finops_network
+      - aasmaa_network
 
 volumes:
   postgres_data:
@@ -103,5 +103,5 @@ volumes:
     driver: local
 
 networks:
-  finops_network:
+  aasmaa_network:
     driver: bridge

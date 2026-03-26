@@ -162,7 +162,7 @@ class DatabaseService:
 
             # Configure connection arguments
             connect_args = {
-                "server_settings": {"application_name": "finops-intelligence-platform"}
+                "server_settings": {"application_name": "aasmaa"}
             }
 
             # Configure SSL based on settings

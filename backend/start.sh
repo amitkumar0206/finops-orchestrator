@@ -5,7 +5,7 @@
 set -e
 
 echo "=================================================="
-echo "FinOps Backend - Startup"
+echo "aasmaa Backend - Startup"
 echo "=================================================="
 echo ""
 
@@ -26,7 +26,7 @@ fi
 echo "Configuration:"
 echo "  - Postgres Host: ${POSTGRES_HOST:-localhost}"
 echo "  - Postgres Port: ${POSTGRES_PORT:-5432}"
-echo "  - Postgres DB: ${POSTGRES_DB:-finops}"
+echo "  - Postgres DB: ${POSTGRES_DB:-aasmaa}"
 echo "  - AWS Region: ${AWS_REGION:-us-east-1}"
 echo "  - ChromaDB Path: ${CHROMA_DB_PATH:-./data/chroma}"
 echo ""

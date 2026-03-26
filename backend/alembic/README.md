@@ -1,6 +1,6 @@
-# FinOps Conversation Threading Database Migrations
+# aasmaa Conversation Threading Database Migrations
 
-This directory contains Alembic database migrations for the FinOps conversation threading system. These migrations create a comprehensive data model for tracking conversations, messages, intents, agent executions, and optimization recommendations.
+This directory contains Alembic database migrations for the aasmaa conversation threading system. These migrations create a comprehensive data model for tracking conversations, messages, intents, agent executions, and optimization recommendations.
 
 ## 📋 Table of Contents
 
@@ -30,13 +30,13 @@ Before running these migrations, ensure you have:
 Edit `alembic.ini` and update the database URL:
 
 ```ini
-sqlalchemy.url = postgresql://username:password@localhost:5432/finops
+sqlalchemy.url = postgresql://username:password@localhost:5432/aasmaa
 ```
 
 Or use environment variables:
 
 ```bash
-export DATABASE_URL="postgresql://username:password@localhost:5432/finops"
+export DATABASE_URL="postgresql://username:password@localhost:5432/aasmaa"
 ```
 
 ### 2. Run Migrations
@@ -297,7 +297,7 @@ ORDER BY qi.created_at DESC;
 
 2. **Backup database:**
    ```bash
-   pg_dump -U username finops > backup_before_rollback.sql
+   pg_dump -U username aasmaa > backup_before_rollback.sql
    ```
 
 3. **Rollback one migration:**
@@ -308,7 +308,7 @@ ORDER BY qi.created_at DESC;
 4. **Verify rollback:**
    ```bash
    alembic current
-   psql -U username -d finops -c "\dt"
+   psql -U username -d aasmaa -c "\dt"
    ```
 
 ### Rollback Specific Migrations
@@ -380,7 +380,7 @@ ORDER BY mean_exec_time DESC;
 
 1. **Migration fails with "relation already exists"**
    - Check current migration state: `alembic current`
-   - Verify database state: `psql -d finops -c "\dt"`
+   - Verify database state: `psql -d aasmaa -c "\dt"`
    - May need to stamp current revision: `alembic stamp head`
 
 2. **Foreign key constraint violations**
@@ -426,4 +426,4 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 
 ## License
 
-Part of the FinOps Orchestrator project.
+Part of the aasmaa Orchestrator project.

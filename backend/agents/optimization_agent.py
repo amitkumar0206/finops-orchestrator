@@ -35,7 +35,7 @@ settings = get_settings()
 MAX_QUERY_LENGTH_FOR_LLM = 2000  # characters
 
 # LLM prompt for optimization intent classification
-OPTIMIZATION_INTENT_PROMPT = """You are an expert at classifying FinOps (cloud cost management) queries.
+OPTIMIZATION_INTENT_PROMPT = """You are an expert at classifying aasmaa (cloud cost management) queries.
 
 Analyze the user's query and determine:
 1. Is this an optimization-related query? (asking about cost savings, recommendations, rightsizing, idle resources, etc.)

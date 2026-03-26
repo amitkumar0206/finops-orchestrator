@@ -37,7 +37,6 @@ const OpportunitiesPage: React.FC = () => {
   const [selectedOpportunityId, setSelectedOpportunityId] = useState<string | null>(null);
   const [stats, setStats] = useState<OpportunitiesStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
-  const [statsError, setStatsError] = useState<string | null>(null);
   const [ingesting, setIngesting] = useState(false);
   const [ingestResult, setIngestResult] = useState<{
     success: boolean;
@@ -47,7 +46,6 @@ const OpportunitiesPage: React.FC = () => {
 
   const fetchStats = async () => {
     setStatsLoading(true);
-    setStatsError(null);
 
     try {
       const response = await fetch('/api/v1/opportunities/stats');
@@ -56,8 +54,8 @@ const OpportunitiesPage: React.FC = () => {
       }
       const data = await response.json();
       setStats(data);
-    } catch (err) {
-      setStatsError(err instanceof Error ? err.message : 'An error occurred');
+    } catch {
+      setStats(null);
     } finally {
       setStatsLoading(false);
     }
@@ -138,8 +136,8 @@ const OpportunitiesPage: React.FC = () => {
           onClick={handleIngest}
           disabled={ingesting}
           sx={{
-            bgcolor: '#667eea',
-            '&:hover': { bgcolor: '#5a6fd6' },
+            bgcolor: '#1565C0',
+            '&:hover': { bgcolor: '#0D47A1' },
           }}
         >
           {ingesting ? 'Ingesting...' : 'Ingest New Signals'}
@@ -161,7 +159,7 @@ const OpportunitiesPage: React.FC = () => {
       <Grid container spacing={3} sx={{ mb: 3 }}>
         {/* Total Potential Savings */}
         <Grid item xs={12} md={3}>
-          <Card sx={{ height: '100%', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+          <Card sx={{ height: '100%', background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <SavingsIcon sx={{ color: 'rgba(255,255,255,0.9)' }} />
@@ -190,7 +188,7 @@ const OpportunitiesPage: React.FC = () => {
           <Card sx={{ height: '100%' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <OpportunityIcon sx={{ color: '#667eea' }} />
+                <OpportunityIcon sx={{ color: '#1565C0' }} />
                 <Typography variant="body2" color="text.secondary">
                   Open Opportunities
                 </Typography>

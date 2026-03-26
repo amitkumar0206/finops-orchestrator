@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 
 # Sanitize sys.path to avoid importing from a different clone of this repo
-# Some environments may have another finops-orchestrator checkout on sys.path (e.g., ~/Documents/Code/finops-orchestrator)
+# Some environments may have another aasmaa checkout on sys.path (e.g., ~/Documents/Code/aasmaa)
 # which can cause circular imports and stale modules to load. Ensure only this workspace is preferred.
 resolved_root = ROOT.resolve()
 cleaned_sys_path = []
@@ -16,8 +16,8 @@ for p in sys.path:
     except Exception:
         cleaned_sys_path.append(p)
         continue
-    # Drop paths that point to a different finops-orchestrator clone
-    if rp != resolved_root and (rp.name == "finops-orchestrator" or rp.parent.name == "finops-orchestrator"):
+    # Drop paths that point to a different aasmaa clone
+    if rp != resolved_root and (rp.name == "aasmaa" or rp.parent.name == "aasmaa"):
         continue
     cleaned_sys_path.append(p)
 
@@ -38,8 +38,8 @@ for name, mod in list(sys.modules.items()):
         file_path = getattr(mod, "__file__", None)
         if not file_path:
             continue
-        # If module path includes 'finops-orchestrator' but is NOT under our current workspace root, purge it
-        if "finops-orchestrator" in file_path and not file_path.startswith(bad_prefix):
+        # If module path includes 'aasmaa' but is NOT under our current workspace root, purge it
+        if "aasmaa" in file_path and not file_path.startswith(bad_prefix):
             # Only purge our project namespaces to be safe
             if name.split(".")[0] in {"backend", "services", "agents", "state", "config"}:
                 to_purge.append(name)

@@ -249,7 +249,7 @@ class TestAnalyticsExceptionSanitisation:
         from backend.services.request_context import RequestContext
         from uuid import uuid4
 
-        secret = "AccessDeniedException: User arn:aws:iam::111111111111:role/finops not authorized"
+        secret = "AccessDeniedException: User arn:aws:iam::111111111111:role/aasmaa not authorized"
         error = ClientError(
             {"Error": {"Code": "AccessDeniedException", "Message": secret}},
             "GetCostAndUsage",
@@ -402,7 +402,7 @@ class TestAthenaQueriesExceptionSanitisation:
         from backend.services.request_context import RequestContext
         from uuid import uuid4
 
-        secret = "Table finops_cur.aws_cur_table not found in database finops_prod"
+        secret = "Table aasmaa_cur.aws_cur_table not found in database aasmaa_prod"
         mock_service = Mock()
         mock_service.generate_query_for_user_request = AsyncMock(side_effect=Exception(secret))
 
@@ -614,7 +614,7 @@ class TestOrganizationsExceptionSanitisation:
         from uuid import uuid4
         target_org_id = uuid4()
 
-        secret = "User finops@company.com is not a member of org uuid-abc-123 (table: org_memberships)"
+        secret = "User aasmaa@company.com is not a member of org uuid-abc-123 (table: org_memberships)"
         mock_service = Mock()
         # API-layer membership guard: user IS a member → passes through
         mock_service.get_user_organizations = AsyncMock(
@@ -634,7 +634,7 @@ class TestOrganizationsExceptionSanitisation:
         assert exc_info.value.status_code == 400
         assert exc_info.value.detail == "Invalid request. Please check your input."
         assert "org_memberships" not in str(exc_info.value.detail)
-        assert "finops@company.com" not in str(exc_info.value.detail)
+        assert "aasmaa@company.com" not in str(exc_info.value.detail)
         mock_log.error.assert_called_once()
         assert secret in str(mock_log.error.call_args)
 

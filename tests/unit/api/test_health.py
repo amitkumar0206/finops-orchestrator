@@ -100,7 +100,7 @@ class TestDetailedHealthGate:
 class TestDatabaseCheckSanitisation:
     @pytest.mark.asyncio
     async def test_error_response_is_generic(self):
-        secret = "Connection refused to 10.0.0.5:5432 db=finops_prod"
+        secret = "Connection refused to 10.0.0.5:5432 db=aasmaa_prod"
         mock_cm = AsyncMock()
         mock_cm.__aenter__ = AsyncMock(side_effect=Exception(secret))
         mock_cm.__aexit__ = AsyncMock(return_value=False)
@@ -159,7 +159,7 @@ class TestValkeyCheckSanitisation:
 class TestVectorStoreCheckSanitisation:
     @pytest.mark.asyncio
     async def test_error_response_is_generic(self):
-        secret = "ChromaDB collection 'finops_vectors' not found at /data/chroma"
+        secret = "ChromaDB collection 'aasmaa_vectors' not found at /data/chroma"
         vs = Mock()
         vs.collection.count = Mock(side_effect=Exception(secret))
 
@@ -168,7 +168,7 @@ class TestVectorStoreCheckSanitisation:
 
         assert result["status"] == "unhealthy"
         assert result["error"] == "vector store unavailable"
-        assert "finops_vectors" not in json.dumps(result)
+        assert "aasmaa_vectors" not in json.dumps(result)
         assert "/data/chroma" not in json.dumps(result)
         mock_log.error.assert_called_once()
 
@@ -243,9 +243,9 @@ class TestLLMCheckSanitisation:
 
 def _mock_settings():
     return Mock(
-        cur_s3_bucket='s3://secret-finops-bucket/path',
+        cur_s3_bucket='s3://secret-aasmaa-bucket/path',
         cur_s3_prefix='cur/secret-prefix',
-        aws_cur_database='secret_finops_db',
+        aws_cur_database='secret_aasmaa_db',
         aws_cur_table='secret_cur_table',
         athena_output_location='s3://secret-bucket/athena-output/',
         athena_workgroup='secret-workgroup',
@@ -289,7 +289,7 @@ class TestAWSServicesCheckSanitisation:
     async def test_athena_error_sanitised(self):
         from botocore.exceptions import ClientError
 
-        secret = "Access denied on arn:aws:athena:us-east-1:123456789012:workgroup/finops-wg"
+        secret = "Access denied on arn:aws:athena:us-east-1:123456789012:workgroup/aasmaa-wg"
         error = ClientError(
             {"Error": {"Code": "AccessDeniedException", "Message": secret}},
             "ListWorkGroups",
@@ -305,7 +305,7 @@ class TestAWSServicesCheckSanitisation:
 
         resp = json.dumps(result)
         assert "123456789012" not in resp
-        assert "finops-wg" not in resp
+        assert "aasmaa-wg" not in resp
         assert "AccessDeniedException" not in resp
         assert result["details"]["athena"] == "error: service unavailable"
 
@@ -313,7 +313,7 @@ class TestAWSServicesCheckSanitisation:
     async def test_s3_error_sanitised(self):
         from botocore.exceptions import ClientError
 
-        secret = "NoSuchBucket: The specified bucket secret-finops-bucket does not exist"
+        secret = "NoSuchBucket: The specified bucket secret-aasmaa-bucket does not exist"
         error = ClientError(
             {"Error": {"Code": "NoSuchBucket", "Message": secret}},
             "HeadBucket",
@@ -328,7 +328,7 @@ class TestAWSServicesCheckSanitisation:
                     result = await _check_aws_services()
 
         resp = json.dumps(result)
-        assert "secret-finops-bucket" not in resp
+        assert "secret-aasmaa-bucket" not in resp
         assert "NoSuchBucket" not in resp
         assert result["details"]["s3_bucket"] == "error: service unavailable"
 
@@ -356,8 +356,8 @@ class TestAWSServicesCheckSanitisation:
                     result = await _check_aws_services()
 
         resp = json.dumps(result)
-        assert "secret_finops_db" not in resp
-        assert "secret-finops-bucket" not in resp
+        assert "secret_aasmaa_db" not in resp
+        assert "secret-aasmaa-bucket" not in resp
         assert result["details"]["athena_database"] == "error: not found"
 
     @pytest.mark.asyncio
@@ -372,7 +372,7 @@ class TestAWSServicesCheckSanitisation:
                         result = await _check_aws_services()
 
         resp = json.dumps(result)
-        assert "secret_finops_db" not in resp
+        assert "secret_aasmaa_db" not in resp
         assert result["details"]["athena_database"] == "available"
 
     @pytest.mark.asyncio
@@ -393,7 +393,7 @@ class TestAWSServicesCheckSanitisation:
     @pytest.mark.asyncio
     async def test_query_failure_reason_not_leaked(self):
         """Athena query failure reason must not appear in the response."""
-        secret_reason = "Table secret_cur_table not found in database secret_finops_db"
+        secret_reason = "Table secret_cur_table not found in database secret_aasmaa_db"
 
         mock_session, mock_athena, mock_s3, mock_ce = _healthy_aws_mocks()
         mock_athena.get_query_execution = Mock(return_value={
@@ -422,7 +422,7 @@ class TestAWSServicesCheckSanitisation:
     async def test_cost_explorer_error_sanitised(self):
         from botocore.exceptions import ClientError
 
-        secret = "AccessDeniedException: User arn:aws:iam::123456789012:role/finops-role is not authorized"
+        secret = "AccessDeniedException: User arn:aws:iam::123456789012:role/aasmaa-role is not authorized"
         error = ClientError(
             {"Error": {"Code": "AccessDeniedException", "Message": secret}},
             "GetCostAndUsage",
@@ -439,7 +439,7 @@ class TestAWSServicesCheckSanitisation:
 
         resp = json.dumps(result)
         assert "123456789012" not in resp
-        assert "finops-role" not in resp
+        assert "aasmaa-role" not in resp
         assert result["details"]["cost_explorer"] == "error: service unavailable"
 
     @pytest.mark.asyncio
@@ -469,7 +469,7 @@ class TestDetailedHealthGatherSanitisation:
 
     @pytest.mark.asyncio
     async def test_task_exception_not_leaked(self):
-        secret = "psycopg2.OperationalError: FATAL password failed for user 'finops_svc'"
+        secret = "psycopg2.OperationalError: FATAL password failed for user 'aasmaa_svc'"
 
         request = Mock()
         request.app.state = Mock(spec=[])  # no db, no vector_store
@@ -490,7 +490,7 @@ class TestDetailedHealthGatherSanitisation:
 
         services_str = json.dumps(result.services)
         assert secret not in services_str
-        assert "finops_svc" not in services_str
+        assert "aasmaa_svc" not in services_str
         assert result.services["valkey"]["error"] == "service unavailable"
         mock_log.error.assert_called()
 

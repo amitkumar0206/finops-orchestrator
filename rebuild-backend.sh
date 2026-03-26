@@ -14,38 +14,38 @@ echo "=== Logging in to ECR ==="
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
 echo "=== Building backend image (with fixed code) ==="
-DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f backend/Dockerfile -t finops-backend .
+DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f backend/Dockerfile -t aasmaa-backend .
 
 echo "=== Tagging image with unique tag: ${IMAGE_TAG} ==="
-docker tag finops-backend:latest "${ECR_REGISTRY}/finops-backend:${IMAGE_TAG}"
-docker tag finops-backend:latest "${ECR_REGISTRY}/finops-backend:latest"
+docker tag aasmaa-backend:latest "${ECR_REGISTRY}/aasmaa-backend:${IMAGE_TAG}"
+docker tag aasmaa-backend:latest "${ECR_REGISTRY}/aasmaa-backend:latest"
 
 echo "=== Pushing to ECR ==="
-docker push "${ECR_REGISTRY}/finops-backend:${IMAGE_TAG}"
-docker push "${ECR_REGISTRY}/finops-backend:latest"
+docker push "${ECR_REGISTRY}/aasmaa-backend:${IMAGE_TAG}"
+docker push "${ECR_REGISTRY}/aasmaa-backend:latest"
 
 echo "=== Forcing ECS to redeploy with new image ==="
 # Stop existing tasks to force new image pull
-TASK_ARNS=$(aws ecs list-tasks --cluster finops-intelligence-platform-cluster --service-name finops-intelligence-platform-backend --region "$AWS_REGION" --query 'taskArns' --output text)
+TASK_ARNS=$(aws ecs list-tasks --cluster aasmaa-cluster --service-name aasmaa-backend --region "$AWS_REGION" --query 'taskArns' --output text)
 if [ -n "$TASK_ARNS" ]; then
   echo "Stopping existing tasks to force image pull..."
   for TASK_ARN in $TASK_ARNS; do
-    aws ecs stop-task --cluster finops-intelligence-platform-cluster --task "$TASK_ARN" --region "$AWS_REGION" --query 'task.taskArn' --output text
+    aws ecs stop-task --cluster aasmaa-cluster --task "$TASK_ARN" --region "$AWS_REGION" --query 'task.taskArn' --output text
   done
 fi
 
 aws ecs update-service \
-  --cluster finops-intelligence-platform-cluster \
-  --service finops-intelligence-platform-backend \
+  --cluster aasmaa-cluster \
+  --service aasmaa-backend \
   --force-new-deployment \
   --region "$AWS_REGION"
 
 echo "=== Waiting for deployment to complete ==="
 aws ecs wait services-stable \
-  --cluster finops-intelligence-platform-cluster \
-  --services finops-intelligence-platform-backend \
+  --cluster aasmaa-cluster \
+  --services aasmaa-backend \
   --region "$AWS_REGION"
 
 echo "✅ SUCCESS: Backend rebuilt and deployed!"
-echo "Image: ${ECR_REGISTRY}/finops-backend:${IMAGE_TAG} (also tagged as :latest)"
+echo "Image: ${ECR_REGISTRY}/aasmaa-backend:${IMAGE_TAG} (also tagged as :latest)"
 echo "New code is now running in ECS"

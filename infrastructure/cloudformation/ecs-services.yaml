@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'FinOps AI Cost Intelligence Platform - ECS Services and Task Definitions'
+Description: 'aasmaa AI Cost Intelligence Platform - ECS Services and Task Definitions'
 
 Parameters:
   ParentStackName:
@@ -84,7 +84,7 @@ Parameters:
   
   CurS3Prefix:
     Type: String
-    Default: cost-exports/finops-cost-export
+    Default: cost-exports/aasmaa-cost-export
     Description: S3 prefix for CUR data exports
 
   CertificateArn:
@@ -136,9 +136,9 @@ Resources:
             - Name: POSTGRES_PORT
               Value: '5432'
             - Name: POSTGRES_DB
-              Value: 'finops'
+              Value: 'aasmaa'
             - Name: POSTGRES_USER
-              Value: 'finops'
+              Value: 'aasmaa'
             - Name: VALKEY_HOST
               Value: !Ref ValkeyEndpoint
             - Name: VALKEY_PORT
@@ -178,16 +178,16 @@ Resources:
                     Fn::ImportValue: !Sub '${ParentStackName}-app-url'
           Secrets:
             - Name: SECRET_KEY
-              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:finops/secret-key'
+              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:aasmaa/secret-key'
             - Name: POSTGRES_PASSWORD
-              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:finops/database-password'
+              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:aasmaa/database-password'
             # SECURITY (HIGH-33): encryption.py:97 raises ValueError on boot when
             # ENVIRONMENT=production (line 151 above) and FIELD_ENCRYPTION_KEY is
             # unset or <32 chars. Without this entry the backend container crash-loops
             # on the first call to get_field_encryptor(). Secret resource + IAM grant
             # are in main-stack.yaml (FieldEncryptionKeySecret).
             - Name: FIELD_ENCRYPTION_KEY
-              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:finops/field-encryption-key'
+              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:aasmaa/field-encryption-key'
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -249,7 +249,7 @@ Resources:
   BackendTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: finops-backend-tg
+      Name: aasmaa-backend-tg
       Port: 8000
       Protocol: HTTP
       TargetType: ip
@@ -268,7 +268,7 @@ Resources:
   FrontendTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: finops-frontend-tg
+      Name: aasmaa-frontend-tg
       Port: 80
       Protocol: HTTP
       TargetType: ip

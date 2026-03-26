@@ -9,7 +9,7 @@ This file is kept only for backward compatibility during migration.
 
 """Universal Parameter Schema (UPS) extractor (shadow mode).
 
-Generates a normalized JSON structure for any FinOps cost query using the LLM.
+Generates a normalized JSON structure for any aasmaa cost query using the LLM.
 Shadow mode: does NOT alter existing behavior yet; used for evaluation + diff logging.
 
 If LLM unavailable or invalid JSON output, falls back to heuristic extraction.
@@ -602,7 +602,7 @@ class UPSOutput(BaseModel):
         return max(0.0, min(1.0, v))
 
 
-PROMPT_TEMPLATE_WITH_CONTEXT = """You are a FinOps and cloud intelligence interpreter with conversation awareness.
+PROMPT_TEMPLATE_WITH_CONTEXT = """You are a aasmaa and cloud intelligence interpreter with conversation awareness.
 You are analyzing AWS data including cost reports, logs, metrics, and usage data.
 
 AWS CONTEXT:
@@ -839,7 +839,7 @@ CLARIFICATION REQUIREMENTS:
 
 Return ONLY JSON. No markdown fences, no commentary."""  # noqa: E501
 
-PROMPT_TEMPLATE_NO_CONTEXT = """You are a FinOps and cloud intelligence interpreter.
+PROMPT_TEMPLATE_NO_CONTEXT = """You are a aasmaa and cloud intelligence interpreter.
 You are analyzing AWS data including cost reports, logs, metrics, and usage data.
 
 AWS CONTEXT:

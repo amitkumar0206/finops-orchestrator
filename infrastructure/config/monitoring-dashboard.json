@@ -8,9 +8,9 @@
       "height": 6,
       "properties": {
         "metrics": [
-          ["AWS/ECS", "CPUUtilization", "ServiceName", "finops-backend"],
+          ["AWS/ECS", "CPUUtilization", "ServiceName", "aasmaa-backend"],
           [".", "MemoryUtilization", ".", "."],
-          ["AWS/ECS", "CPUUtilization", "ServiceName", "finops-frontend"],
+          ["AWS/ECS", "CPUUtilization", "ServiceName", "aasmaa-frontend"],
           [".", "MemoryUtilization", ".", "."]
         ],
         "view": "timeSeries",
@@ -29,7 +29,7 @@
       "height": 6,
       "properties": {
         "metrics": [
-          ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "finops-alb"],
+          ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "aasmaa-alb"],
           [".", "TargetResponseTime", ".", "."],
           [".", "HTTPCode_Target_2XX_Count", ".", "."],
           [".", "HTTPCode_Target_4XX_Count", ".", "."],
@@ -51,7 +51,7 @@
       "height": 6,
       "properties": {
         "metrics": [
-          ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "finops-db"],
+          ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "aasmaa-db"],
           [".", "DatabaseConnections", ".", "."],
           [".", "ReadLatency", ".", "."],
           [".", "WriteLatency", ".", "."]
@@ -71,7 +71,7 @@
       "width": 12,
       "height": 6,
       "properties": {
-        "query": "SOURCE '/ecs/finops-backend' | fields @timestamp, @message\n| filter @message like /ERROR/\n| sort @timestamp desc\n| limit 20",
+        "query": "SOURCE '/ecs/aasmaa-backend' | fields @timestamp, @message\n| filter @message like /ERROR/\n| sort @timestamp desc\n| limit 20",
         "region": "us-east-1",
         "title": "Recent Backend Errors",
         "view": "table"

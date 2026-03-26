@@ -1,5 +1,5 @@
 """
-SQLAlchemy database models for the FinOps platform
+SQLAlchemy database models for the aasmaa platform
 """
 
 import uuid

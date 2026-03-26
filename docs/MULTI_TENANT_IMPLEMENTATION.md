@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document summarizes the implementation of multi-tenant support for the FinOps AI Cost Intelligence Platform. The implementation enables organizations to manage users, accounts, and saved views while ensuring data isolation through account-level scoping.
+This document summarizes the implementation of multi-tenant support for the aasmaa AI Cost Intelligence Platform. The implementation enables organizations to manage users, accounts, and saved views while ensuring data isolation through account-level scoping.
 
 ## Implementation Date
 January 21, 2026
@@ -479,14 +479,14 @@ sql, metadata = await text_to_sql_service.generate_sql_with_scoping(
 The Cost and Usage Report (CUR) data from multiple AWS accounts is stored in S3 with the following structure:
 
 ```
-s3://finops-intelligence-platform-data-{management-account-id}/
+s3://aasmaa-data-{management-account-id}/
 ├── cur/
-│   └── finops-cost-report/
-│       └── finops-cost-report/
+│   └── aasmaa-cost-report/
+│       └── aasmaa-cost-report/
 │           ├── year=2024/
 │           │   ├── month=1/
-│           │   │   ├── finops-cost-report-00001.snappy.parquet
-│           │   │   ├── finops-cost-report-00002.snappy.parquet
+│           │   │   ├── aasmaa-cost-report-00001.snappy.parquet
+│           │   │   ├── aasmaa-cost-report-00002.snappy.parquet
 │           │   │   └── ...
 │           │   ├── month=2/
 │           │   └── ...
@@ -536,7 +536,7 @@ Each CUR parquet file contains data from ALL linked accounts in the AWS Organiza
                                     ▼
 ┌───────────────────────────────────────────────────────────────────────────┐
 │                              S3 Bucket                                     │
-│  s3://finops-intelligence-platform-data-999888777666/cur/                 │
+│  s3://aasmaa-data-999888777666/cur/                 │
 │                                                                            │
 │  Each Parquet file contains rows for ALL accounts:                        │
 │  ┌────────────────────────────┬──────────────┬─────────┬────────────┐    │
@@ -559,9 +559,9 @@ Each CUR parquet file contains data from ALL linked accounts in the AWS Organiza
 The Glue Crawler automatically discovers CUR data schema and creates/updates the table:
 
 ```yaml
-Crawler Name: finops-cur-crawler
+Crawler Name: aasmaa-cur-crawler
 Database: cost_usage_db
-S3 Target: s3://finops-intelligence-platform-data-{account}/cur/finops-cost-report/finops-cost-report/
+S3 Target: s3://aasmaa-data-{account}/cur/aasmaa-cost-report/aasmaa-cost-report/
 Schedule: Daily at 6:00 AM UTC
 Table Prefix: cur_
 Partition Keys:
@@ -641,7 +641,7 @@ CREATE EXTERNAL TABLE cost_usage_db.cur_data (
 PARTITIONED BY (year STRING, month STRING)
 ROW FORMAT SERDE 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
 STORED AS PARQUET
-LOCATION 's3://finops-intelligence-platform-data-{account}/cur/finops-cost-report/finops-cost-report/'
+LOCATION 's3://aasmaa-data-{account}/cur/aasmaa-cost-report/aasmaa-cost-report/'
 TBLPROPERTIES ('parquet.compression'='SNAPPY');
 ```
 
@@ -656,7 +656,7 @@ Or add partitions manually:
 ```sql
 ALTER TABLE cost_usage_db.cur_data ADD
   PARTITION (year='2024', month='1')
-  LOCATION 's3://finops-intelligence-platform-data-{account}/cur/.../year=2024/month=1/';
+  LOCATION 's3://aasmaa-data-{account}/cur/.../year=2024/month=1/';
 ```
 
 ---
@@ -745,9 +745,9 @@ ORDER BY cost DESC;
 #### Athena Workgroup Configuration
 
 ```yaml
-Workgroup: finops-workgroup
+Workgroup: aasmaa-workgroup
 Settings:
-  Output Location: s3://finops-intelligence-platform-data-{account}/athena-results/
+  Output Location: s3://aasmaa-data-{account}/athena-results/
   Enforce Workgroup Configuration: true
   Data Scanned Limit: 10 GB per query
   Query Timeout: 30 minutes
@@ -804,7 +804,7 @@ for acc in self.allowed_account_ids:
         "athena:GetQueryResults",
         "athena:StopQueryExecution"
       ],
-      "Resource": "arn:aws:athena:*:*:workgroup/finops-workgroup"
+      "Resource": "arn:aws:athena:*:*:workgroup/aasmaa-workgroup"
     },
     {
       "Effect": "Allow",
@@ -813,8 +813,8 @@ for acc in self.allowed_account_ids:
         "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::finops-intelligence-platform-data-*",
-        "arn:aws:s3:::finops-intelligence-platform-data-*/*"
+        "arn:aws:s3:::aasmaa-data-*",
+        "arn:aws:s3:::aasmaa-data-*/*"
       ]
     },
     {

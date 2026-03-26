@@ -1,5 +1,5 @@
 """
-Response Formatter - Structured response generation following FinOps presentation template
+Response Formatter - Structured response generation following aasmaa presentation template
 Implements: Summary, Scope, Results, Insights, Recommended Charts, Next steps
 """
 
@@ -14,9 +14,9 @@ from backend.services.column_constants import SERVICE, RESOURCE_TYPE
 logger = structlog.get_logger(__name__)
 
 
-class FinOpsResponseFormatter:
+class aasmaaResponseFormatter:
     """
-    Formats analysis results into beautiful, structured FinOps responses.
+    Formats analysis results into beautiful, structured aasmaa responses.
     Follows the standard template: Summary → Scope → Results → Insights → Charts → Next steps
     """
     
@@ -36,7 +36,7 @@ class FinOpsResponseFormatter:
         spec: Optional["QuerySpec"] = None  # Unified spec if available
     ) -> str:
         """
-        Format complete FinOps response following the template.
+        Format complete aasmaa response following the template.
         
         Args:
             intent: Query intent type
@@ -1528,4 +1528,4 @@ class FinOpsResponseFormatter:
 
 
 # Global formatter instance
-response_formatter = FinOpsResponseFormatter()
+response_formatter = aasmaaResponseFormatter()

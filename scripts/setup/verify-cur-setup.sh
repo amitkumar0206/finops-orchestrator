@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FinOps Platform - CUR Setup Verification Script
+# aasmaa Platform - CUR Setup Verification Script
 # This script checks what CUR-related resources have been created
 
 set -e
@@ -30,7 +30,7 @@ log_warning() {
 
 echo ""
 echo "======================================================================"
-echo "     FinOps Platform - CUR Setup Verification"
+echo "     aasmaa Platform - CUR Setup Verification"
 echo "======================================================================"
 echo ""
 
@@ -42,8 +42,8 @@ if [ -f "cur-config.env" ]; then
 else
     log_warning "cur-config.env not found - CUR may not have been configured"
     CUR_BUCKET_NAME=""
-    EXPORT_NAME="finops-cost-export"
-    GLUE_CRAWLER="finops-cost-export-crawler"
+    EXPORT_NAME="aasmaa-cost-export"
+    GLUE_CRAWLER="aasmaa-cost-export-crawler"
 fi
 
 echo "📊 Checking CUR Resources..."
@@ -130,10 +130,10 @@ echo ""
 
 # 5. Check Athena Workgroup
 log_info "Checking Athena Workgroup..."
-if aws athena get-work-group --work-group finops-workgroup --region us-east-1 &>/dev/null; then
-    log_success "Athena workgroup exists: finops-workgroup"
+if aws athena get-work-group --work-group aasmaa-workgroup --region us-east-1 &>/dev/null; then
+    log_success "Athena workgroup exists: aasmaa-workgroup"
 else
-    log_error "Athena workgroup NOT found: finops-workgroup"
+    log_error "Athena workgroup NOT found: aasmaa-workgroup"
 fi
 echo ""
 
@@ -166,7 +166,7 @@ else
     ALL_GOOD=false
 fi
 
-if aws athena get-work-group --work-group finops-workgroup --region us-east-1 &>/dev/null; then
+if aws athena get-work-group --work-group aasmaa-workgroup --region us-east-1 &>/dev/null; then
     log_success "Athena Workgroup: EXISTS"
 else
     log_error "Athena Workgroup: NOT FOUND"

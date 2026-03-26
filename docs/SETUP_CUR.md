@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide provides step-by-step instructions for manually configuring AWS Legacy Cost and Usage Report (CUR) to enable historical cost analysis beyond the 13-month limit of AWS Cost Explorer API. The FinOps Intelligence Platform automatically uses Cost Explorer API but can leverage CUR data for extended historical analysis (up to 36 months).
+This guide provides step-by-step instructions for manually configuring AWS Legacy Cost and Usage Report (CUR) to enable historical cost analysis beyond the 13-month limit of AWS Cost Explorer API. The aasmaa Intelligence Platform automatically uses Cost Explorer API but can leverage CUR data for extended historical analysis (up to 36 months).
 
 > **⚠️ Important:** The platform **works immediately** with Cost Explorer API (no CUR required). CUR setup is **optional** and only needed for historical data beyond 13 months.
 
@@ -60,7 +60,7 @@ Configure your CUR with the following **exact** settings:
 
 | Setting | Value | Notes |
 |---------|-------|-------|
-| **Report name** | `finops-cost-report` | Must match platform configuration |
+| **Report name** | `aasmaa-cost-report` | Must match platform configuration |
 | **Report type** | **Legacy CUR** | ⚠️ DO NOT select "CUR 2.0" |
 | **Time granularity** | **Hourly** | Required for detailed analysis |
 | **Report versioning** | **Overwrite existing report** | Prevents duplicate data |
@@ -73,17 +73,17 @@ Configure your CUR with the following **exact** settings:
 
 | Setting | Value | Example |
 |---------|-------|---------|
-| **S3 bucket** | Your CUR bucket | `finops-intelligence-platform-data-123456789012` |
-| **S3 path prefix** | `cur/finops-cost-report` | Standard prefix structure |
-| **Report path prefix** | `finops-cost-report` | Matches report name |
+| **S3 bucket** | Your CUR bucket | `aasmaa-data-123456789012` |
+| **S3 path prefix** | `cur/aasmaa-cost-report` | Standard prefix structure |
+| **Report path prefix** | `aasmaa-cost-report` | Matches report name |
 
 **Expected S3 Path Structure:**
 ```
-s3://your-bucket/cur/finops-cost-report/finops-cost-report/
+s3://your-bucket/cur/aasmaa-cost-report/aasmaa-cost-report/
   └── year=2024/
       ├── month=11/
-      │   ├── finops-cost-report-*.parquet
-      │   └── finops-cost-report-Manifest.json
+      │   ├── aasmaa-cost-report-*.parquet
+      │   └── aasmaa-cost-report-Manifest.json
       └── month=12/
           └── ...
 ```
@@ -135,15 +135,15 @@ I am requesting a historical backfill of Cost and Usage Report (CUR) data for my
 
 **Request Details:**
 - AWS Account ID: `[YOUR_ACCOUNT_ID]`
-- CUR Report Name: `finops-cost-report`
+- CUR Report Name: `aasmaa-cost-report`
 - CUR Report Type: **Legacy CUR** (Parquet format)
-- S3 Bucket: `s3://[YOUR_BUCKET_NAME]/cur/finops-cost-report/`
+- S3 Bucket: `s3://[YOUR_BUCKET_NAME]/cur/aasmaa-cost-report/`
 - Requested Backfill Period: **36 months** from current date
   - Start Date: `[CURRENT_DATE - 36 months]` (e.g., November 2021)
   - End Date: `[CURRENT_DATE]` (e.g., November 2024)
 
 **Business Justification:**
-We are implementing a FinOps intelligence platform that requires comprehensive historical cost data for trend analysis, budget forecasting, and cost optimization initiatives. Having 36 months of historical data will enable:
+We are implementing a aasmaa intelligence platform that requires comprehensive historical cost data for trend analysis, budget forecasting, and cost optimization initiatives. Having 36 months of historical data will enable:
 - Year-over-year cost comparisons
 - Long-term trend analysis
 - Accurate forecasting models
@@ -176,7 +176,7 @@ Check your S3 bucket for historical data:
 
 ```bash
 # List all year/month partitions
-aws s3 ls s3://your-bucket/cur/finops-cost-report/finops-cost-report/ --recursive | grep "year="
+aws s3 ls s3://your-bucket/cur/aasmaa-cost-report/aasmaa-cost-report/ --recursive | grep "year="
 
 # Expected output (if backfill to 2021):
 # year=2021/month=11/
@@ -200,11 +200,11 @@ Verify data is being delivered:
 
 ```bash
 # Check for current month data
-aws s3 ls s3://your-bucket/cur/finops-cost-report/finops-cost-report/year=$(date +%Y)/month=$(date +%m)/
+aws s3 ls s3://your-bucket/cur/aasmaa-cost-report/aasmaa-cost-report/year=$(date +%Y)/month=$(date +%m)/
 
 # Should show:
-# finops-cost-report-00001.snappy.parquet
-# finops-cost-report-Manifest.json
+# aasmaa-cost-report-00001.snappy.parquet
+# aasmaa-cost-report-Manifest.json
 ```
 
 ### 3.3 Verify Partition Structure
@@ -212,7 +212,7 @@ aws s3 ls s3://your-bucket/cur/finops-cost-report/finops-cost-report/year=$(date
 Ensure the directory structure follows the expected pattern:
 
 ```
-s3://bucket/cur/finops-cost-report/finops-cost-report/
+s3://bucket/cur/aasmaa-cost-report/aasmaa-cost-report/
   └── year=YYYY/
       └── month=MM/
           ├── *.parquet (data files)
@@ -228,7 +228,7 @@ Once CUR is configured and data is available in S3, run the deployment:
 ```bash
 # Set environment variables
 export CUR_S3_BUCKET="your-bucket-name"
-export CUR_S3_PREFIX="cur/finops-cost-report/finops-cost-report"
+export CUR_S3_PREFIX="cur/aasmaa-cost-report/aasmaa-cost-report"
 export AWS_REGION="us-east-1"
 
 # Run deployment (will create Athena table with partition projection)
@@ -349,5 +349,5 @@ After CUR setup completes:
 
 **Questions or Issues?**
 - Check [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)
-- Review platform logs: `docker logs finops-backend`
+- Review platform logs: `docker logs aasmaa-backend`
 - Contact your AWS Solutions Architect for account-specific guidance

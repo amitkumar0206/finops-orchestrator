@@ -1,8 +1,8 @@
-# AWS Deployment Guide - FinOps AI Cost Intelligence Platform
+# AWS Deployment Guide - aasmaa AI Cost Intelligence Platform
 
 ## 🎯 Overview
 
-This guide provides comprehensive instructions for deploying the FinOps AI Cost Intelligence Platform on AWS, supporting both **fresh infrastructure setup** and **updates to existing deployments**.
+This guide provides comprehensive instructions for deploying the aasmaa AI Cost Intelligence Platform on AWS, supporting both **fresh infrastructure setup** and **updates to existing deployments**.
 
 ### Deployment Modes
 
@@ -154,7 +154,7 @@ The deployment script includes comprehensive pre-flight validation to catch issu
 ```bash
 # Clone repository
 git clone <repository-url>
-cd finops-orchestrator
+cd aasmaa
 
 # Make deploy script executable
 chmod +x deploy.sh
@@ -366,7 +366,7 @@ The deployment script now provides **three options** for data export setup:
 
 ### 2.3 Custom Domain Configuration (Optional)
 
-**Purpose:** Use a persistent custom domain (e.g., `finops.yourdomain.com`) instead of ALB DNS name that changes with each rebuild.
+**Purpose:** Use a persistent custom domain (e.g., `aasmaa.yourdomain.com`) instead of ALB DNS name that changes with each rebuild.
 
 **When to Configure:**
 
@@ -384,8 +384,8 @@ aws route53 list-hosted-zones --query "HostedZones[].{Name:Name,Id:Id}" --output
 # 2. Note your Hosted Zone ID (e.g., Z1234567890ABC)
 HOSTED_ZONE_ID="Z1234567890ABC"
 
-# 3. Choose your subdomain (e.g., finops.yourdomain.com)
-DOMAIN_NAME="finops.yourdomain.com"
+# 3. Choose your subdomain (e.g., aasmaa.yourdomain.com)
+DOMAIN_NAME="aasmaa.yourdomain.com"
 ```
 
 **Automated Setup:**
@@ -394,7 +394,7 @@ During `./deploy.sh deploy`, you'll be prompted:
 
 ```bash
 Configure custom domain with Route 53? (y/n, default: n): y
-Enter custom domain name (e.g., finops.yourdomain.com): finops.yourdomain.com
+Enter custom domain name (e.g., aasmaa.yourdomain.com): aasmaa.yourdomain.com
 Enter Route 53 Hosted Zone ID: Z1234567890ABC
 Create ACM certificate for HTTPS? (y/n, default: y): y
 ```
@@ -421,17 +421,17 @@ Create ACM certificate for HTTPS? (y/n, default: y): y
 
 ```bash
 # Wait for DNS propagation
-dig finops.yourdomain.com +short
+dig aasmaa.yourdomain.com +short
 
 # Test HTTP access
-curl -I http://finops.yourdomain.com
+curl -I http://aasmaa.yourdomain.com
 
 # Test HTTPS (if certificate enabled)
-curl -I https://finops.yourdomain.com
+curl -I https://aasmaa.yourdomain.com
 
 # Check certificate status
 aws acm list-certificates --region us-east-1 \
-    --query "CertificateSummaryList[?DomainName=='finops.yourdomain.com']"
+    --query "CertificateSummaryList[?DomainName=='aasmaa.yourdomain.com']"
 ```
 
 **Manual Route 53 Setup (if script fails):**
@@ -439,7 +439,7 @@ aws acm list-certificates --region us-east-1 \
 ```bash
 # Get ALB DNS name
 ALB_DNS=$(aws cloudformation describe-stacks \
-    --stack-name finops-intelligence-platform \
+    --stack-name aasmaa \
     --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDNSName`].OutputValue' \
     --output text)
 
@@ -449,7 +449,7 @@ cat > change-batch.json <<EOF
   "Changes": [{
     "Action": "UPSERT",
     "ResourceRecordSet": {
-      "Name": "finops.yourdomain.com",
+      "Name": "aasmaa.yourdomain.com",
       "Type": "A",
       "AliasTarget": {
         "HostedZoneId": "Z35SXDOTRQ7X7K",
@@ -479,7 +479,7 @@ These components are created once and persist across deployments. **Only require
 
 You can operate the platform in one of two modes:
 
-1. Legacy CUR (traditional Cost & Usage Reports) – simplest if you already have a CUR bucket managed by your FinOps / Billing team.
+1. Legacy CUR (traditional Cost & Usage Reports) – simplest if you already have a CUR bucket managed by your aasmaa / Billing team.
 2. Standard Data Export (recommended for new green‑field setups) – modern replacement with richer schema and improved partitioning.
 
 We now default to **Legacy CUR only mode** (`USE_LEGACY_CUR_ONLY=true`). This is the simplest approach for teams with existing CUR buckets. To enable Standard Data Export mode instead, set `USE_LEGACY_CUR_ONLY=false` before deployment.
@@ -491,7 +491,7 @@ Key differences:
 | Creation mechanism | Billing Console (Cost & Usage Reports) | Billing Console (Data Exports) or API (`bcm-data-exports`) |
 | API Namespace | `cur` | `bcm-data-exports` |
 | Recommended by AWS going forward | Deprecated (will persist for some time) | Yes |
-| Glue crawler name in this project | `<stack>-cur-crawler` (CloudFormation) | `finops-cost-export-crawler` (script) |
+| Glue crawler name in this project | `<stack>-cur-crawler` (CloudFormation) | `aasmaa-cost-export-crawler` (script) |
 | Setup location in repo | CloudFormation parameters (`CurReportBucketName`, etc.) | `scripts/setup/setup-cur.sh` |
 | Schedule default | 2 AM UTC | 3 AM UTC |
 
@@ -565,14 +565,14 @@ Verification after deploy (Legacy CUR only):
 
 ```bash
 aws glue get-crawler --name <your-stack-name>-cur-crawler --region us-east-1 --query 'Crawler.State'
-aws glue get-crawlers --region us-east-1 --query 'Crawlers[?Name==`finops-cost-export-crawler`]' # should return []
+aws glue get-crawlers --region us-east-1 --query 'Crawlers[?Name==`aasmaa-cost-export-crawler`]' # should return []
 ```
 
 **Manual Setup (if needed):**
 
 ```bash
 # Variables (reuse bucket from deploy.sh state)
-STACK_NAME="finops-intelligence-platform"
+STACK_NAME="aasmaa"
 AWS_REGION="us-east-1"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
@@ -581,7 +581,7 @@ if [ -f "deployment.env" ]; then
     CUR_BUCKET=$(awk -F'=' '$1=="S3_BUCKET"{print $2}' "deployment.env")
 else
     # Ensure globally unique bucket name by appending AWS account ID
-    CUR_BUCKET="finops-intelligence-platform-data-${AWS_ACCOUNT_ID}"
+    CUR_BUCKET="aasmaa-data-${AWS_ACCOUNT_ID}"
 fi
 
 # 1. Create S3 bucket (if needed)
@@ -627,7 +627,7 @@ aws s3api put-bucket-policy --bucket $CUR_BUCKET --policy file:///tmp/cur-policy
 cat > /tmp/data-export.json << EOF
 {
   "Export": {
-    "Name": "finops-cost-export",
+    "Name": "aasmaa-cost-export",
     "DataQuery": {
       "QueryStatement": "SELECT * FROM COST_AND_USAGE_REPORT",
       "TableConfigurations": {
@@ -685,14 +685,14 @@ echo "✅ CUR setup complete. First report available in 24 hours."
 ```bash
 # Check data export status
 aws bcm-data-exports list-exports --region us-east-1 \
-    --query 'Exports[?Export.Name==`finops-cost-export`]'
+    --query 'Exports[?Export.Name==`aasmaa-cost-export`]'
 
 # List S3 bucket contents (after 24 hours)
 aws s3 ls s3://$CUR_BUCKET/cost-exports/ --recursive
 
 # Expected structure (CREATE_NEW_REPORT mode):
-# cost-exports/finops-cost-export/20241101-20241201/  (date range folders)
-# cost-exports/finops-cost-export/20241201-20250101/
+# cost-exports/aasmaa-cost-export/20241101-20241201/  (date range folders)
+# cost-exports/aasmaa-cost-export/20241201-20250101/
 # Each folder contains: data files partitioned by year/month/day
 ```
 
@@ -716,22 +716,22 @@ aws glue create-database \
     --region $AWS_REGION
 
 # Get IAM role ARN for Glue (or create one)
-GLUE_ROLE_ARN="arn:aws:iam::$AWS_ACCOUNT_ID:role/AWSGlueServiceRole-FinOps"
+GLUE_ROLE_ARN="arn:aws:iam::$AWS_ACCOUNT_ID:role/AWSGlueServiceRole-aasmaa"
 
 # Create Glue crawler
 aws glue create-crawler \
-    --name finops-cur-crawler \
+    --name aasmaa-cur-crawler \
     --role $GLUE_ROLE_ARN \
     --database-name cost_usage_db \
-    --targets "{\"S3Targets\":[{\"Path\":\"s3://$CUR_BUCKET/cost-reports/finops-cost-report/finops-cost-report/\"}]}" \
+    --targets "{\"S3Targets\":[{\"Path\":\"s3://$CUR_BUCKET/cost-reports/aasmaa-cost-report/aasmaa-cost-report/\"}]}" \
     --schedule "cron(0 2 * * ? *)" \
     --region $AWS_REGION
 
 # Run crawler manually (first time)
-aws glue start-crawler --name finops-cur-crawler --region $AWS_REGION
+aws glue start-crawler --name aasmaa-cur-crawler --region $AWS_REGION
 
 # Check crawler status
-aws glue get-crawler --name finops-cur-crawler --region $AWS_REGION \
+aws glue get-crawler --name aasmaa-cur-crawler --region $AWS_REGION \
     --query 'Crawler.{State:State,LastCrawl:LastCrawl.Status}'
 ```
 
@@ -742,10 +742,10 @@ aws glue get-crawler --name finops-cur-crawler --region $AWS_REGION \
 aws glue get-tables --database-name cost_usage_db --region $AWS_REGION \
     --query 'TableList[].Name'
 
-# Expected output: finops_cost_report (or similar based on CUR path)
+# Expected output: aasmaa_cost_report (or similar based on CUR path)
 
 # View table schema
-aws glue get-table --database-name cost_usage_db --name finops_cost_report \
+aws glue get-table --database-name cost_usage_db --name aasmaa_cost_report \
     --region $AWS_REGION --query 'Table.StorageDescriptor.Columns[].Name'
 ```
 
@@ -765,12 +765,12 @@ aws glue get-table --database-name cost_usage_db --name finops_cost_report \
 ```bash
 # Create Athena workgroup
 aws athena create-work-group \
-    --name finops-workgroup \
+    --name aasmaa-workgroup \
     --configuration "ResultConfiguration={OutputLocation=s3://$CUR_BUCKET/athena-results/}" \
     --region $AWS_REGION
 
 # Verify workgroup
-aws athena get-work-group --work-group finops-workgroup \
+aws athena get-work-group --work-group aasmaa-workgroup \
     --region $AWS_REGION --query 'WorkGroup.Name'
 ```
 
@@ -779,8 +779,8 @@ aws athena get-work-group --work-group finops-workgroup \
 ```bash
 # Run test query
 QUERY_ID=$(aws athena start-query-execution \
-    --query-string "SELECT line_item_product_code, SUM(line_item_unblended_cost) as total_cost FROM cost_usage_db.finops_cost_report GROUP BY line_item_product_code ORDER BY total_cost DESC LIMIT 10;" \
-    --work-group finops-workgroup \
+    --query-string "SELECT line_item_product_code, SUM(line_item_unblended_cost) as total_cost FROM cost_usage_db.aasmaa_cost_report GROUP BY line_item_product_code ORDER BY total_cost DESC LIMIT 10;" \
+    --work-group aasmaa-workgroup \
     --region $AWS_REGION \
     --query 'QueryExecutionId' \
     --output text)
@@ -834,7 +834,7 @@ The main CloudFormation stack creates:
 
 ```bash
 # Set variables
-STACK_NAME="finops-intelligence-platform"
+STACK_NAME="aasmaa"
 AWS_REGION="us-east-1"
 ENVIRONMENT="production"
 S3_BUCKET="${STACK_NAME}-data"
@@ -891,22 +891,22 @@ AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
 # Create ECR repositories (if they don't exist)
-aws ecr create-repository --repository-name finops-backend --region $AWS_REGION 2>/dev/null || true
-aws ecr create-repository --repository-name finops-frontend --region $AWS_REGION 2>/dev/null || true
+aws ecr create-repository --repository-name aasmaa-backend --region $AWS_REGION 2>/dev/null || true
+aws ecr create-repository --repository-name aasmaa-frontend --region $AWS_REGION 2>/dev/null || true
 
 # Login to ECR
 aws ecr get-login-password --region $AWS_REGION | \
     docker login --username AWS --password-stdin $ECR_REGISTRY
 
 # Build and push backend
-docker build --platform linux/amd64 -t finops-backend ./backend
-docker tag finops-backend:latest ${ECR_REGISTRY}/finops-backend:latest
-docker push ${ECR_REGISTRY}/finops-backend:latest
+docker build --platform linux/amd64 -t aasmaa-backend ./backend
+docker tag aasmaa-backend:latest ${ECR_REGISTRY}/aasmaa-backend:latest
+docker push ${ECR_REGISTRY}/aasmaa-backend:latest
 
 # Build and push frontend
-docker build --platform linux/amd64 -t finops-frontend ./frontend
-docker tag finops-frontend:latest ${ECR_REGISTRY}/finops-frontend:latest
-docker push ${ECR_REGISTRY}/finops-frontend:latest
+docker build --platform linux/amd64 -t aasmaa-frontend ./frontend
+docker tag aasmaa-frontend:latest ${ECR_REGISTRY}/aasmaa-frontend:latest
+docker push ${ECR_REGISTRY}/aasmaa-frontend:latest
 ```
 
 ### 4.3 Deploy ECS Services
@@ -934,8 +934,8 @@ aws cloudformation deploy \
     --stack-name "${STACK_NAME}-services" \
     --parameter-overrides \
         ParentStackName=$STACK_NAME \
-        BackendImageUri=${ECR_REGISTRY}/finops-backend:latest \
-        FrontendImageUri=${ECR_REGISTRY}/finops-frontend:latest \
+        BackendImageUri=${ECR_REGISTRY}/aasmaa-backend:latest \
+        FrontendImageUri=${ECR_REGISTRY}/aasmaa-frontend:latest \
         DatabaseEndpoint=$DB_ENDPOINT \
         ValkeyEndpoint=$VALKEY_ENDPOINT \
         DatabasePassword=$DB_PASSWORD \
@@ -949,7 +949,7 @@ aws cloudformation deploy \
 ECS_CLUSTER=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_REGION \
     --query 'Stacks[0].Outputs[?OutputKey==`ECSClusterName`].OutputValue' --output text)
 
-watch -n 10 "aws ecs describe-services --cluster $ECS_CLUSTER --services finops-backend finops-frontend --region $AWS_REGION --query 'services[].{Name:serviceName,Running:runningCount,Desired:desiredCount}' --output table"
+watch -n 10 "aws ecs describe-services --cluster $ECS_CLUSTER --services aasmaa-backend aasmaa-frontend --region $AWS_REGION --query 'services[].{Name:serviceName,Running:runningCount,Desired:desiredCount}' --output table"
 ```
 
 ---
@@ -986,7 +986,7 @@ ECS_CLUSTER=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --regi
 
 aws ecs describe-services \
     --cluster $ECS_CLUSTER \
-    --services finops-backend finops-frontend \
+    --services aasmaa-backend aasmaa-frontend \
     --region $AWS_REGION \
     --query 'services[].{Name:serviceName,Status:status,Running:runningCount,Desired:desiredCount}' \
     --output table
@@ -1044,13 +1044,13 @@ MAX_TOKENS=4000
 TEMPERATURE=0.7
 
 # Athena Configuration
-ATHENA_WORKGROUP=finops-workgroup
+ATHENA_WORKGROUP=aasmaa-workgroup
 ATHENA_OUTPUT_LOCATION=s3://your-cur-bucket/athena-results/
 ATHENA_DATABASE=cost_usage_db
-ATHENA_TABLE=finops_cost_report
+ATHENA_TABLE=aasmaa_cost_report
 
 # Database Configuration
-DATABASE_URL=postgresql+asyncpg://user:pass@rds-endpoint:5432/finops
+DATABASE_URL=postgresql+asyncpg://user:pass@rds-endpoint:5432/aasmaa
 VALKEY_URL=redis://elasticache-endpoint:6379
 
 # Application Settings
@@ -1079,14 +1079,14 @@ aws cloudformation update-stack \
 # Scale backend service
 aws ecs update-service \
     --cluster $ECS_CLUSTER \
-    --service finops-backend \
+    --service aasmaa-backend \
     --desired-count 3 \
     --region $AWS_REGION
 
 # Scale frontend service
 aws ecs update-service \
     --cluster $ECS_CLUSTER \
-    --service finops-frontend \
+    --service aasmaa-frontend \
     --desired-count 2 \
     --region $AWS_REGION
 ```
@@ -1113,14 +1113,14 @@ aws cloudformation describe-stack-events --stack-name $STACK_NAME --region $AWS_
 
 ```bash
 # Check service events
-aws ecs describe-services --cluster $ECS_CLUSTER --services finops-backend \
+aws ecs describe-services --cluster $ECS_CLUSTER --services aasmaa-backend \
     --region $AWS_REGION --query 'services[0].events[0:5]' --output table
 
 # Check task logs
-aws logs tail /ecs/finops-backend --follow --region $AWS_REGION
+aws logs tail /ecs/aasmaa-backend --follow --region $AWS_REGION
 
 # Check task definition
-aws ecs describe-task-definition --task-definition finops-backend \
+aws ecs describe-task-definition --task-definition aasmaa-backend \
     --region $AWS_REGION --query 'taskDefinition.containerDefinitions[0].environment'
 ```
 
@@ -1151,7 +1151,7 @@ aws glue get-database --name cost_usage_db --region $AWS_REGION
 aws glue get-tables --database-name cost_usage_db --region $AWS_REGION
 
 # Check Athena workgroup
-aws athena get-work-group --work-group finops-workgroup --region $AWS_REGION
+aws athena get-work-group --work-group aasmaa-workgroup --region $AWS_REGION
 
 # Run diagnostic query
 ./tests/test-athena-query.py
@@ -1167,7 +1167,7 @@ aws cur describe-report-definitions --region us-east-1
 aws s3 ls s3://$CUR_BUCKET/cost-reports/ --recursive
 
 # Run Glue crawler manually
-aws glue start-crawler --name finops-cur-crawler --region $AWS_REGION
+aws glue start-crawler --name aasmaa-cur-crawler --region $AWS_REGION
 
 # Verify first report (takes 24 hours)
 ```
@@ -1192,9 +1192,9 @@ Destroys CloudFormation stacks and ECR repositories but **keeps data exports and
 
 **What gets deleted:**
 
-- ✅ CloudFormation stack: `finops-intelligence-platform`
-- ✅ CloudFormation stack: `finops-intelligence-platform-services`
-- ✅ ECR repositories: `finops-backend`, `finops-frontend`
+- ✅ CloudFormation stack: `aasmaa`
+- ✅ CloudFormation stack: `aasmaa-services`
+- ✅ ECR repositories: `aasmaa-backend`, `aasmaa-frontend`
 - ✅ RDS databases (and all conversation data)
 - ✅ ECS clusters and tasks
 - ✅ VPC and networking resources
@@ -1217,7 +1217,7 @@ Destroys **EVERYTHING** including all data exports, S3 buckets, and historical d
 
 This command will:
 
-1. **Scan** all FinOps resources
+1. **Scan** all aasmaa resources
 2. **List** everything that will be deleted
 3. **Require confirmation** (you must type `DELETE EVERYTHING`)
 4. **Delete in order**:
@@ -1234,14 +1234,14 @@ This command will:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 THE FOLLOWING RESOURCES WILL BE PERMANENTLY DELETED:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ✓ CloudFormation stack: finops-intelligence-platform
-  ✓ CloudFormation stack: finops-intelligence-platform-services
-  ✓ ECR repository: finops-backend
-  ✓ ECR repository: finops-frontend
-  ✓ Data Export: finops-cost-export
-  ✓ S3 Bucket (with ALL data): finops-intelligence-platform-data-${AWS_ACCOUNT_ID}
+  ✓ CloudFormation stack: aasmaa
+  ✓ CloudFormation stack: aasmaa-services
+  ✓ ECR repository: aasmaa-backend
+  ✓ ECR repository: aasmaa-frontend
+  ✓ Data Export: aasmaa-cost-export
+  ✓ S3 Bucket (with ALL data): aasmaa-data-${AWS_ACCOUNT_ID}
   ✓ Glue Database: cost_usage_db (with all tables)
-  ✓ Athena Workgroup: finops-workgroup
+  ✓ Athena Workgroup: aasmaa-workgroup
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Type 'DELETE EVERYTHING' to confirm complete destruction:
@@ -1253,25 +1253,25 @@ If you prefer manual control:
 
 ```bash
 # Delete CloudFormation stacks
-aws cloudformation delete-stack --stack-name finops-intelligence-platform-services --region $AWS_REGION
-aws cloudformation wait stack-delete-complete --stack-name finops-intelligence-platform-services --region $AWS_REGION
+aws cloudformation delete-stack --stack-name aasmaa-services --region $AWS_REGION
+aws cloudformation wait stack-delete-complete --stack-name aasmaa-services --region $AWS_REGION
 
-aws cloudformation delete-stack --stack-name finops-intelligence-platform --region $AWS_REGION
-aws cloudformation wait stack-delete-complete --stack-name finops-intelligence-platform --region $AWS_REGION
+aws cloudformation delete-stack --stack-name aasmaa --region $AWS_REGION
+aws cloudformation wait stack-delete-complete --stack-name aasmaa --region $AWS_REGION
 
 # Delete ECR repositories
-aws ecr delete-repository --repository-name finops-backend --force --region $AWS_REGION
-aws ecr delete-repository --repository-name finops-frontend --force --region $AWS_REGION
+aws ecr delete-repository --repository-name aasmaa-backend --force --region $AWS_REGION
+aws ecr delete-repository --repository-name aasmaa-frontend --force --region $AWS_REGION
 
 # Delete Data Export (new API)
-EXPORT_ARN=$(aws bcm-data-exports list-exports --region us-east-1 --query "Exports[?Export.Name=='finops-cost-export'].ExportArn" --output text)
+EXPORT_ARN=$(aws bcm-data-exports list-exports --region us-east-1 --query "Exports[?Export.Name=='aasmaa-cost-export'].ExportArn" --output text)
 aws bcm-data-exports delete-export --export-arn "$EXPORT_ARN" --region us-east-1
 
 # Delete Glue database
 aws glue delete-database --name cost_usage_db --region $AWS_REGION
 
 # Delete Athena workgroup
-aws athena delete-work-group --work-group finops-workgroup --recursive-delete-option --region $AWS_REGION
+aws athena delete-work-group --work-group aasmaa-workgroup --recursive-delete-option --region $AWS_REGION
 
 # Empty and delete S3 bucket
 aws s3 rm s3://$CUR_BUCKET --recursive
@@ -1288,7 +1288,7 @@ aws s3 rb s3://$CUR_BUCKET --force
 aws ecs describe-clusters --clusters $ECS_CLUSTER --region $AWS_REGION
 
 # Review CloudWatch logs for errors
-aws logs tail /ecs/finops-backend --since 1h --region $AWS_REGION | grep ERROR
+aws logs tail /ecs/aasmaa-backend --since 1h --region $AWS_REGION | grep ERROR
 
 # Monitor costs using the platform itself!
 ```
@@ -1344,4 +1344,4 @@ For issues or questions:
 
 **🎉 Deployment Complete!**
 
-Your FinOps AI Cost Intelligence Platform is ready to use!
+Your aasmaa AI Cost Intelligence Platform is ready to use!

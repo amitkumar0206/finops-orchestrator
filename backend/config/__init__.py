@@ -1,4 +1,4 @@
-"""Configuration package for FinOps AI Cost Intelligence Platform"""
+"""Configuration package for aasmaa AI Cost Intelligence Platform"""
 
 from .settings import get_settings, Settings
 

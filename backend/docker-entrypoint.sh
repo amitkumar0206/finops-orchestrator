@@ -2,7 +2,7 @@
 set -e
 
 echo "=================================================="
-echo "FinOps Backend - Container Startup"
+echo "aasmaa Backend - Container Startup"
 echo "=================================================="
 
 # Convert DATABASE_URL from asyncpg to psycopg2 for Alembic if needed

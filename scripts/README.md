@@ -1,6 +1,6 @@
 # Scripts Directory Documentation
 
-This directory contains operational scripts for deployment, setup, and maintenance of the FinOps Intelligence Platform.
+This directory contains operational scripts for deployment, setup, and maintenance of the aasmaa Intelligence Platform.
 
 ## Directory Structure
 
@@ -23,14 +23,14 @@ scripts/
 # Run migrations via ECS Exec (if container running and Session Manager Plugin installed)
 ./scripts/deployment/aws_run_migrations.sh exec \
   --region us-east-1 \
-  --cluster finops-intelligence-platform-cluster \
-  --service finops-intelligence-platform-backend \
+  --cluster aasmaa-cluster \
+  --service aasmaa-backend \
   --container backend
 
 # Run migrations via one-off Fargate task (fallback method)
 ./scripts/deployment/aws_run_migrations.sh run \
   --region us-east-1 \
-  --cluster finops-intelligence-platform-cluster \
+  --cluster aasmaa-cluster \
   --task-def <task-definition-arn> \
   --subnets subnet-xxx,subnet-yyy \
   --security-groups sg-zzz
@@ -122,12 +122,12 @@ scripts/
 **Example:**
 ```bash
 ./scripts/setup/setup-athena-cur.sh \
-  finops-intelligence-platform-data-<YOUR_AWS_ACCOUNT_ID> \
-  cost-exports/finops-cost-export \
+  aasmaa-data-<YOUR_AWS_ACCOUNT_ID> \
+  cost-exports/aasmaa-cost-export \
   cost_usage_db \
   cur_data \
   us-east-1 \
-  s3://finops-intelligence-platform-data-<YOUR_AWS_ACCOUNT_ID>/athena-results/
+  s3://aasmaa-data-<YOUR_AWS_ACCOUNT_ID>/athena-results/
 ```
 
 **What it does:**
@@ -295,7 +295,7 @@ python scripts/setup/opportunities_ingest.py --sources cost-explorer,compute-opt
 
 1. **Always run from repository root:**
    ```bash
-   cd /path/to/finops-orchestrator
+   cd /path/to/aasmaa
    ./scripts/deployment/redeploy-backend.sh  # ✅ Correct
    ```
 
@@ -346,7 +346,7 @@ echo $AWS_REGION  # or check deployment.env
 aws ecs describe-services --cluster <cluster> --services <service> --region us-east-1
 
 # Check CloudWatch logs
-aws logs tail /ecs/finops-intelligence-platform/backend --follow --region us-east-1
+aws logs tail /ecs/aasmaa/backend --follow --region us-east-1
 ```
 
 ---
@@ -391,4 +391,4 @@ aws logs tail /ecs/finops-intelligence-platform/backend --follow --region us-eas
 ---
 
 **Last Updated:** December 2, 2025
-**Maintainer:** FinOps Platform Team
+**Maintainer:** aasmaa Platform Team

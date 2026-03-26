@@ -21,7 +21,7 @@ def upgrade() -> None:
     Creates the query_intents table for storing query intent analysis results.
     
     This table tracks the interpretation and classification of user queries,
-    including intent detection, query rewriting, and extracted dimensions for FinOps analysis.
+    including intent detection, query rewriting, and extracted dimensions for aasmaa analysis.
     """
     # Create ENUM type for intent_type (with IF NOT EXISTS for idempotency)
     op.execute("""
@@ -105,7 +105,7 @@ def upgrade() -> None:
             nullable=False,
             comment='Confidence score for the intent classification (0.00 to 1.00)'
         ),
-        # Extracted dimensions for FinOps queries
+        # Extracted dimensions for aasmaa queries
         sa.Column(
             'extracted_dimensions',
             JSONB,
@@ -126,7 +126,7 @@ def upgrade() -> None:
             'intent_confidence >= 0.00 AND intent_confidence <= 1.00',
             name='ck_intent_confidence_range'
         ),
-        comment='Table for storing query intent analysis and extracted dimensions for FinOps queries'
+        comment='Table for storing query intent analysis and extracted dimensions for aasmaa queries'
     )
     
     # Alter column to use ENUM type (after table creation to avoid type recreation issues)

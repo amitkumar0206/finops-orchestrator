@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'FinOps AI Cost Intelligence Platform - Infrastructure Stack (Glue DB managed externally)'
+Description: 'aasmaa AI Cost Intelligence Platform - Infrastructure Stack (Glue DB managed externally)'
 
 Parameters:
   Environment:
@@ -67,7 +67,7 @@ Parameters:
     Type: String
     Default: ''
     Description: >
-      (Optional) Custom domain name for the application (e.g., finops.yourdomain.com).
+      (Optional) Custom domain name for the application (e.g., aasmaa.yourdomain.com).
       Leave blank to use ALB DNS name only.
 
   HostedZoneId:
@@ -349,11 +349,11 @@ Resources:
     DeletionPolicy: Snapshot
     Properties:
       DBInstanceIdentifier: !Sub '${AWS::StackName}-postgres'
-      DBName: finops
+      DBName: aasmaa
       DBInstanceClass: db.t3.medium
       Engine: postgres
       EngineVersion: '15.14'
-      MasterUsername: finops
+      MasterUsername: aasmaa
       MasterUserPassword: !Ref DatabasePassword
       AllocatedStorage: 100
       StorageType: gp3
@@ -444,8 +444,8 @@ Resources:
   SecretKeySecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: finops/secret-key
-      Description: JWT signing secret key for the FinOps platform
+      Name: aasmaa/secret-key
+      Description: JWT signing secret key for the aasmaa platform
       GenerateSecretString:
         PasswordLength: 64
         ExcludePunctuation: true
@@ -454,8 +454,8 @@ Resources:
   DatabasePasswordSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: finops/database-password
-      Description: PostgreSQL database password for the FinOps platform
+      Name: aasmaa/database-password
+      Description: PostgreSQL database password for the aasmaa platform
       SecretString: !Ref DatabasePassword
 
   # Secrets Manager — Field Encryption Key
@@ -471,7 +471,7 @@ Resources:
   FieldEncryptionKeySecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: finops/field-encryption-key
+      Name: aasmaa/field-encryption-key
       Description: >-
         Field-level encryption key for sensitive database columns (AWS role ARNs,
         external IDs, ticketing credentials). Read by backend/utils/encryption.py
@@ -563,7 +563,7 @@ Resources:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: FinOpsAppPermissions
+        - PolicyName: aasmaaAppPermissions
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -666,7 +666,7 @@ Resources:
         DNSName: !GetAtt ApplicationLoadBalancer.DNSName
         HostedZoneId: !GetAtt ApplicationLoadBalancer.CanonicalHostedZoneID
         EvaluateTargetHealth: true
-      Comment: !Sub 'DNS record for ${AWS::StackName} FinOps platform'
+      Comment: !Sub 'DNS record for ${AWS::StackName} aasmaa platform'
 
 Outputs:
   TemplateVersion:

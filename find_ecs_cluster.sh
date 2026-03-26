@@ -35,7 +35,7 @@ if [ -z "$CLUSTER_NAME" ]; then
                 echo "  Service: $service_name"
                 
                 # Check if this looks like the backend
-                if echo "$service_name" | grep -qi "backend\|finops\|api"; then
+                if echo "$service_name" | grep -qi "backend\|aasmaa\|api"; then
                     running_count=$(aws ecs describe-services \
                         --cluster $cluster_name \
                         --services $service_name \

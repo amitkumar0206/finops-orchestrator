@@ -285,7 +285,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
     {
       id: '1',
       role: 'assistant',
-      content: 'Hello! I\'m your AI-powered FinOps assistant. I can help you analyze AWS costs, identify optimization opportunities, and answer questions about your cloud spending. What would you like to know?',
+      content: 'Hello! I\'m your AI-powered aasmaa assistant. I can help you analyze AWS costs, identify optimization opportunities, and answer questions about your cloud spending. What would you like to know?',
       timestamp: new Date(),
       suggestions: [
         'Show me my AWS costs for the last 30 days',
@@ -458,7 +458,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
     setMessages([{
       id: '1',
       role: 'assistant',
-      content: 'Hello! I\'m your AI-powered FinOps assistant. I can help you analyze AWS costs, identify optimization opportunities, and answer questions about your cloud spending. What would you like to know?',
+      content: 'Hello! I\'m your AI-powered aasmaa assistant. I can help you analyze AWS costs, identify optimization opportunities, and answer questions about your cloud spending. What would you like to know?',
       timestamp: new Date(),
       suggestions: [
         'Show me my AWS costs for the last 30 days',
@@ -685,7 +685,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
               const dataset = chartInstance.data.datasets[0];
               const backgroundColor = Array.isArray(dataset?.backgroundColor) 
                 ? dataset.backgroundColor[i] 
-                : dataset?.backgroundColor || '#667eea';
+                : dataset?.backgroundColor || '#1565C0';
               
               return {
                 text: label,
@@ -1023,8 +1023,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                   sx={{
                     width: 36,
                     height: 36,
-                    bgcolor: message.role === 'user' ? '#667eea' : '#f3f4f6',
-                    color: message.role === 'user' ? 'white' : '#667eea',
+                    bgcolor: message.role === 'user' ? '#1565C0' : '#f3f4f6',
+                    color: message.role === 'user' ? 'white' : '#1565C0',
                     boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                   }}
                 >
@@ -1098,7 +1098,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                               sx={{
                                 borderRadius: 2,
                                 border: '1px solid rgba(0,0,0,0.08)',
-                                bgcolor: 'rgba(102, 126, 234, 0.04)',
+                                bgcolor: 'rgba(21, 101, 192, 0.04)',
                                 p: 1.75,
                                 boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
                                 transition: 'all 0.3s ease-in-out',
@@ -1137,9 +1137,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                                     textTransform: 'none',
                                     fontWeight: 500,
                                     fontSize: '0.8rem',
-                                    color: '#667eea',
+                                    color: '#1565C0',
                                     '&:hover': {
-                                      bgcolor: 'rgba(102, 126, 234, 0.12)'
+                                      bgcolor: 'rgba(21, 101, 192, 0.12)'
                                     }
                                   }}
                                 >
@@ -1284,8 +1284,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                                           key={key}
                                           sx={{ 
                                             fontWeight: 600,
-                                            bgcolor: 'rgba(102, 126, 234, 0.08)',
-                                            color: '#667eea',
+                                            bgcolor: 'rgba(21, 101, 192, 0.08)',
+                                            color: '#1565C0',
                                             textTransform: 'capitalize',
                                             fontSize: '0.85rem'
                                           }}
@@ -1301,7 +1301,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                                         key={index}
                                         sx={{ 
                                           '&:nth-of-type(odd)': { bgcolor: 'rgba(0,0,0,0.02)' },
-                                          '&:hover': { bgcolor: 'rgba(102, 126, 234, 0.04)' }
+                                          '&:hover': { bgcolor: 'rgba(21, 101, 192, 0.04)' }
                                         }}
                                       >
                                         {Object.entries(row).map(([key, value]: [string, any], cellIndex: number) => (
@@ -1325,10 +1325,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                           {/* 4. Scope/Time Period Section */}
                           {message.metadata && (
                             (message.metadata.time_period || message.metadata.scope || message.metadata.filters || message.metadata.scope_info) && (
-                              <Box sx={{ width: '100%', mt: 2, p: 1.5, bgcolor: 'rgba(102, 126, 234, 0.06)', borderRadius: 1, border: '1px solid rgba(102, 126, 234, 0.2)' }}>
+                              <Box sx={{ width: '100%', mt: 2, p: 1.5, bgcolor: 'rgba(21, 101, 192, 0.06)', borderRadius: 1, border: '1px solid rgba(21, 101, 192, 0.2)' }}>
                                 {/* Multi-tenant scope info */}
                                 {message.metadata.scope_info && (
-                                  <Box sx={{ mb: 1, pb: 1, borderBottom: message.metadata.time_period || message.metadata.scope ? '1px solid rgba(102, 126, 234, 0.2)' : 'none' }}>
+                                  <Box sx={{ mb: 1, pb: 1, borderBottom: message.metadata.time_period || message.metadata.scope ? '1px solid rgba(21, 101, 192, 0.2)' : 'none' }}>
                                     {message.metadata.scope_info.organization_name && (
                                       <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
                                         <strong>Organization:</strong> {message.metadata.scope_info.organization_name}
@@ -1429,17 +1429,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                       sx={{
                         p: 2.5,
                         bgcolor: message.role === 'user' 
-                          ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                          ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
                           : '#ffffff',
                         background: message.role === 'user' 
-                          ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                          ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
                           : '#ffffff',
                         color: message.role === 'user' ? 'white' : 'text.primary',
                         borderRadius: message.role === 'user' 
                           ? '18px 18px 4px 18px' 
                           : '18px 18px 18px 4px',
                         boxShadow: message.role === 'user'
-                          ? '0 4px 12px rgba(102, 126, 234, 0.25)'
+                          ? '0 4px 12px rgba(21, 101, 192, 0.25)'
                           : '0 2px 12px rgba(0,0,0,0.08)',
                         border: message.role === 'user' 
                           ? 'none'
@@ -1447,7 +1447,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                         transition: 'all 0.2s ease-in-out',
                         '&:hover': {
                           boxShadow: message.role === 'user'
-                            ? '0 6px 16px rgba(102, 126, 234, 0.3)'
+                            ? '0 6px 16px rgba(21, 101, 192, 0.3)'
                             : '0 4px 16px rgba(0,0,0,0.12)',
                         }
                       }}
@@ -1503,9 +1503,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                     <AccordionSummary
                       expandIcon={<ExpandMoreIcon />}
                       sx={{
-                        bgcolor: 'rgba(103, 58, 183, 0.04)',
+                        bgcolor: 'rgba(21, 101, 192, 0.04)',
                         '&:hover': {
-                          bgcolor: 'rgba(103, 58, 183, 0.08)',
+                          bgcolor: 'rgba(21, 101, 192, 0.08)',
                         },
                         borderRadius: 2,
                         px: 2.5,
@@ -1513,12 +1513,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                       }}
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <CodeIcon sx={{ color: '#673ab7', fontSize: 20 }} />
+                        <CodeIcon sx={{ color: '#1565C0', fontSize: 20 }} />
                         <Typography
                           variant="body2"
                           sx={{
                             fontWeight: 600,
-                            color: '#673ab7',
+                            color: '#1565C0',
                             fontSize: '0.875rem'
                           }}
                         >
@@ -1739,11 +1739,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                                   fontWeight: 600,
                                   borderRadius: 2,
                                   minWidth: '100px',
-                                  borderColor: '#667eea',
-                                  color: '#667eea',
+                                  borderColor: '#1565C0',
+                                  color: '#1565C0',
                                   '&:hover': {
-                                    bgcolor: 'rgba(102, 126, 234, 0.08)',
-                                    borderColor: '#667eea'
+                                    bgcolor: 'rgba(21, 101, 192, 0.08)',
+                                    borderColor: '#1565C0'
                                   }
                                 }}
                               >
@@ -1783,17 +1783,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                         size="medium"
                         sx={{
                           borderRadius: 2.5,
-                          borderColor: 'rgba(102, 126, 234, 0.3)',
-                          color: '#667eea',
+                          borderColor: 'rgba(21, 101, 192, 0.3)',
+                          color: '#1565C0',
                           fontWeight: 500,
                           fontSize: '0.85rem',
                           py: 2.5,
                           transition: 'all 0.2s ease-in-out',
                           '&:hover': {
-                            bgcolor: 'rgba(102, 126, 234, 0.08)',
-                            borderColor: '#667eea',
+                            bgcolor: 'rgba(21, 101, 192, 0.08)',
+                            borderColor: '#1565C0',
                             transform: 'translateY(-2px)',
-                            boxShadow: '0 4px 12px rgba(102, 126, 234, 0.2)'
+                            boxShadow: '0 4px 12px rgba(21, 101, 192, 0.2)'
                           }
                         }}
                       />
@@ -1814,7 +1814,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                   width: 36,
                   height: 36,
                   bgcolor: '#f3f4f6',
-                  color: '#667eea',
+                  color: '#1565C0',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                 }}
               >
@@ -1831,7 +1831,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <CircularProgress size={20} sx={{ color: '#667eea' }} />
+                  <CircularProgress size={20} sx={{ color: '#1565C0' }} />
                   <Typography 
                     variant="body2" 
                     sx={{ 
@@ -1878,13 +1878,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
               fontWeight: 600,
               borderRadius: 2,
               borderColor: 'rgba(0,0,0,0.2)',
-              color: '#667eea',
+              color: '#1565C0',
               whiteSpace: 'nowrap',
               minWidth: '140px',
               height: '48px',
               '&:hover': {
-                bgcolor: 'rgba(102, 126, 234, 0.08)',
-                borderColor: '#667eea'
+                bgcolor: 'rgba(21, 101, 192, 0.08)',
+                borderColor: '#1565C0'
               }
             }}
           >
@@ -1912,9 +1912,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                 },
                 '&.Mui-focused': {
                   bgcolor: 'white',
-                  boxShadow: '0 0 0 3px rgba(102, 126, 234, 0.1)',
+                  boxShadow: '0 0 0 3px rgba(21, 101, 192, 0.1)',
                   '& .MuiOutlinedInput-notchedOutline': {
-                    borderColor: '#667eea',
+                    borderColor: '#1565C0',
                     borderWidth: '2px'
                   }
                 },
@@ -1932,18 +1932,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
             onClick={handleSendMessage}
             disabled={!inputMessage.trim() || isLoading}
             sx={{
-              bgcolor: '#667eea',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              bgcolor: '#1565C0',
+              background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
               color: 'white',
               width: 48,
               height: 48,
-              boxShadow: '0 4px 14px rgba(102, 126, 234, 0.4)',
+              boxShadow: '0 4px 14px rgba(21, 101, 192, 0.4)',
               transition: 'all 0.2s ease-in-out',
               '&:hover': {
-                bgcolor: '#5568d3',
-                background: 'linear-gradient(135deg, #5568d3 0%, #653a8a 100%)',
+                bgcolor: '#0D47A1',
+                background: 'linear-gradient(135deg, #0D47A1 0%, #0A3880 100%)',
                 transform: 'translateY(-2px)',
-                boxShadow: '0 6px 20px rgba(102, 126, 234, 0.5)',
+                boxShadow: '0 6px 20px rgba(21, 101, 192, 0.5)',
               },
               '&:disabled': {
                 bgcolor: 'rgba(0,0,0,0.12)',

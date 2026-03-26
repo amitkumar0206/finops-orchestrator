@@ -103,7 +103,7 @@ class MultiAccountService:
         try:
             assume_role_params = {
                 'RoleArn': role_arn,
-                'RoleSessionName': 'FinOps-Validation',
+                'RoleSessionName': 'aasmaa-Validation',
                 'DurationSeconds': 900
             }
             

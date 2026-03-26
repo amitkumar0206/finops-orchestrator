@@ -1,7 +1,7 @@
 """
 LLM Service using AWS Bedrock for secure internal AI processing.
 Supports multiple models including Amazon Nova, Meta Llama, and Mistral families.
-Enhanced with FinOps expertise and rich text formatting.
+Enhanced with aasmaa expertise and rich text formatting.
 """
 
 import asyncio
@@ -22,8 +22,8 @@ logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 
-# FinOps Expert System Prompt
-FINOPS_EXPERT_SYSTEM_PROMPT = """You are an expert FinOps (Financial Operations) consultant with decades of experience managing cloud infrastructure costs across AWS, Azure, and GCP. You specialize in AWS cost optimization and financial management for enterprise-scale deployments. Your role is to help DAZN engineers and managers understand, analyze, and optimize their AWS infrastructure costs with the depth and precision of a seasoned cloud economist.
+# aasmaa Expert System Prompt
+AASMAA_EXPERT_SYSTEM_PROMPT = """You are an expert aasmaa (Financial Operations) consultant with decades of experience managing cloud infrastructure costs across AWS, Azure, and GCP. You specialize in AWS cost optimization and financial management for enterprise-scale deployments. Your role is to help aasmaa engineers and managers understand, analyze, and optimize their AWS infrastructure costs with the depth and precision of a seasoned cloud economist.
 
 Your expertise includes:
 - Deep knowledge of AWS service pricing models, billing dimensions, and cost allocation
@@ -33,7 +33,7 @@ Your expertise includes:
 - Knowledge of AWS Cost and Usage Report (CUR) dimensions and hierarchies
 
 Your communication style:
-- Talk like a seasoned FinOps professional with deep AWS expertise
+- Talk like a seasoned aasmaa professional with deep AWS expertise
 - Use precise financial and technical terminology
 - Present data with clear, actionable insights
 - Format responses with markdown for readability (bold, italics, headers, lists, tables)
@@ -443,7 +443,7 @@ class BedrockLLMService:
         logger.warning("Bedrock invoke_model response contained no text output")
         return ""
     
-    async def generate_finops_response(
+    async def generate_aasmaa_response(
         self,
         query: str,
         cost_data: Optional[Dict[str, Any]] = None,
@@ -452,7 +452,7 @@ class BedrockLLMService:
         context: Optional[Dict[str, Any]] = None
     ) -> Tuple[str, List[str]]:
         """
-        Generate a comprehensive FinOps expert response with rich formatting.
+        Generate a comprehensive aasmaa expert response with rich formatting.
         
         Args:
             query: User's question or request
@@ -474,7 +474,7 @@ class BedrockLLMService:
         try:
             # Build comprehensive context for the LLM
             messages = [
-                {"role": "system", "content": FINOPS_EXPERT_SYSTEM_PROMPT}
+                {"role": "system", "content": AASMAA_EXPERT_SYSTEM_PROMPT}
             ]
             
             # Add conversation history for context continuity
@@ -526,7 +526,7 @@ Format your response beautifully with markdown for optimal readability."""
             return response_text, suggestions
             
         except Exception as e:
-            logger.error(f"Error generating FinOps response: {e}", exc_info=True)
+            logger.error(f"Error generating aasmaa response: {e}", exc_info=True)
             fallback_response = self._create_fallback_response(query, cost_data, analysis_results)
             fallback_suggestions = self._generate_static_followup_suggestions(query, cost_data, analysis_results, context)
             return fallback_response, fallback_suggestions
@@ -1035,7 +1035,7 @@ Ensure your response is properly formatted JSON only, no additional text.
         }
         
         instructions = f"""
-You are a FinOps query normalizer. Rewrite the user request into a precise, unambiguous instruction for AWS cost analysis.
+You are a aasmaa query normalizer. Rewrite the user request into a precise, unambiguous instruction for AWS cost analysis.
 
 Return strictly-valid JSON with these fields:
 - "normalized_query" (string)
@@ -1098,22 +1098,22 @@ User query:
         try:
             # Create analysis prompt based on type
             if analysis_type == "trend":
-                system_prompt = """You are an expert FinOps consultant with decades of experience analyzing AWS cost trends and patterns. 
+                system_prompt = """You are an expert aasmaa consultant with decades of experience analyzing AWS cost trends and patterns. 
                 Provide insights on cost patterns, growth rates, and trend analysis with the depth of a seasoned cloud economist.
                 Focus on identifying concerning trends, seasonal patterns, and opportunities for optimization.
                 Use your expertise to explain WHY trends are occurring and what actions should be taken."""
             elif analysis_type == "optimization":
-                system_prompt = """You are an expert FinOps consultant specializing in AWS cost optimization with years of experience reducing enterprise cloud spend.
+                system_prompt = """You are an expert aasmaa consultant specializing in AWS cost optimization with years of experience reducing enterprise cloud spend.
                 Analyze the cost data and provide specific, actionable recommendations to reduce costs.
                 Include estimated savings, implementation steps, and risk assessments for each recommendation.
                 Prioritize quick wins and high-impact optimizations based on your extensive experience."""
             elif analysis_type == "executive":
-                system_prompt = """You are a senior FinOps executive preparing board-level AWS cost summaries for C-suite audiences.
+                system_prompt = """You are a senior aasmaa executive preparing board-level AWS cost summaries for C-suite audiences.
                 Provide a high-level overview suitable for CEOs, CFOs, and CTOs with decades of experience in cloud financial management.
                 Focus on key metrics, business impact, trends, and strategic recommendations.
                 Use executive-level language and emphasize ROI, risk, and strategic alignment."""
             else:
-                system_prompt = """You are an expert FinOps consultant with decades of AWS cost management experience.
+                system_prompt = """You are an expert aasmaa consultant with decades of AWS cost management experience.
                 Provide clear, actionable insights based on the data and user query.
                 Draw on your deep expertise to explain patterns, identify issues, and recommend solutions."""
             
@@ -1293,7 +1293,7 @@ Please analyze this cost data and provide insights relevant to the query.
                 "suggested_clarification": "Could you please rephrase your question?"
             }
         
-        system_prompt = """You are an expert FinOps consultant with decades of experience understanding how technical teams and finance managers naturally explore cloud cost data through conversational follow-ups.
+        system_prompt = """You are an expert aasmaa consultant with decades of experience understanding how technical teams and finance managers naturally explore cloud cost data through conversational follow-ups.
 
 Your expertise:
 - Understanding conversational references ("that service", "the 4th item", "those costs")
@@ -1365,7 +1365,7 @@ Analyze this follow-up query and provide JSON response."""
         context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Use LLM to classify query intent for FinOps cost analysis.
+        Use LLM to classify query intent for aasmaa cost analysis.
         More flexible than rule-based classification for diverse user queries.
         
         Args:
@@ -1384,7 +1384,7 @@ Analyze this follow-up query and provide JSON response."""
                 "error": "LLM not available"
             }
         
-        # Define the 10 intent types for FinOps
+        # Define the 10 intent types for aasmaa
         intent_types = """
 COST_BREAKDOWN: Show cost breakdown by service, region, account, etc. (e.g., "break down my costs by service")
 TOP_N_RANKING: Show top N services/regions by cost (e.g., "what are my top 5 services")
@@ -1398,7 +1398,7 @@ COMPARATIVE: Compare costs across periods/services/environments (e.g., "compare 
 OTHER: Anything that doesn't fit above categories
 """
         
-        system_prompt = f"""You are an expert FinOps AI assistant with decades of experience categorizing cloud cost analysis queries. You understand how engineers, finance teams, and executives naturally ask about AWS costs, and you can accurately map their questions to specific analysis types.
+        system_prompt = f"""You are an expert aasmaa AI assistant with decades of experience categorizing cloud cost analysis queries. You understand how engineers, finance teams, and executives naturally ask about AWS costs, and you can accurately map their questions to specific analysis types.
 
 Your expertise includes:
 - Recognizing different types of cost questions (rankings, breakdowns, trends, anomalies, optimizations)
@@ -1438,7 +1438,7 @@ Examples:
 Previous query: "{last_query}"
 Previous time range: {last_time_desc}"""
 
-        user_prompt = f"""Classify this FinOps query: "{query}"
+        user_prompt = f"""Classify this aasmaa query: "{query}"
 
 Context:
 {context_info}
@@ -1553,11 +1553,11 @@ Provide JSON response:"""
                 data_parts.append(f"Available Regions: {', '.join(available_data_context['regions'])}")
             data_context = "\n".join(data_parts)
         
-        system_prompt = """You are an expert FinOps consultant with decades of experience managing enterprise-scale AWS cloud costs. Your specialty is understanding complex, multi-turn cost analysis conversations where users progressively drill down from high-level views to granular details, similar to how experienced cloud economists explore cost data.
+        system_prompt = """You are an expert aasmaa consultant with decades of experience managing enterprise-scale AWS cloud costs. Your specialty is understanding complex, multi-turn cost analysis conversations where users progressively drill down from high-level views to granular details, similar to how experienced cloud economists explore cost data.
 
 Your task: Analyze the ENTIRE conversation context and generate a comprehensive, self-contained prompt that captures exactly what the user wants at this point in their cost investigation journey.
 
-Key FinOps expertise to apply:
+Key aasmaa expertise to apply:
 - Understand hierarchical cost breakdowns (service → usage type → API operation → resource)
 - Recognize when users want to drill deeper vs. pivot to new analysis
 - Maintain context of filters, time ranges, and scope throughout the conversation
@@ -1580,7 +1580,7 @@ Analyze the conversation history and current query, then create a new prompt tha
 
 Respond ONLY with a JSON object containing:
 {
-  "consolidated_prompt": "A complete, standalone prompt that could be given to a FinOps assistant",
+  "consolidated_prompt": "A complete, standalone prompt that could be given to a aasmaa assistant",
   "key_changes_from_previous": ["what changed from last query", "what stayed the same"],
   "confidence": 0.0-1.0,
   "requires_new_data": true/false,
@@ -1672,7 +1672,7 @@ Generate a consolidated prompt that captures the complete user intent from this 
             content = msg.get("content", "")
             conversation_text += f"{role.upper()}: {content}\n"
         
-        system_prompt = """You are an expert FinOps analyst with decades of experience helping engineering teams and finance managers understand their AWS cloud costs.
+        system_prompt = """You are an expert aasmaa analyst with decades of experience helping engineering teams and finance managers understand their AWS cloud costs.
 
 Your expertise includes:
 - Understanding how technical teams naturally explore costs through progressive drill-downs

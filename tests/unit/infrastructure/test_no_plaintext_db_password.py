@@ -89,8 +89,8 @@ class TestEcsServicesNoDatabasePasswordPlaintext:
 
     def test_secrets_reference_uses_secrets_manager_arn(self):
         """The ValueFrom must point to Secrets Manager, not a plaintext value."""
-        assert "finops/database-password" in self.raw, (
-            "Secrets Manager reference 'finops/database-password' not found"
+        assert "aasmaa/database-password" in self.raw, (
+            "Secrets Manager reference 'aasmaa/database-password' not found"
         )
 
 
@@ -113,7 +113,7 @@ class TestMainStackDatabasePasswordSecret:
         assert "AWS::SecretsManager::Secret" in self.raw
 
     def test_database_password_secret_name(self):
-        assert "finops/database-password" in self.raw
+        assert "aasmaa/database-password" in self.raw
 
     def test_iam_policy_covers_both_secrets(self):
         """The SecretsManager IAM policy must reference both secrets."""
@@ -159,7 +159,7 @@ class TestTaskDefNoDatabasePasswordPlaintext:
     def test_postgres_password_secret_points_to_secrets_manager(self):
         for s in self.container["secrets"]:
             if s["name"] == "POSTGRES_PASSWORD":
-                assert "finops/database-password" in s["valueFrom"]
+                assert "aasmaa/database-password" in s["valueFrom"]
                 break
         else:
             pytest.fail("POSTGRES_PASSWORD not found in secrets")

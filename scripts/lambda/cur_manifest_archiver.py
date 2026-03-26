@@ -5,7 +5,7 @@ import boto3
 s3 = boto3.client('s3')
 
 BUCKET = os.environ.get('BUCKET')
-SOURCE_PREFIX = os.environ.get('SOURCE_PREFIX', 'cost-exports/finops-cost-export')
+SOURCE_PREFIX = os.environ.get('SOURCE_PREFIX', 'cost-exports/aasmaa-cost-export')
 ARCHIVE_PREFIX = os.environ.get('ARCHIVE_PREFIX', '_archived-manifests')
 
 

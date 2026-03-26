@@ -54,7 +54,7 @@ echo ""
 
 # 1. Rebuild backend image
 echo "📦 Building backend Docker image for linux/amd64..."
-docker build --platform linux/amd64 -t finops-backend ./backend || docker-compose build --build-arg DOCKER_BUILDKIT=1 backend
+docker build --platform linux/amd64 -t aasmaa-backend ./backend || docker-compose build --build-arg DOCKER_BUILDKIT=1 backend
 
 # 2. Stop and remove old container
 echo "🛑 Stopping old backend container..."

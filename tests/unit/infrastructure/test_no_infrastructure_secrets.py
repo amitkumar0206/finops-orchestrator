@@ -38,7 +38,7 @@ RDS_ENDPOINT_PATTERN = re.compile(r"[\w.-]+\.rds\.amazonaws\.com")
 ELASTICACHE_ENDPOINT_PATTERN = re.compile(r"[\w.-]+\.cache\.amazonaws\.com")
 
 # Personal email pattern in infrastructure files
-PERSONAL_EMAIL_PATTERN = re.compile(r"[\w.+-]+@(?:dazn|company)\.com")
+PERSONAL_EMAIL_PATTERN = re.compile(r"[\w.+-]+@(?:aasmaa|company)\.com")
 
 # Hardcoded personal filesystem paths
 PERSONAL_PATH_PATTERN = re.compile(r"/Users/[A-Z]\w+\.\w+/")
@@ -166,7 +166,7 @@ class TestCurBucketPolicyNoSecrets:
     def test_no_hardcoded_bucket_name_with_id(self, policy_content):
         """Bucket names must not contain real numeric identifiers"""
         # Match bucket names that end with a long numeric suffix (actual bucket IDs)
-        bucket_id_pattern = re.compile(r"finops-intelligence-platform-\w+-\d{10,}")
+        bucket_id_pattern = re.compile(r"aasmaa-\w+-\d{10,}")
         match = bucket_id_pattern.search(policy_content)
         assert match is None, (
             f"Hardcoded bucket name with numeric ID found: '{match.group()}'. "

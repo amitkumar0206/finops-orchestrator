@@ -32,11 +32,11 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
               overflow: hidden;
             }
             th {
-              background: rgba(102, 126, 234, 0.1);
+              background: rgba(21, 101, 192, 0.1);
               padding: 12px;
               text-align: left;
               font-weight: 600;
-              border-bottom: 2px solid rgba(102, 126, 234, 0.3);
+              border-bottom: 2px solid rgba(21, 101, 192, 0.3);
               white-space: nowrap;
             }
             td {
@@ -52,7 +52,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
               border-bottom: none;
             }
             tr:hover {
-              background: rgba(102, 126, 234, 0.05);
+              background: rgba(21, 101, 192, 0.05);
             }
           </style>
         </head>
@@ -81,8 +81,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
               fontWeight: 700,
               mb: 2,
               mt: 3,
-              color: '#667eea',
-              borderBottom: '2px solid #667eea',
+              color: '#1565C0',
+              borderBottom: '2px solid #1565C0',
               pb: 1
             }}
           >
@@ -96,7 +96,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
               fontWeight: 600,
               mb: 1.5,
               mt: 2.5,
-              color: '#667eea'
+              color: '#1565C0'
             }}
           >
             {children}
@@ -109,7 +109,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
               fontWeight: 600,
               mb: 1,
               mt: 2,
-              color: '#667eea'
+              color: '#1565C0'
             }}
           >
             {children}
@@ -213,8 +213,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
               <Box
                 component="code"
                 sx={{
-                  bgcolor: 'rgba(102, 126, 234, 0.1)',
-                  color: '#667eea',
+                  bgcolor: 'rgba(21, 101, 192, 0.1)',
+                  color: '#1565C0',
                   px: 0.75,
                   py: 0.25,
                   borderRadius: 1,
@@ -290,7 +290,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
                         bgcolor: 'white',
                         boxShadow: 2,
                         '&:hover': {
-                          bgcolor: 'rgba(102, 126, 234, 0.1)',
+                          bgcolor: 'rgba(21, 101, 192, 0.1)',
                         },
                       }}
                     >
@@ -328,11 +328,11 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
                     borderCollapse: 'collapse',
                     minWidth: '600px', // Ensure table has minimum width for scrolling
                     '& th': {
-                      bgcolor: 'rgba(102, 126, 234, 0.1)',
+                      bgcolor: 'rgba(21, 101, 192, 0.1)',
                       p: 1.5,
                       textAlign: 'left',
                       fontWeight: 600,
-                      borderBottom: '2px solid rgba(102, 126, 234, 0.3)',
+                      borderBottom: '2px solid rgba(21, 101, 192, 0.3)',
                       whiteSpace: 'nowrap',
                       position: 'sticky',
                       top: 0,
@@ -360,7 +360,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
                       position: 'sticky',
                       left: 0,
                       zIndex: 4,
-                      bgcolor: 'rgba(102, 126, 234, 0.1)',
+                      bgcolor: 'rgba(21, 101, 192, 0.1)',
                       maxWidth: '200px',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -370,7 +370,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
                       borderBottom: 'none'
                     },
                     '& tr:hover': {
-                      bgcolor: 'rgba(102, 126, 234, 0.05)',
+                      bgcolor: 'rgba(21, 101, 192, 0.05)',
                     },
                   }}
                 >
@@ -396,11 +396,11 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
         blockquote: ({ children }) => (
           <Box
             sx={{
-              borderLeft: '4px solid #667eea',
+              borderLeft: '4px solid #1565C0',
               pl: 2,
               py: 1,
               my: 2,
-              bgcolor: 'rgba(102, 126, 234, 0.05)',
+              bgcolor: 'rgba(21, 101, 192, 0.05)',
               fontStyle: 'italic',
               color: '#4a5568'
             }}

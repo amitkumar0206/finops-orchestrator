@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { Box, AppBar, Toolbar, Typography, Chip, Avatar } from '@mui/material';
-import { CloudQueue as CloudIcon, TrendingUp as TrendingUpIcon } from '@mui/icons-material';
+import { Box, AppBar, Toolbar, Chip } from '@mui/material';
+import { TrendingUp as TrendingUpIcon } from '@mui/icons-material';
 
 import ChatInterface from './components/Chat/ChatInterface';
 import { ScopeIndicator } from './components/Scope';
@@ -15,39 +15,25 @@ const App: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc', flexDirection: 'column' }}>
-      {/* Professional Header */}
-      <AppBar 
-        position="static" 
+      <AppBar
+        position="static"
         elevation={0}
-        sx={{ 
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        sx={{
+          background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
         }}
       >
         <Toolbar sx={{ py: 1 }}>
-          <Avatar 
-            sx={{ 
-              bgcolor: 'rgba(255, 255, 255, 0.95)', 
-              color: '#667eea',
-              width: 40,
-              height: 40,
-              mr: 2
-            }}
-          >
-            <CloudIcon />
-          </Avatar>
-          <Typography
-            variant="h6"
-            component="div"
+          <Box
+            component="img"
+            src="/aasmaa-logo.svg"
+            alt="aasmaa"
             sx={{
-              fontWeight: 700,
-              letterSpacing: '-0.5px',
-              color: 'white',
-              mr: 3
+              height: 40,
+              mr: 3,
+              filter: 'brightness(0) invert(1)',
             }}
-          >
-            FinOps Intelligence Platform
-          </Typography>
+          />
           <Box sx={{ flexGrow: 1 }}>
             <ScopeIndicator onScopeChange={handleScopeChange} />
           </Box>
@@ -65,10 +51,9 @@ const App: React.FC = () => {
           />
         </Toolbar>
       </AppBar>
-      
-      {/* Main content - removed padding to allow ChatInterface to use full height */}
-      <Box 
-        sx={{ 
+
+      <Box
+        sx={{
           flexGrow: 1,
           display: 'flex',
           flexDirection: 'column',

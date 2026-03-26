@@ -40,7 +40,7 @@ class VectorStoreService:
             # Get or create collection
             self.collection = self.client.get_or_create_collection(
                 name=settings.chroma_collection_name,
-                metadata={"description": "FinOps cost intelligence knowledge base"}
+                metadata={"description": "aasmaa cost intelligence knowledge base"}
             )
             
             # Initialize with sample data if empty

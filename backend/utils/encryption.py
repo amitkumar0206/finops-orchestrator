@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Static salt derived from application identifier — prevents rainbow tables.
 # Not secret; its purpose is domain separation.
-_STATIC_SALT = b"finops-ai-cost-intelligence-field-encryption-v1"
+_STATIC_SALT = b"aasmaa-ai-cost-intelligence-field-encryption-v1"
 
 _PBKDF2_ITERATIONS = 600_000
 

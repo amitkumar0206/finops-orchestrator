@@ -27,7 +27,6 @@ import {
   SelectChangeEvent,
 } from '@mui/material';
 import {
-  FilterList as FilterIcon,
   Refresh as RefreshIcon,
   Download as DownloadIcon,
   CheckCircle as AcceptIcon,
@@ -263,9 +262,9 @@ const OpportunitiesTable: React.FC<OpportunitiesTableProps> = ({
   return (
     <Paper sx={{ width: '100%', overflow: 'hidden' }}>
       {/* Header with filters */}
-      <Toolbar sx={{ pl: 2, pr: 1, bgcolor: 'rgba(102, 126, 234, 0.04)' }}>
+      <Toolbar sx={{ pl: 2, pr: 1, bgcolor: 'rgba(21, 101, 192, 0.04)' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexGrow: 1 }}>
-          <SavingsIcon sx={{ color: '#667eea' }} />
+          <SavingsIcon sx={{ color: '#1565C0' }} />
           <Typography variant="h6" sx={{ fontWeight: 600, color: 'text.primary' }}>
             Optimization Opportunities
           </Typography>
@@ -369,7 +368,7 @@ const OpportunitiesTable: React.FC<OpportunitiesTableProps> = ({
 
       {/* Bulk actions */}
       {selected.length > 0 && (
-        <Box sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 2, bgcolor: 'rgba(102, 126, 234, 0.08)' }}>
+        <Box sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 2, bgcolor: 'rgba(21, 101, 192, 0.08)' }}>
           <Typography variant="body2" sx={{ fontWeight: 500 }}>
             {selected.length} selected
           </Typography>

@@ -1,4 +1,4 @@
-"""Models package for FinOps AI Cost Intelligence Platform"""
+"""Models package for aasmaa AI Cost Intelligence Platform"""
 
 from .schemas import (
     # Enums

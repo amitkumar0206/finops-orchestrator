@@ -1,4 +1,4 @@
--- Database schema for FinOps Intelligence Platform
+-- Database schema for aasmaa Intelligence Platform
 -- Create tables for conversation context and query tracking
 
 -- Conversations table

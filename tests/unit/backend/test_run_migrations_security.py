@@ -39,7 +39,7 @@ class TestValidatePostgresIdentifier:
             "postgres",
             "admin",
             "user_123",
-            "finops-user",
+            "aasmaa-user",
             "db.admin"
         ]
 
@@ -50,7 +50,7 @@ class TestValidatePostgresIdentifier:
     def test_valid_database_name(self):
         """Test that valid database names pass validation"""
         valid_databases = [
-            "finops_db",
+            "aasmaa_db",
             "production",
             "test-database",
             "db_2024"
@@ -251,7 +251,7 @@ class TestMigrationRunnerSecurity:
 
         mock_subprocess.return_value = (0, "", "")
 
-        safe_url = "postgresql://postgres:password@localhost:5432/finops_db"
+        safe_url = "postgresql://postgres:password@localhost:5432/aasmaa_db"
 
         with patch.dict(os.environ, {"DATABASE_URL": safe_url}):
             result = runner.backup_database()
@@ -400,7 +400,7 @@ class TestMigrationRunnerSecurity:
 
         mock_subprocess.return_value = (0, "", "")
 
-        rds_url = "postgresql://finops_user:password@finops-prod.c9akl2xe7zyx.us-east-1.rds.amazonaws.com:5432/finops_production"
+        rds_url = "postgresql://aasmaa_user:password@aasmaa-prod.c9akl2xe7zyx.us-east-1.rds.amazonaws.com:5432/aasmaa_production"
 
         with patch.dict(os.environ, {"DATABASE_URL": rds_url}):
             result = runner.backup_database()

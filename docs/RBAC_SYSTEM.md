@@ -2,7 +2,7 @@
 
 ## Overview
 
-The FinOps platform uses a **configuration-based Role-Based Access Control (RBAC) system** for managing user permissions. This system replaces hardcoded role checks with a flexible, maintainable configuration file that defines roles, permissions, and hierarchies.
+The aasmaa platform uses a **configuration-based Role-Based Access Control (RBAC) system** for managing user permissions. This system replaces hardcoded role checks with a flexible, maintainable configuration file that defines roles, permissions, and hierarchies.
 
 ## Key Features
 

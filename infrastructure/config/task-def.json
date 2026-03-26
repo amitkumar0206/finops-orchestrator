@@ -1,9 +1,9 @@
 {
-    "taskDefinitionArn": "arn:aws:ecs:${AWS_REGION}:${AWS_ACCOUNT_ID}:task-definition/finops-intelligence-platform-backend:17",
+    "taskDefinitionArn": "arn:aws:ecs:${AWS_REGION}:${AWS_ACCOUNT_ID}:task-definition/aasmaa-backend:17",
     "containerDefinitions": [
         {
             "name": "backend",
-            "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/finops-backend:latest",
+            "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/aasmaa-backend:latest",
             "cpu": 0,
             "links": [],
             "portMappings": [
@@ -19,11 +19,11 @@
             "environment": [
                 {
                     "name": "S3_BUCKET",
-                    "value": "finops-intelligence-platform-data-${AWS_ACCOUNT_ID}"
+                    "value": "aasmaa-data-${AWS_ACCOUNT_ID}"
                 },
                 {
                     "name": "POSTGRES_USER",
-                    "value": "finops"
+                    "value": "aasmaa"
                 },
                 {
                     "name": "REDIS_HOST",
@@ -51,7 +51,7 @@
                 },
                 {
                     "name": "POSTGRES_DB",
-                    "value": "finops"
+                    "value": "aasmaa"
                 },
                 {
                     "name": "LLM_PROVIDER",
@@ -63,7 +63,7 @@
                 },
                 {
                     "name": "AWS_S3_BUCKET",
-                    "value": "finops-intelligence-platform-data-${AWS_ACCOUNT_ID}"
+                    "value": "aasmaa-data-${AWS_ACCOUNT_ID}"
                 },
                 {
                     "name": "REDIS_PORT",
@@ -75,7 +75,7 @@
                 },
                 {
                     "name": "AWS_CUR_TABLE",
-                    "value": "cur_finops_cost_report"
+                    "value": "cur_aasmaa_cost_report"
                 },
                 {
                     "name": "BEDROCK_MODEL_ID",
@@ -92,15 +92,15 @@
             "secrets": [
                 {
                     "name": "SECRET_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:finops/secret-key"
+                    "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:aasmaa/secret-key"
                 },
                 {
                     "name": "POSTGRES_PASSWORD",
-                    "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:finops/database-password"
+                    "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:aasmaa/database-password"
                 },
                 {
                     "name": "FIELD_ENCRYPTION_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:finops/field-encryption-key"
+                    "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:aasmaa/field-encryption-key"
                 }
             ],
             "dnsServers": [],
@@ -112,7 +112,7 @@
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
-                    "awslogs-group": "/ecs/finops-intelligence-platform/backend",
+                    "awslogs-group": "/ecs/aasmaa/backend",
                     "awslogs-region": "${AWS_REGION}",
                     "awslogs-stream-prefix": "backend"
                 },
@@ -132,7 +132,7 @@
             "credentialSpecs": []
         }
     ],
-    "family": "finops-intelligence-platform-backend",
+    "family": "aasmaa-backend",
     "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ECS_TASK_ROLE_NAME}",
     "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ECS_EXECUTION_ROLE_NAME}",
     "networkMode": "awsvpc",

@@ -1,4 +1,4 @@
-"""API package for FinOps AI Cost Intelligence Platform"""
+"""API package for aasmaa AI Cost Intelligence Platform"""
 
 from . import chat, health, reports, analytics
 

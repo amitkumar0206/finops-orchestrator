@@ -12,7 +12,7 @@ logger = structlog.get_logger(__name__)
 class S3Service:
     """Service for S3 operations"""
 
-    def __init__(self, bucket_name: str = "finops-reports"):
+    def __init__(self, bucket_name: str = "aasmaa-reports"):
         """
         Initialize S3 service
 

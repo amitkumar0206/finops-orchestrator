@@ -36,7 +36,7 @@ def tenant_context():
     """Authenticated user with full tenant scope (org + AWS accounts)."""
     return RequestContext(
         user_id=uuid4(),
-        user_email="finops@tenant.example",
+        user_email="aasmaa@tenant.example",
         organization_id=uuid4(),
         is_admin=False,
         org_role="member",

@@ -51,7 +51,7 @@ def _get_pool() -> ThreadedConnectionPool:
             dsn = (
                 f"host={settings.postgres_host} port={settings.postgres_port} "
                 f"dbname={settings.postgres_db} user={settings.postgres_user} "
-                f"password={settings.postgres_password} application_name=finops-conversation-manager"
+                f"password={settings.postgres_password} application_name=aasmaa-conversation-manager"
             )
             _pool = ThreadedConnectionPool(minconn=1, maxconn=10, dsn=dsn)
             logger.info("Initialized PostgreSQL ThreadedConnectionPool for ConversationManager")

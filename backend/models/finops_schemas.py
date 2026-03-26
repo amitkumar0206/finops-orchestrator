@@ -15,7 +15,7 @@ class UserQueryAnalysis(BaseModel):
     requires_history: bool = Field(description="Does query reference previous conversation?")
     ambiguous_references: List[str] = Field(default_factory=list)
 
-class FinOpsQueryPlan(BaseModel):
+class aasmaaQueryPlan(BaseModel):
     """Athena query specification"""
     data_sources: List[Literal["athena_cur", "cloudwatch_metrics", "vector_db"]]
     athena_query: Optional[str] = None

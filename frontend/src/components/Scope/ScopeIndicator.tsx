@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Box,
   Chip,
-  IconButton,
   Menu,
   MenuItem,
   Typography,

@@ -1,4 +1,4 @@
-# FinOps AI Cost Intelligence Platform - Developer Guide
+# aasmaa AI Cost Intelligence Platform - Developer Guide
 
 **Last Updated:** December 4, 2025  
 **Version:** 1.0  
@@ -25,9 +25,9 @@
 
 ## 1. Introduction
 
-### What is FinOps Orchestrator?
+### What is aasmaa Orchestrator?
 
-FinOps Orchestrator is an **AI-powered AWS cost analysis platform** that lets users query their cloud costs using natural language. Instead of writing SQL queries or navigating complex dashboards, users simply ask questions like:
+aasmaa Orchestrator is an **AI-powered AWS cost analysis platform** that lets users query their cloud costs using natural language. Instead of writing SQL queries or navigating complex dashboards, users simply ask questions like:
 
 - "Show me my AWS costs for the last 30 days"
 - "What are my top 5 most expensive services?"
@@ -732,7 +732,7 @@ async def call_llm(
 The service uses different system prompts for different purposes:
 
 1. **SQL Generation**: "You are an expert SQL generator for AWS CUR..."
-2. **Insights**: "You are a FinOps expert providing cost analysis..."
+2. **Insights**: "You are a aasmaa expert providing cost analysis..."
 3. **Recommendations**: "You are an optimization consultant..."
 
 ---
@@ -1178,13 +1178,13 @@ npm start  # Runs on port 3000
 docker-compose up -d postgres
 
 # Or use local PostgreSQL
-createdb finops_dev
+createdb aasmaa_dev
 ```
 
 ### 10.2 Project Structure
 
 ```
-finops-orchestrator/
+aasmaa/
 ├── backend/
 │   ├── agents/                    # Query orchestration
 │   │   ├── multi_agent_workflow.py   # Main workflow
@@ -1242,7 +1242,7 @@ finops-orchestrator/
     ├── unit/                      # Unit tests (by layer)
     │   ├── api/                   #   test_exception_sanitisation, test_health
     │   ├── config/                #   test_settings_security
-    │   ├── finops/                #   test_time_range
+    │   ├── aasmaa/                #   test_time_range
     │   ├── middleware/            #   test_authentication, test_rate_limiting, test_security_headers
     │   ├── opportunities/         #   test_opportunities_api, test_optimization_agent
     │   ├── services/              #   test_cache_service, test_database_ssl, test_iam_migration
@@ -1358,7 +1358,7 @@ tests/
 │   │   └── test_health.py                   # 26 tests: health-endpoint sanitisation (HIGH-2)
 │   ├── config/
 │   │   └── test_settings_security.py        # Secret-key enforcement
-│   ├── finops/
+│   ├── aasmaa/
 │   │   └── test_time_range.py               # Time-range parsing logic
 │   ├── middleware/
 │   │   ├── test_authentication.py           # JWT auth, blacklist, fail-closed
@@ -1516,20 +1516,20 @@ def test_chat_endpoint():
 
 ```bash
 # 1. Build Docker images
-docker build -t finops-backend:latest ./backend
-docker build -t finops-frontend:latest ./frontend
+docker build -t aasmaa-backend:latest ./backend
+docker build -t aasmaa-frontend:latest ./frontend
 
 # 2. Tag for ECR
 aws ecr get-login-password | docker login --username AWS ...
-docker tag finops-backend:latest $ECR_REPO/backend:latest
+docker tag aasmaa-backend:latest $ECR_REPO/backend:latest
 
 # 3. Push to ECR
 docker push $ECR_REPO/backend:latest
 
 # 4. Update ECS service
 aws ecs update-service \
-  --cluster finops-cluster \
-  --service finops-backend \
+  --cluster aasmaa-cluster \
+  --service aasmaa-backend \
   --force-new-deployment
 ```
 
@@ -1550,15 +1550,15 @@ BEDROCK_REGION=us-east-1
 # Athena
 ATHENA_DATABASE=cost_usage_db
 ATHENA_TABLE=cur_data
-ATHENA_OUTPUT_LOCATION=s3://finops-results/
+ATHENA_OUTPUT_LOCATION=s3://aasmaa-results/
 
 # Database
-DATABASE_URL=postgresql+asyncpg://user:pass@rds-host:5432/finops
+DATABASE_URL=postgresql+asyncpg://user:pass@rds-host:5432/aasmaa
 
 # Application
 ENVIRONMENT=production
 LOG_LEVEL=INFO
-ALLOWED_ORIGINS=https://finops.company.com
+ALLOWED_ORIGINS=https://aasmaa.company.com
 ```
 
 ### 12.4 Monitoring
@@ -1742,11 +1742,11 @@ logger.info("Prompt", prompt=prompt)
 - [Troubleshooting](./docs/TROUBLESHOOTING.md)
 
 **Support:**
-- Technical Lead: FinOps Platform Team
-- Slack: #finops-platform
+- Technical Lead: aasmaa Platform Team
+- Slack: #aasmaa-platform
 
 ---
 
 **End of Developer Guide**
 
-*This guide is maintained by the FinOps Platform team. Last updated: December 4, 2025*
+*This guide is maintained by the aasmaa Platform team. Last updated: December 4, 2025*

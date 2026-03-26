@@ -1,4 +1,4 @@
-"""Alembic environment configuration for FinOps conversation threading system."""
+"""Alembic environment configuration for aasmaa conversation threading system."""
 
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool

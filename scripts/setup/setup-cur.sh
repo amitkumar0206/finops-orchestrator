@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FinOps Platform - Cost and Usage Data Export Setup Script
+# aasmaa Platform - Cost and Usage Data Export Setup Script
 # This script sets up AWS Standard Data Exports (replaces legacy CUR)
 # 
 # NOTE: Data exports are OPTIONAL. The platform works immediately with Cost Explorer API (13 months).
@@ -40,7 +40,7 @@ if [ -z "$RUNNING_FROM_DEPLOY" ]; then
     echo ""
     echo "ℹ️  NOTE: This setup is OPTIONAL"
     echo ""
-    echo "The FinOps platform works immediately with AWS Cost Explorer API,"
+    echo "The aasmaa platform works immediately with AWS Cost Explorer API,"
     echo "which provides 13 months of historical data with no setup required."
     echo ""
     echo "Data exports are only needed if you want:"
@@ -64,10 +64,10 @@ if [ -z "$RUNNING_FROM_DEPLOY" ]; then
 fi
 
 # Configuration
-STACK_NAME="${STACK_NAME:-finops-intelligence-platform}"
+STACK_NAME="${STACK_NAME:-aasmaa}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 STATE_FILE=".deploy-state.env"
-EXPORT_NAME="finops-cost-export"
+EXPORT_NAME="aasmaa-cost-export"
 
 # Reuse bucket from state file or deployment.env if it exists
 if [ -f "$STATE_FILE" ]; then
@@ -91,7 +91,7 @@ if [ -f "deployment.env" ]; then
 fi
 if [ -z "$ATHENA_RESULTS_BUCKET" ]; then
   AWS_ACCOUNT_ID_DETECT=$(aws sts get-caller-identity --query Account --output text)
-  ATHENA_RESULTS_BUCKET="finops-intelligence-platform-athena-results-${AWS_ACCOUNT_ID_DETECT}"
+  ATHENA_RESULTS_BUCKET="aasmaa-athena-results-${AWS_ACCOUNT_ID_DETECT}"
 fi
 
 # Get AWS Account ID
@@ -99,7 +99,7 @@ AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 # If no existing bucket, create new bucket name with AWS account ID for global uniqueness
 if [ -z "$CUR_BUCKET_NAME" ]; then
-    CUR_BUCKET_NAME="finops-intelligence-platform-data-${AWS_ACCOUNT_ID}"
+    CUR_BUCKET_NAME="aasmaa-data-${AWS_ACCOUNT_ID}"
     log_info "No existing bucket found. Will create: $CUR_BUCKET_NAME"
 fi
 
@@ -271,7 +271,7 @@ fi
 # Set up Athena workgroup for data export queries
 log_info "Setting up Athena workgroup..."
 aws athena create-work-group \
-  --name finops-workgroup \
+  --name aasmaa-workgroup \
   --configuration "ResultConfiguration={OutputLocation=s3://$ATHENA_RESULTS_BUCKET/}" \
   --region "$AWS_REGION" 2>/dev/null || log_info "Athena workgroup already exists"
 log_success "Athena workgroup configured"
@@ -287,7 +287,7 @@ log_success "Glue database configured"
 log_info "Setting up Glue crawler for data export..."
 
 # Get or create IAM role for Glue
-GLUE_ROLE_NAME="AWSGlueServiceRole-FinOps"
+GLUE_ROLE_NAME="AWSGlueServiceRole-aasmaa"
 GLUE_ROLE_ARN="arn:aws:iam::$AWS_ACCOUNT_ID:role/$GLUE_ROLE_NAME"
 
 # Check if role exists, if not provide instructions
@@ -347,7 +347,7 @@ EOF
     
     aws iam put-role-policy \
         --role-name "$GLUE_ROLE_NAME" \
-        --policy-name "FinOpsS3Access" \
+        --policy-name "aasmaaS3Access" \
         --policy-document file:///tmp/glue-s3-policy.json || true
     
     log_success "Glue service role created"
@@ -359,7 +359,7 @@ fi
 # Create Glue crawler for DETAILED CUR data (not historical backfill)
 # Important: Point to the CUR export directory, not the parent cost-exports/
 # This ensures we get the full 300+ column CUR schema, not the 19-column aggregated data
-CRAWLER_NAME="finops-cost-export-crawler"
+CRAWLER_NAME="aasmaa-cost-export-crawler"
 log_info "Creating Glue crawler: $CRAWLER_NAME"
 
 # The CUR data is in: cost-exports/{export-name}/{YYYYMMDD-YYYYMMDD}/
@@ -391,7 +391,7 @@ log_success "Glue crawler configured (will run daily at 3 AM UTC)"
 log_info "✓ Excludes: historical backfill data and JSON manifest files"
 
 # Create separate crawler for historical aggregated data (optional)
-HISTORICAL_CRAWLER_NAME="finops-historical-aggregated-crawler"
+HISTORICAL_CRAWLER_NAME="aasmaa-historical-aggregated-crawler"
 log_info "Creating crawler for historical aggregated data: $HISTORICAL_CRAWLER_NAME"
 
 # Check if historical crawler already exists
@@ -418,7 +418,7 @@ cat > cur-config.env << EOF
 CUR_BUCKET_NAME="$CUR_BUCKET_NAME"
 EXPORT_NAME="$EXPORT_NAME"
 AWS_REGION="$AWS_REGION"
-ATHENA_WORKGROUP="finops-workgroup"
+ATHENA_WORKGROUP="aasmaa-workgroup"
 GLUE_DATABASE="cost_usage_db"
 GLUE_CRAWLER="$CRAWLER_NAME"
 GLUE_HISTORICAL_CRAWLER="$HISTORICAL_CRAWLER_NAME"
@@ -426,7 +426,7 @@ EXPORT_TYPE="CUR"
 VERSIONING_MODE="CREATE_NEW_REPORT"
 CREATED_AT="$CREATED_TIMESTAMP"
 # Note: CUR table will be auto-created by crawler with name like: {date_range}
-# Historical table will be: finops_cost_export (aggregated monthly data)
+# Historical table will be: aasmaa_cost_export (aggregated monthly data)
 EOF
 
 log_success "Configuration saved to cur-config.env"
@@ -446,7 +446,7 @@ echo ""
 
 CUR_EXISTS=$(aws cur describe-report-definitions --region us-east-1 --query "ReportDefinitions[?ReportName=='$EXPORT_NAME'].ReportName" --output text 2>/dev/null || echo "")
 GLUE_DB_EXISTS=$(aws glue get-database --name cost_usage_db --region "$AWS_REGION" 2>/dev/null && echo "yes" || echo "no")
-ATHENA_WG_EXISTS=$(aws athena get-work-group --work-group finops-workgroup --region "$AWS_REGION" 2>/dev/null && echo "yes" || echo "no")
+ATHENA_WG_EXISTS=$(aws athena get-work-group --work-group aasmaa-workgroup --region "$AWS_REGION" 2>/dev/null && echo "yes" || echo "no")
 S3_BUCKET_EXISTS=$(aws s3 ls "s3://$CUR_BUCKET_NAME" 2>/dev/null && echo "yes" || echo "no")
 CRAWLER_EXISTS=$(aws glue get-crawler --name "$CRAWLER_NAME" --region "$AWS_REGION" 2>/dev/null && echo "yes" || echo "no")
 
@@ -476,7 +476,7 @@ else
 fi
 
 if [ "$ATHENA_WG_EXISTS" = "yes" ]; then
-    echo "   ✅ Athena Workgroup: finops-workgroup"
+    echo "   ✅ Athena Workgroup: aasmaa-workgroup"
 else
     echo "   ❌ Athena Workgroup: NOT FOUND"
 fi
@@ -495,7 +495,7 @@ if [ -n "$CUR_EXISTS" ]; then
     echo "   Resources: Included"
     echo "   Glue Database: cost_usage_db"
     echo "   Glue Crawler: $CRAWLER_NAME (runs daily at 3 AM)"
-    echo "   Athena Workgroup: finops-workgroup"
+    echo "   Athena Workgroup: aasmaa-workgroup"
     echo ""
     echo "⏰ Note: It may take up to 24 hours for the first export to be generated."
     echo "📍 Exports will be stored at: s3://$CUR_BUCKET_NAME/cost-exports/"
@@ -518,7 +518,7 @@ else
     echo "   • S3 Bucket: $CUR_BUCKET_NAME"
     echo "   • Glue Database: cost_usage_db"
     echo "   • Glue Crawler: $CRAWLER_NAME"
-    echo "   • Athena Workgroup: finops-workgroup"
+    echo "   • Athena Workgroup: aasmaa-workgroup"
     echo ""
     echo "⚠️  Manual Action Required:"
     echo "   Ask an AWS administrator to create CUR report with these settings:"
@@ -538,7 +538,7 @@ fi
 
 echo "🔄 Next Steps (continued):"
 echo "   3. Verify tables: aws glue get-tables --database-name cost_usage_db --region $AWS_REGION"
-echo "   4. Query via Athena workgroup: finops-workgroup"
+echo "   4. Query via Athena workgroup: aasmaa-workgroup"
 echo ""
 echo "💡 Data Strategy:"
 echo "   • Recent queries (0-13 months): Cost Explorer API (fast)"

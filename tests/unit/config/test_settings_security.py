@@ -132,7 +132,7 @@ class TestDeterministicSecretKeyRejection:
 
     def test_production_rejects_deterministic_pattern(self):
         """The old CloudFormation pattern stackname-accountid-secret-key-v1 must be rejected"""
-        os.environ['SECRET_KEY'] = 'finops-intelligence-platform-services-123456789012-secret-key-v1'
+        os.environ['SECRET_KEY'] = 'aasmaa-services-123456789012-secret-key-v1'
         os.environ['ENVIRONMENT'] = 'production'
 
         with pytest.raises(ValueError) as exc_info:
@@ -152,7 +152,7 @@ class TestDeterministicSecretKeyRejection:
 
     def test_deterministic_key_not_secure(self):
         """is_secret_key_secure must return False for deterministic keys"""
-        os.environ['SECRET_KEY'] = 'finops-platform-123456789012-secret-key-v1'
+        os.environ['SECRET_KEY'] = 'aasmaa-platform-123456789012-secret-key-v1'
         os.environ['ENVIRONMENT'] = 'development'
 
         settings = Settings()

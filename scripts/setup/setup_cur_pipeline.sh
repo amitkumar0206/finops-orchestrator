@@ -27,10 +27,10 @@ fi
 AWS_REGION="${AWS_REGION:-us-east-1}"
 ATHENA_DB="${AWS_CUR_DATABASE:-cost_usage_db}"
 ATHENA_TABLE="${AWS_CUR_TABLE:-cur_data}"
-CUR_BUCKET_DEFAULT="finops-intelligence-platform-data-${AWS_ACCOUNT_ID:-XXXX}"
+CUR_BUCKET_DEFAULT="aasmaa-data-${AWS_ACCOUNT_ID:-XXXX}"
 CUR_BUCKET="${CUR_S3_BUCKET:-$CUR_BUCKET_DEFAULT}"
 # Raw CUR 2.0 delivery prefix
-CUR_PREFIX="${CUR_S3_PREFIX:-cost-exports/finops-cost-export}"
+CUR_PREFIX="${CUR_S3_PREFIX:-cost-exports/aasmaa-cost-export}"
 # Archive location for manifests
 ARCHIVE_PREFIX="_archived-manifests"
 
@@ -81,7 +81,7 @@ generate_table_from_manifest() {
   # Execute DROP + CREATE separately via Athena
   aws athena start-query-execution \
     --query-string "DROP TABLE IF EXISTS $ATHENA_DB.$ATHENA_TABLE" \
-    --work-group "${ATHENA_WORKGROUP:-finops-workgroup}" \
+    --work-group "${ATHENA_WORKGROUP:-aasmaa-workgroup}" \
     --result-configuration OutputLocation="s3://$CUR_BUCKET/athena-results/" \
     --region "$AWS_REGION" >/dev/null
 
@@ -89,15 +89,15 @@ generate_table_from_manifest() {
   grep -v "^DROP" /tmp/create_cur_from_manifest.sql > /tmp/_create_only.sql
   aws athena start-query-execution \
     --query-string "$(cat /tmp/_create_only.sql)" \
-    --work-group "${ATHENA_WORKGROUP:-finops-workgroup}" \
+    --work-group "${ATHENA_WORKGROUP:-aasmaa-workgroup}" \
     --result-configuration OutputLocation="s3://$CUR_BUCKET/athena-results/" \
     --region "$AWS_REGION" >/dev/null
   ok "Created/updated Athena table $ATHENA_DB.$ATHENA_TABLE"
 }
 
 create_lambda_archiver() {
-  local role_name="finops-cur-lambda-role"
-  local fn_name="finops-cur-manifest-archiver"
+  local role_name="aasmaa-cur-lambda-role"
+  local fn_name="aasmaa-cur-manifest-archiver"
 
   log "Ensuring Lambda IAM role $role_name"
   if ! aws iam get-role --role-name "$role_name" --region "$AWS_REGION" >/dev/null 2>&1; then
@@ -170,7 +170,7 @@ validate_query() {
   log "Validating Athena table $ATHENA_DB.$ATHENA_TABLE"
   qid=$(aws athena start-query-execution \
     --query-string "SELECT COUNT(*) AS total FROM $ATHENA_DB.$ATHENA_TABLE" \
-    --work-group "${ATHENA_WORKGROUP:-finops-workgroup}" \
+    --work-group "${ATHENA_WORKGROUP:-aasmaa-workgroup}" \
     --result-configuration OutputLocation="s3://$CUR_BUCKET/athena-results/" \
     --region "$AWS_REGION" --query 'QueryExecutionId' --output text)
   sleep 10

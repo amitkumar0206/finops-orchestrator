@@ -1,5 +1,5 @@
 """
-FinOps Conversation Threading - Database Schema Visualization
+aasmaa Conversation Threading - Database Schema Visualization
 
 This file provides SQL scripts to visualize and explore the complete schema.
 """

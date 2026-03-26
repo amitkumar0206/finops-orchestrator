@@ -100,8 +100,8 @@ class TestTaskDefJsonFieldEncryptionKey:
             f"FIELD_ENCRYPTION_KEY valueFrom must be a Secrets Manager ARN, "
             f"got: {entry['valueFrom']!r}"
         )
-        assert "finops/field-encryption-key" in entry["valueFrom"], (
-            "FIELD_ENCRYPTION_KEY must reference the finops/field-encryption-key "
+        assert "aasmaa/field-encryption-key" in entry["valueFrom"], (
+            "FIELD_ENCRYPTION_KEY must reference the aasmaa/field-encryption-key "
             "secret (matches FieldEncryptionKeySecret Name in main-stack.yaml)"
         )
 
@@ -163,7 +163,7 @@ class TestEcsServicesYamlFieldEncryptionKey:
     def test_field_encryption_key_valuefrom_references_secrets_manager(self, ecs_services_yaml):
         """
         The ValueFrom line immediately following the Name line must reference
-        the finops/field-encryption-key secret via Secrets Manager ARN.
+        the aasmaa/field-encryption-key secret via Secrets Manager ARN.
         """
         lines = ecs_services_yaml.splitlines()
         for i, line in enumerate(lines):
@@ -179,8 +179,8 @@ class TestEcsServicesYamlFieldEncryptionKey:
                     assert "secretsmanager" in ns, (
                         "FIELD_ENCRYPTION_KEY ValueFrom must be a Secrets Manager ARN"
                     )
-                    assert "finops/field-encryption-key" in ns, (
-                        "FIELD_ENCRYPTION_KEY must reference finops/field-encryption-key "
+                    assert "aasmaa/field-encryption-key" in ns, (
+                        "FIELD_ENCRYPTION_KEY must reference aasmaa/field-encryption-key "
                         "(matches FieldEncryptionKeySecret Name in main-stack.yaml)"
                     )
                     return
@@ -208,7 +208,7 @@ class TestMainStackFieldEncryptionKeySecret:
 
     def test_secret_name_matches_task_def_references(self, main_stack_yaml):
         """
-        The secret Name must be exactly 'finops/field-encryption-key' —
+        The secret Name must be exactly 'aasmaa/field-encryption-key' —
         both ecs-services.yaml and task-def.json hard-code this in their
         ValueFrom ARNs (partial-ARN resolution, no random suffix).
         """
@@ -221,10 +221,10 @@ class TestMainStackFieldEncryptionKeySecret:
             elif in_resource and re.match(r"^\s{2}\w", line):
                 # Hit the next top-level resource (2-space indent, non-continuation)
                 break
-            elif in_resource and "Name:" in line and "finops/field-encryption-key" in line:
+            elif in_resource and "Name:" in line and "aasmaa/field-encryption-key" in line:
                 return
         pytest.fail(
-            "FieldEncryptionKeySecret must have Name: finops/field-encryption-key "
+            "FieldEncryptionKeySecret must have Name: aasmaa/field-encryption-key "
             "to match the ValueFrom ARNs in ecs-services.yaml and task-def.json"
         )
 
