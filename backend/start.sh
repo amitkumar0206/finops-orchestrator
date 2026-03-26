@@ -24,6 +24,9 @@ fi
 
 # Print configuration (masked)
 echo "Configuration:"
+echo "  - Demo Mode: ${DEMO_MODE:-false}"
+echo "  - Database Enabled: ${DATABASE_ENABLED:-true}"
+echo "  - Chat History Enabled: ${CHAT_HISTORY_ENABLED:-true}"
 echo "  - Postgres Host: ${POSTGRES_HOST:-localhost}"
 echo "  - Postgres Port: ${POSTGRES_PORT:-5432}"
 echo "  - Postgres DB: ${POSTGRES_DB:-aasmaa}"

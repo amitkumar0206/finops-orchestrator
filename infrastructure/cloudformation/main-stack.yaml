@@ -761,6 +761,18 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-private-subnet-2'
 
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub '${AWS::StackName}-public-subnet-1'
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub '${AWS::StackName}-public-subnet-2'
+
   SecretKeyArn:
     Description: ARN of the JWT Secret Key in Secrets Manager
     Value: !Ref SecretKeySecret

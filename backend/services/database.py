@@ -31,6 +31,10 @@ settings = get_settings()
 logger = structlog.get_logger(__name__)
 
 
+class DatabaseDisabledError(RuntimeError):
+    """Raised when a database-backed operation is requested while disabled."""
+
+
 def create_ssl_context(
     ssl_mode: str,
     ca_cert_path: Optional[str] = None,
@@ -148,8 +152,18 @@ class DatabaseService:
         self.engine = None
         self.session_factory = None
 
+    @staticmethod
+    def ensure_enabled():
+        """Fail fast when PostgreSQL-backed features are disabled by config."""
+        if not settings.database_enabled:
+            raise DatabaseDisabledError(
+                "Database-backed features are disabled by configuration. "
+                "Set DATABASE_ENABLED=true to re-enable PostgreSQL-backed functionality."
+            )
+
     async def initialize(self):
         """Initialize database connection with secure SSL configuration"""
+        self.ensure_enabled()
         try:
             # Log connection info (without password)
             logger.info(
@@ -250,6 +264,7 @@ class DatabaseService:
     
     async def get_session(self):
         """Get database session as context manager"""
+        self.ensure_enabled()
         session = self.session_factory()
         return session
     

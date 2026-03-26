@@ -26,6 +26,34 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     host: str = Field(default="0.0.0.0", env="HOST")
     port: int = Field(default=8000, env="PORT")
+
+    # Demo mode (single-tenant, no persistent auth/db dependencies)
+    demo_mode: bool = Field(
+        default=False,
+        env="DEMO_MODE",
+        description="Enable demo mode with synthetic authenticated context"
+    )
+    demo_user_id: str = Field(
+        default="11111111-1111-1111-1111-111111111111",
+        env="DEMO_USER_ID"
+    )
+    demo_user_email: str = Field(
+        default="demo@aasmaa.ai",
+        env="DEMO_USER_EMAIL"
+    )
+    demo_org_id: str = Field(
+        default="22222222-2222-2222-2222-222222222222",
+        env="DEMO_ORGANIZATION_ID"
+    )
+    demo_org_name: str = Field(
+        default="Demo Organization",
+        env="DEMO_ORGANIZATION_NAME"
+    )
+    demo_allowed_account_ids_str: str = Field(
+        default="",
+        env="DEMO_ALLOWED_ACCOUNT_IDS",
+        description="Comma-separated AWS account IDs allowed in demo mode"
+    )
     
     # Security
     # SECURITY: No default value - must be set via SECRET_KEY environment variable
@@ -133,6 +161,16 @@ class Settings(BaseSettings):
     )
 
     # Database
+    database_enabled: bool = Field(
+        default=True,
+        env="DATABASE_ENABLED",
+        description="Enable PostgreSQL-backed features such as auth, organization scoping, and persistence"
+    )
+    chat_history_enabled: bool = Field(
+        default=True,
+        env="CHAT_HISTORY_ENABLED",
+        description="Enable persistent conversation history and threaded chat storage"
+    )
     postgres_host: str = Field(default="localhost", env="POSTGRES_HOST")
     postgres_port: int = Field(default=5432, env="POSTGRES_PORT")
     postgres_db: str = Field(default="aasmaa", env="POSTGRES_DB")
@@ -433,6 +471,21 @@ class Settings(BaseSettings):
         if v.upper() not in valid_levels:
             raise ValueError(f"Log level must be one of {valid_levels}")
         return v.upper()
+
+    @model_validator(mode='after')
+    def harmonize_database_feature_flags(self) -> 'Settings':
+        """Keep dependent database feature flags in a safe state."""
+        if not self.database_enabled and self.chat_history_enabled:
+            object.__setattr__(self, 'chat_history_enabled', False)
+
+            warnings.warn(
+                "CHAT_HISTORY_ENABLED was set while DATABASE_ENABLED is false. "
+                "Disabling chat history because it depends on PostgreSQL.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        return self
     
     @property
     def allowed_origins(self) -> List[str]:
@@ -497,6 +550,19 @@ class Settings(BaseSettings):
         """Parse and return CORS allowed headers as a list"""
         default = ["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"]
         return self._parse_string_list(self.cors_allow_headers_str, default)
+
+    @property
+    def demo_allowed_account_ids(self) -> List[str]:
+        """Parse and return demo account IDs as a list."""
+        raw_values = self._parse_string_list(self.demo_allowed_account_ids_str, [])
+        valid_values = []
+
+        for value in raw_values:
+            acc = str(value).strip()
+            if re.fullmatch(r"\d{12}", acc):
+                valid_values.append(acc)
+
+        return valid_values
 
     @property
     def database_url(self) -> str:
@@ -572,6 +638,9 @@ class Settings(BaseSettings):
         Validate database SSL configuration.
         Returns list of issues (empty if all valid).
         """
+        if not self.database_enabled:
+            return []
+
         issues = []
 
         valid_ssl_modes = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
@@ -684,7 +753,7 @@ class Settings(BaseSettings):
                 )
 
         # Field encryption key validation
-        if self.is_production:
+        if self.is_production and self.database_enabled:
             if not self.field_encryption_key:
                 issues.append(
                     "CRITICAL: FIELD_ENCRYPTION_KEY is not set. Sensitive database fields "

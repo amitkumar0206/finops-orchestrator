@@ -32,8 +32,10 @@ from backend.utils.auth import (
     get_authenticator,
 )
 from backend.services.cache_service import get_cache_service
+from backend.config.settings import get_settings
 
 logger = structlog.get_logger(__name__)
+settings = get_settings()
 
 
 @dataclass
@@ -130,6 +132,17 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         """Process authentication for each request"""
         path = request.url.path
+
+        # Demo mode bypasses JWT to allow low-cost showcase deployments.
+        if settings.demo_mode and not self._is_public_path(path):
+            request.state.auth_user = AuthenticatedUser(
+                user_id=settings.demo_user_id,
+                email=settings.demo_user_email,
+                is_admin=True,
+                organization_id=settings.demo_org_id,
+                token_type="demo",
+            )
+            return await call_next(request)
 
         # Skip authentication for public paths
         if self._is_public_path(path):

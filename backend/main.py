@@ -20,7 +20,7 @@ from backend.api import chat, health, reports, analytics, athena_queries
 from backend.api import saved_views, organizations, scope, opportunities, auth
 from backend.api.admin import rate_limits as admin_rate_limits
 from backend.services.vector_store import VectorStoreService
-from backend.services.database import DatabaseService
+from backend.services.database import DatabaseService, DatabaseDisabledError
 from backend.middleware.account_scoping import AccountScopingMiddleware
 from backend.middleware.authentication import AuthenticationMiddleware
 from backend.middleware.security_headers import SecurityHeadersMiddleware, get_default_csp, get_default_permissions_policy
@@ -76,26 +76,29 @@ async def lifespan(app: FastAPI):
     db_service = None
     vector_service = None
 
-    try:
-        # Initialize database connection in the background to avoid blocking startup
-        logger.info("Scheduling database service initialization (non-blocking)...")
-        db_service = DatabaseService()
+    if settings.database_enabled:
+        try:
+            # Initialize database connection in the background to avoid blocking startup
+            logger.info("Scheduling database service initialization (non-blocking)...")
+            db_service = DatabaseService()
 
-        async def init_db_background():
-            try:
-                await db_service.initialize()
-                app.state.db = db_service
-                logger.info("Database service initialized successfully (background)")
-            except Exception as e:
-                logger.error(f"Database service initialization failed: {e}", exc_info=True)
-                logger.warning("Running without database - some features may be limited")
+            async def init_db_background():
+                try:
+                    await db_service.initialize()
+                    app.state.db = db_service
+                    logger.info("Database service initialized successfully (background)")
+                except Exception as e:
+                    logger.error(f"Database service initialization failed: {e}", exc_info=True)
+                    logger.warning("Running without database - some features may be limited")
 
-        # Fire-and-forget task; app starts serving immediately
-        asyncio.create_task(init_db_background())
-        
-    except Exception as e:
-        logger.error(f"Failed to schedule database service initialization: {e}", exc_info=True)
-        logger.warning("Continuing without database - some features may be limited")
+            # Fire-and-forget task; app starts serving immediately
+            asyncio.create_task(init_db_background())
+
+        except Exception as e:
+            logger.error(f"Failed to schedule database service initialization: {e}", exc_info=True)
+            logger.warning("Continuing without database - some features may be limited")
+    else:
+        logger.info("Database service disabled by configuration")
     
     try:
         # Initialize vector store (local disk; should be quick). Don't block for too long.
@@ -230,6 +233,12 @@ async def logging_middleware(request: Request, call_next):
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Global exception handler"""
+    if isinstance(exc, DatabaseDisabledError):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": str(exc)}
+        )
+
     logger.error(
         "Unhandled exception",
         exc_info=exc,

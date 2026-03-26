@@ -213,6 +213,41 @@ class TestLegacyHeaderAuthRemoved:
 
         # Even if env var is set, the setting should not exist
         assert not hasattr(settings, 'allow_legacy_header_auth')
+class TestDatabaseFeatureFlags:
+    """Test database feature flag interactions."""
+
+    def setup_method(self):
+        clear_settings_cache()
+        self._original_env = os.environ.copy()
+
+    def teardown_method(self):
+        os.environ.clear()
+        os.environ.update(self._original_env)
+        clear_settings_cache()
+
+    def test_database_disabled_forces_chat_history_off(self):
+        """CHAT_HISTORY_ENABLED cannot remain on when PostgreSQL is disabled."""
+        os.environ['SECRET_KEY'] = 'secure-key-that-is-at-least-32-characters-long-12345'
+        os.environ['ENVIRONMENT'] = 'development'
+        os.environ['DATABASE_ENABLED'] = 'false'
+        os.environ['CHAT_HISTORY_ENABLED'] = 'true'
+
+        settings = Settings()
+
+        assert settings.database_enabled is False
+        assert settings.chat_history_enabled is False
+
+    def test_database_ssl_validation_skipped_when_database_disabled(self):
+        """DB SSL warnings should not fire when the database is intentionally off."""
+        os.environ['SECRET_KEY'] = 'secure-key-that-is-at-least-32-characters-long-12345'
+        os.environ['ENVIRONMENT'] = 'production'
+        os.environ['DATABASE_ENABLED'] = 'false'
+        os.environ['POSTGRES_SSL_MODE'] = 'verify-full'
+        os.environ.pop('POSTGRES_SSL_CA_CERT_PATH', None)
+
+        settings = Settings()
+
+        assert settings.validate_database_ssl_configuration() == []
 
 
 class TestFieldEncryptionKeyValidation:
