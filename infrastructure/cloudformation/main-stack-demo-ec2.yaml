@@ -1,0 +1,481 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'aasmaa Demo-Only Ultra-Lean EC2 Infrastructure (~$12-15/month, no ALB, no Fargate)'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Demo Configuration"
+        Parameters:
+          - DomainName
+          - HostedZoneId
+          - CreateACMCertificate
+      - Label:
+          default: "Deployment Settings"
+        Parameters:
+          - KeyPairName
+          - BackendImageUri
+          - FrontendImageUri
+          - BedrockModelId
+      - Label:
+          default: "S3 & Data Settings"
+        Parameters:
+          - S3BucketName
+          - CurReportBucketName
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: demo.aasmaa.ai
+    Description: Custom domain name for the demo
+
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: Route53 Hosted Zone ID (required if using custom domain)
+
+  CreateACMCertificate:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+    Description: Create ACM certificate for HTTPS
+
+  KeyPairName:
+    Type: String
+    Default: ''
+    Description: Optional EC2 Key Pair name for SSH access (leave blank for no SSH)
+
+  BackendImageUri:
+    Type: String
+    Description: URI of the backend Docker image in ECR
+
+  FrontendImageUri:
+    Type: String
+    Description: URI of the frontend Docker image in ECR
+
+  BedrockModelId:
+    Type: String
+    Default: us.amazon.nova-lite-v1:0
+    Description: AWS Bedrock model ID for LLM (nova-lite for cost optimization in demo)
+
+  S3BucketName:
+    Type: String
+    Description: S3 bucket name for demo data
+
+  CurReportBucketName:
+    Type: String
+    Default: ''
+    Description: S3 bucket for CUR reports (defaults to S3BucketName if empty)
+
+  DemoUserEmail:
+    Type: String
+    Default: demo@aasmaa.ai
+    Description: Synthetic demo user email
+
+  DemoOrganizationName:
+    Type: String
+    Default: Demo Organization
+    Description: Synthetic demo organization name
+
+  DemoAllowedAccountIds:
+    Type: String
+    Default: '123456789012'
+    Description: Comma-separated demo AWS account IDs for context
+
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref HostedZoneId, '']]
+  CreateCertificate: !And
+    - !Condition HasCustomDomain
+    - !Equals [!Ref CreateACMCertificate, 'true']
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+  HasCurBucket: !Not [!Equals [!Ref CurReportBucketName, '']]
+
+Resources:
+  # VPC (minimal: just for demo instance)
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: '10.0.0.0/16'
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-vpc'
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: '10.0.1.0/24'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-subnet'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-igw'
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-rt'
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group (single group for HTTP/HTTPS + SSH)
+  DemoSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${AWS::StackName}-sg'
+      GroupDescription: Security group for demo EC2 instance (HTTP/HTTPS/SSH)
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS
+        - !If
+          - HasKeyPair
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: 0.0.0.0/0
+            Description: SSH
+          - !Ref AWS::NoValue
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-sg'
+
+  # IAM Role for EC2 instance (S3, Bedrock, CloudWatch, ECR)
+  DemoEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3BucketName}'
+                  - !Sub 'arn:aws:s3:::${S3BucketName}/*'
+                  - !If
+                    - HasCurBucket
+                    - !Sub 'arn:aws:s3:::${CurReportBucketName}'
+                    - !Sub 'arn:aws:s3:::${S3BucketName}'
+                  - !If
+                    - HasCurBucket
+                    - !Sub 'arn:aws:s3:::${CurReportBucketName}/*'
+                    - !Sub 'arn:aws:s3:::${S3BucketName}/*'
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:ListFoundationModels
+                  - bedrock:GetFoundationModel
+                Resource: '*'
+        - PolicyName: AthenaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - athena:StartQueryExecution
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                  - athena:StopQueryExecution
+                  - athena:GetWorkGroup
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:GetPartitions
+                  - glue:GetPartition
+                  - ce:GetCostAndUsage
+                  - ce:GetUsageReport
+                  - ce:GetRightsizingRecommendation
+                  - ce:GetDimensionValues
+                  - cur:DescribeReportDefinitions
+                Resource: '*'
+        - PolicyName: ECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+
+  DemoEC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref DemoEC2Role
+
+  # EC2 Instance (t3.small: ~$7-8/month)
+  DemoEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      InstanceType: t3.small
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref AWS::NoValue]
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref DemoSecurityGroup
+      IamInstanceProfile: !Ref DemoEC2InstanceProfile
+      EbsOptimized: false
+      # Allocate public IP
+      AssociatePublicIpAddress: true
+      TagSpecifications:
+        - ResourceType: instance
+          Tags:
+            - Key: Name
+              Value: !Sub '${AWS::StackName}-instance'
+      # UserData: Install Docker + start demo services
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          
+          # Update system
+          yum update -y
+          yum install -y docker git jq
+          
+          # Start Docker
+          systemctl start docker
+          systemctl enable docker
+          
+          # Install Docker Compose
+          curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          
+          # Create demo directory
+          mkdir -p /opt/aasmaa-demo
+          cd /opt/aasmaa-demo
+          
+          # Create docker-compose.yml (inline)
+          cat > docker-compose.yml << 'EOF'
+          version: '3.8'
+          
+          services:
+            backend:
+              image: ${BackendImageUri}
+              container_name: aasmaa-backend
+              ports:
+                - "8000:8000"
+              environment:
+                # Demo mode settings
+                DEMO_MODE: 'true'
+                DATABASE_ENABLED: 'false'
+                CHAT_HISTORY_ENABLED: 'false'
+                
+                # Demo synthetic context
+                DEMO_USER_EMAIL: '${DemoUserEmail}'
+                DEMO_ORGANIZATION_NAME: '${DemoOrganizationName}'
+                DEMO_ALLOWED_ACCOUNT_IDS: '${DemoAllowedAccountIds}'
+                
+                # AWS settings
+                AWS_REGION: ${AWS::Region}
+                S3_BUCKET: '${S3BucketName}'
+                AWS_S3_BUCKET: '${S3BucketName}'
+                CUR_S3_PREFIX: 'cost-exports/aasmaa-cost-export'
+                ATHENA_OUTPUT_LOCATION: 's3://${S3BucketName}/athena-results/'
+                AWS_CUR_DATABASE: 'cost_usage_db'
+                AWS_CUR_TABLE: 'cur_data'
+                
+                # LLM settings
+                BEDROCK_MODEL_ID: '${BedrockModelId}'
+                DEFAULT_LLM_MODEL: '${BedrockModelId}'
+                
+                # App settings
+                ENVIRONMENT: 'production'
+                TRUSTED_PROXY_COUNT: '0'
+                LLM_PROVIDER: 'bedrock'
+                ALLOWED_ORIGINS: '["http://localhost","http://localhost:3000","http://127.0.0.1:3000","https://${DomainName}"]'
+              logging:
+                driver: awslogs
+                options:
+                  awslogs-group: !Sub '/aasmaa-demo/${AWS::StackName}/backend'
+                  awslogs-region: ${AWS::Region}
+                  awslogs-stream-prefix: backend
+              healthcheck:
+                test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
+                interval: 30s
+                timeout: 5s
+                retries: 3
+                start_period: 60s
+            
+            frontend:
+              image: ${FrontendImageUri}
+              container_name: aasmaa-frontend
+              ports:
+                - "80:80"
+              environment:
+                BACKEND_URL: 'http://localhost:8000'
+              depends_on:
+                - backend
+              logging:
+                driver: awslogs
+                options:
+                  awslogs-group: !Sub '/aasmaa-demo/${AWS::StackName}/frontend'
+                  awslogs-region: ${AWS::Region}
+                  awslogs-stream-prefix: frontend
+              healthcheck:
+                test: ['CMD', 'curl', '-f', 'http://localhost:80/']
+                interval: 30s
+                timeout: 5s
+                retries: 3
+                start_period: 30s
+          EOF
+          
+          # Login to ECR and start services
+          aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+          docker-compose pull
+          docker-compose up -d
+          
+          # Log startup status
+          echo "Demo services started at $(date)" >> /var/log/aasmaa-demo-startup.log
+          docker-compose ps >> /var/log/aasmaa-demo-startup.log 2>&1
+
+  # CloudWatch Log Groups (for centralized logging from EC2)
+  BackendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aasmaa-demo/${AWS::StackName}/backend'
+      RetentionInDays: 7
+
+  FrontendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aasmaa-demo/${AWS::StackName}/frontend'
+      RetentionInDays: 7
+
+  # ACM Certificate (optional, for HTTPS)
+  SSLCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: CreateCertificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  # Route53 DNS Record (optional, points to EC2 instance)
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasCustomDomain
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      TTL: '300'
+      ResourceRecords:
+        - !GetAtt DemoEC2Instance.PublicIp
+
+Outputs:
+  TemplateVersion:
+    Description: Template for ultra-lean demo (EC2 t3.small, no ALB)
+    Value: '2026-03-27-demo-ec2-lean'
+
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${AWS::StackName}-vpc-id'
+
+  EC2InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref DemoEC2Instance
+    Export:
+      Name: !Sub '${AWS::StackName}-instance-id'
+
+  EC2PublicIP:
+    Description: Public IP of EC2 instance
+    Value: !GetAtt DemoEC2Instance.PublicIp
+    Export:
+      Name: !Sub '${AWS::StackName}-public-ip'
+
+  ApplicationURL:
+    Description: Application URL
+    Value: !If
+      - HasCustomDomain
+      - !Sub 'https://${DomainName}'
+      - !Sub 'http://${DemoEC2Instance.PublicIp}'
+
+  CertificateArn:
+    Condition: CreateCertificate
+    Description: ACM Certificate ARN for HTTPS
+    Value: !Ref SSLCertificate
+    Export:
+      Name: !Sub '${AWS::StackName}-certificate-arn'
+
+  EstimatedMonthlyCost:
+    Description: Estimated monthly cost (t3.small ~$8 + storage ~$2 + data transfer ~$1)
+    Value: '$11-13 per month'
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref DemoSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-sg-id'
+
+  BackendImageUri:
+    Description: Backend Docker image reference
+    Value: !Ref BackendImageUri
+
+  FrontendImageUri:
+    Description: Frontend Docker image reference
+    Value: !Ref FrontendImageUri

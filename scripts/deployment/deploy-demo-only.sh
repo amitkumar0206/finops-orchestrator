@@ -12,6 +12,9 @@ DEMO_ALLOWED_ACCOUNT_IDS="${DEMO_ALLOWED_ACCOUNT_IDS:-}"
 DEMO_USER_EMAIL="${DEMO_USER_EMAIL:-demo@aasmaa.ai}"
 DEMO_ORGANIZATION_NAME="${DEMO_ORGANIZATION_NAME:-Demo Organization}"
 BEDROCK_MODEL="${BEDROCK_MODEL:-us.amazon.nova-lite-v1:0}"
+# DEPLOYMENT_BACKEND: 'ec2' (ultra-lean, ~$12/month) or 'fargate' (ALB+ECS, ~$73/month)
+# Default: ec2 for cost-optimized demo
+DEPLOYMENT_BACKEND="${DEPLOYMENT_BACKEND:-ec2}"
 
 log() {
   echo "[demo-deploy] $1"
@@ -24,7 +27,13 @@ normalize_zone_id() {
 }
 
 resolve_hosted_zone_id() {
-  local domain="$1"
+
+if [[ "$DEPLOYMENT_BACKEND" != "ec2" && "$DEPLOYMENT_BACKEND" != "fargate" ]]; then
+  log "ERROR: DEPLOYMENT_BACKEND must be 'ec2' or 'fargate', got '${DEPLOYMENT_BACKEND}'"
+  exit 1
+fi
+
+log "Resolving hosted zone for custom domain (backend: ${DEPLOYMENT_BACKEND})"
   local labels=()
   local candidate
   local zone_id
@@ -110,56 +119,104 @@ else
   log "Using hosted zone ID: ${HOSTED_ZONE_ID}"
 fi
 
-log "Deploying demo infrastructure stack (${STACK_NAME})"
-aws cloudformation deploy \
-  --template-file infrastructure/cloudformation/main-stack-demo.yaml \
-  --stack-name "$STACK_NAME" \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --region "$AWS_REGION" \
-  --parameter-overrides \
-    Environment="$ENVIRONMENT" \
-    S3BucketName="$S3_BUCKET" \
-    CurReportBucketName="$CUR_BUCKET" \
-    DomainName="$DOMAIN_NAME" \
-    HostedZoneId="$HOSTED_ZONE_ID" \
+
+if [[ "$DEPLOYMENT_BACKEND" == "ec2" ]]; then
+  log "=== ULTRA-LEAN EC2 DEPLOYMENT (t3.small, ~$12-13/month) ==="
+  log "Deploying EC2-based infrastructure stack (${STACK_NAME}-ec2)"
+  
+  EC2_PARAMS=(
+    DomainName="$DOMAIN_NAME"
+    HostedZoneId="$HOSTED_ZONE_ID"
     CreateACMCertificate="$CREATE_ACM_CERTIFICATE"
+    BackendImageUri="$BACKEND_IMAGE_URI"
+    FrontendImageUri="$FRONTEND_IMAGE_URI"
+    BedrockModelId="$BEDROCK_MODEL"
+    S3BucketName="$S3_BUCKET"
+    CurReportBucketName="$CUR_BUCKET"
+    DemoUserEmail="$DEMO_USER_EMAIL"
+    DemoOrganizationName="$DEMO_ORGANIZATION_NAME"
+    DemoAllowedAccountIds="$DEMO_ALLOWED_ACCOUNT_IDS"
+  )
+  
+  aws cloudformation deploy \
+    --template-file infrastructure/cloudformation/main-stack-demo-ec2.yaml \
+    --stack-name "$STACK_NAME" \
+    --capabilities CAPABILITY_NAMED_IAM,CAPABILITY_IAM \
+    --region "$AWS_REGION" \
+    --parameter-overrides "${EC2_PARAMS[@]}"
+  
+  INSTANCE_ID="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`EC2InstanceId`].OutputValue' --output text 2>/dev/null || true)"
+  PUBLIC_IP="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`EC2PublicIP`].OutputValue' --output text 2>/dev/null || true)"
+  APP_URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text 2>/dev/null || true)"
+  
+  log "EC2 deployment complete!"
+  log "Instance ID: ${INSTANCE_ID}"
+  log "Public IP: ${PUBLIC_IP}"
+  log "Application URL: ${APP_URL}"
+  log "Note: Docker Compose services are starting on the instance. Allow 2-3 minutes for full startup."
+  log ""
+  log "To SSH into instance (if you set KeyPairName parameter):"
+  log "  ssh -i <your-key.pem> ec2-user@${PUBLIC_IP}"
 
-CERT_ARN="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text 2>/dev/null || true)"
-
-SERVICE_PARAMS=(
-  ParentStackName="$STACK_NAME"
-  DeploymentMode="demo"
-  BackendImageUri="$BACKEND_IMAGE_URI"
-  FrontendImageUri="$FRONTEND_IMAGE_URI"
-  DatabaseEndpoint="localhost"
-  ValkeyEndpoint="localhost"
-  DatabasePassword="$DB_PASSWORD_PLACEHOLDER"
-  BedrockModelId="$BEDROCK_MODEL"
-  S3BucketName="$S3_BUCKET"
-  CurBucketName="$CUR_BUCKET"
-  CurDatabase="$ATHENA_DB"
-  CurTable="$ATHENA_TABLE"
-  CurS3Prefix="$CUR_PREFIX"
-  DemoUserEmail="$DEMO_USER_EMAIL"
-  DemoOrganizationName="$DEMO_ORGANIZATION_NAME"
-  DemoAllowedAccountIds="$DEMO_ALLOWED_ACCOUNT_IDS"
-)
-
-if [[ -n "$CERT_ARN" && "$CERT_ARN" != "None" ]]; then
-  SERVICE_PARAMS+=(CertificateArn="$CERT_ARN")
+else
+  log "=== FARGATE-BASED DEPLOYMENT (ALB + ECS, ~$73/month) ==="
+  log "Deploying Fargate infrastructure stack (${STACK_NAME})"
+  
+  aws cloudformation deploy \
+    --template-file infrastructure/cloudformation/main-stack-demo.yaml \
+    --stack-name "$STACK_NAME" \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --region "$AWS_REGION" \
+    --parameter-overrides \
+      Environment="$ENVIRONMENT" \
+      S3BucketName="$S3_BUCKET" \
+      CurReportBucketName="$CUR_BUCKET" \
+      DomainName="$DOMAIN_NAME" \
+      HostedZoneId="$HOSTED_ZONE_ID" \
+      CreateACMCertificate="$CREATE_ACM_CERTIFICATE"
+  
+  CERT_ARN="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text 2>/dev/null || true)"
+  
+  SERVICE_PARAMS=(
+    ParentStackName="$STACK_NAME"
+    DeploymentMode="demo"
+    BackendImageUri="$BACKEND_IMAGE_URI"
+    FrontendImageUri="$FRONTEND_IMAGE_URI"
+    DatabaseEndpoint="localhost"
+    ValkeyEndpoint="localhost"
+    DatabasePassword="$DB_PASSWORD_PLACEHOLDER"
+    BedrockModelId="$BEDROCK_MODEL"
+    S3BucketName="$S3_BUCKET"
+    CurBucketName="$CUR_BUCKET"
+    CurDatabase="$ATHENA_DB"
+    CurTable="$ATHENA_TABLE"
+    CurS3Prefix="$CUR_PREFIX"
+    DemoUserEmail="$DEMO_USER_EMAIL"
+    DemoOrganizationName="$DEMO_ORGANIZATION_NAME"
+    DemoAllowedAccountIds="$DEMO_ALLOWED_ACCOUNT_IDS"
+  )
+  
+  if [[ -n "$CERT_ARN" && "$CERT_ARN" != "None" ]]; then
+    SERVICE_PARAMS+=(CertificateArn="$CERT_ARN")
+  fi
+  
+  log "Deploying Fargate ECS services stack (${STACK_NAME}-services)"
+  aws cloudformation deploy \
+    --template-file infrastructure/cloudformation/ecs-services.yaml \
+    --stack-name "${STACK_NAME}-services" \
+    --capabilities CAPABILITY_IAM \
+    --region "$AWS_REGION" \
+    --parameter-overrides "${SERVICE_PARAMS[@]}"
+  
+  ALB_DNS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDNS`].OutputValue' --output text 2>/dev/null || true)"
+  APP_URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text 2>/dev/null || true)"
+  
+  log "Fargate deployment complete"
+  log "Application URL: ${APP_URL}"
+  log "ALB DNS: ${ALB_DNS}"
 fi
-
-log "Deploying demo ECS services stack (${STACK_NAME}-services)"
-aws cloudformation deploy \
-  --template-file infrastructure/cloudformation/ecs-services.yaml \
-  --stack-name "${STACK_NAME}-services" \
-  --capabilities CAPABILITY_IAM \
-  --region "$AWS_REGION" \
-  --parameter-overrides "${SERVICE_PARAMS[@]}"
 
 APP_URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text)"
 ALB_DNS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDNS`].OutputValue' --output text)"
 
 log "Demo deployment complete"
-log "Application URL: ${APP_URL}"
-log "ALB DNS: ${ALB_DNS}"
