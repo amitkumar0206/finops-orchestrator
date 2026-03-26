@@ -14,6 +14,9 @@ http {
         listen 80;
         server_name localhost;
 
+        ${AUTH_BASIC_DIRECTIVE}
+        ${AUTH_BASIC_USER_FILE_DIRECTIVE}
+
         root /usr/share/nginx/html;
         index index.html;
 

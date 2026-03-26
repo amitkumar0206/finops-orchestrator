@@ -82,6 +82,16 @@ Parameters:
     Default: '123456789012'
     Description: Comma-separated demo AWS account IDs for context
 
+  BasicAuthUsername:
+    Type: String
+    Default: demo
+    Description: Demo HTTP Basic Auth username
+
+  BasicAuthHtpasswdParameterName:
+    Type: String
+    Default: /aasmaa/demo/basic-auth/htpasswd
+    Description: SSM SecureString parameter containing htpasswd line (username:apr1-hash)
+
 Conditions:
   HasCustomDomain: !Not [!Equals [!Ref HostedZoneId, '']]
   CreateCertificate: !And
@@ -257,6 +267,18 @@ Resources:
                 Action:
                   - ecr:GetAuthorizationToken
                 Resource: '*'
+        - PolicyName: DemoAuthParameterAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${BasicAuthHtpasswdParameterName}'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: '*'
 
   DemoEC2InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -303,7 +325,17 @@ Resources:
           
           # Create demo directory
           mkdir -p /opt/aasmaa-demo
+          mkdir -p /opt/aasmaa-demo/auth
           cd /opt/aasmaa-demo
+
+          # Retrieve htpasswd entry from SSM Parameter Store and persist locally.
+          aws ssm get-parameter \
+            --name '${BasicAuthHtpasswdParameterName}' \
+            --with-decryption \
+            --region ${AWS::Region} \
+            --query 'Parameter.Value' \
+            --output text > /opt/aasmaa-demo/auth/.htpasswd
+          chmod 600 /opt/aasmaa-demo/auth/.htpasswd
           
           # Create docker-compose.yml (inline)
           cat > docker-compose.yml << 'EOF'
@@ -345,11 +377,10 @@ Resources:
                 LLM_PROVIDER: 'bedrock'
                 ALLOWED_ORIGINS: '["http://localhost","http://localhost:3000","http://127.0.0.1:3000","https://${DomainName}"]'
               logging:
-                driver: awslogs
+                driver: json-file
                 options:
-                  awslogs-group: !Sub '/aasmaa-demo/${AWS::StackName}/backend'
-                  awslogs-region: ${AWS::Region}
-                  awslogs-stream-prefix: backend
+                  max-size: "10m"
+                  max-file: "3"
               healthcheck:
                 test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
                 interval: 30s
@@ -364,14 +395,16 @@ Resources:
                 - "80:80"
               environment:
                 BACKEND_URL: 'http://localhost:8000'
+                BASIC_AUTH_ENABLED: 'true'
               depends_on:
                 - backend
+              volumes:
+                - /opt/aasmaa-demo/auth/.htpasswd:/etc/nginx/.htpasswd:ro
               logging:
-                driver: awslogs
+                driver: json-file
                 options:
-                  awslogs-group: !Sub '/aasmaa-demo/${AWS::StackName}/frontend'
-                  awslogs-region: ${AWS::Region}
-                  awslogs-stream-prefix: frontend
+                  max-size: "10m"
+                  max-file: "3"
               healthcheck:
                 test: ['CMD', 'curl', '-f', 'http://localhost:80/']
                 interval: 30s
@@ -479,3 +512,7 @@ Outputs:
   FrontendImageUri:
     Description: Frontend Docker image reference
     Value: !Ref FrontendImageUri
+
+  BasicAuthUsername:
+    Description: HTTP Basic Auth username for demo access
+    Value: !Ref BasicAuthUsername
