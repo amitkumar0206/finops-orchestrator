@@ -167,7 +167,7 @@ Resources:
   SecretKeySecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: aasmaa/secret-key
+      Name: !Sub '${AWS::StackName}/secret-key'
       Description: JWT signing secret key for demo deployment
       GenerateSecretString:
         PasswordLength: 64
