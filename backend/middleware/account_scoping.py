@@ -13,6 +13,8 @@ to load the full context from the database.
 
 from typing import Optional
 from uuid import UUID, uuid4
+import os
+import re
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -75,6 +77,14 @@ class AccountScopingMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if settings.demo_mode:
+            demo_allowed_accounts = settings.demo_allowed_account_ids
+            if not demo_allowed_accounts:
+                raw_demo_accounts = os.getenv("DEMO_ALLOWED_ACCOUNT_IDS", "")
+                demo_allowed_accounts = [
+                    item.strip() for item in raw_demo_accounts.split(",")
+                    if re.fullmatch(r"\d{12}", item.strip())
+                ]
+
             try:
                 demo_user_id = UUID(settings.demo_user_id)
             except ValueError:
@@ -99,7 +109,7 @@ class AccountScopingMiddleware(BaseHTTPMiddleware):
                     settings={},
                     saved_view_default_expiration_days=None,
                 ),
-                allowed_account_ids=settings.demo_allowed_account_ids,
+                allowed_account_ids=demo_allowed_accounts,
                 active_saved_view=None,
                 effective_time_range=None,
                 effective_filters=None,

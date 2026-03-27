@@ -313,7 +313,7 @@ ORDER BY
 
         query = f"""
 SELECT 
-    product_region as region,
+    product_region_code as region,
     line_item_product_code as service_name,
     SUM(line_item_unblended_cost) as cost
 FROM 
@@ -321,10 +321,10 @@ FROM
 WHERE 
     line_item_usage_start_date >= DATE '{start_date}'
     AND line_item_usage_start_date <= DATE '{end_date}'
-    AND product_region IS NOT NULL
-    AND product_region != ''
+    AND product_region_code IS NOT NULL
+    AND product_region_code != ''
 GROUP BY 
-    product_region,
+    product_region_code,
     line_item_product_code
 ORDER BY 
     cost DESC;
@@ -377,7 +377,7 @@ ORDER BY
 SELECT
     DATE(line_item_usage_start_date) as usage_date,
     line_item_product_code as service_name,
-    product_region as region,
+    product_region_code as region,
     SUM(line_item_unblended_cost) as cost,
     SUM(line_item_usage_amount) as usage_amount
 FROM
@@ -389,7 +389,7 @@ WHERE
 GROUP BY
     DATE(line_item_usage_start_date),
     line_item_product_code,
-    product_region
+    product_region_code
 ORDER BY
     usage_date DESC,
     cost DESC;
@@ -424,14 +424,17 @@ ORDER BY
             }
         
         try:
+            athena_database = getattr(settings, "athena_database", None) or getattr(settings, "aws_cur_database", None) or "default"
+            athena_output = getattr(settings, "athena_output_location", None) or f"s3://{settings.aws_s3_bucket}/query-results/"
+
             # Start query execution
             response = self.athena_client.start_query_execution(
                 QueryString=sql_query,
                 QueryExecutionContext={
-                    'Database': settings.athena_database or 'default'
+                    'Database': athena_database
                 },
                 ResultConfiguration={
-                    'OutputLocation': f"s3://{settings.aws_s3_bucket}/query-results/"
+                    'OutputLocation': athena_output
                 }
             )
             

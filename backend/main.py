@@ -18,6 +18,7 @@ from prometheus_client import generate_latest, Counter, Histogram
 from backend.config.settings import get_settings
 from backend.api import chat, health, reports, analytics, athena_queries
 from backend.api import saved_views, organizations, scope, opportunities, auth
+from backend.api import iac_workbench
 from backend.api.admin import rate_limits as admin_rate_limits
 from backend.services.vector_store import VectorStoreService
 from backend.services.database import DatabaseService, DatabaseDisabledError
@@ -275,6 +276,9 @@ app.include_router(scope.router, prefix="/api/v1", tags=["Scope"])
 
 # Optimization opportunities router
 app.include_router(opportunities.router, prefix="/api/v1", tags=["Opportunities"])
+
+# IaC workbench router
+app.include_router(iac_workbench.router, prefix="/api/v1", tags=["IaC Workbench"])
 
 # Authentication router (no prefix - already has /api/auth in router)
 app.include_router(auth.router, tags=["Authentication"])

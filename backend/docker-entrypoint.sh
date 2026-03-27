@@ -149,20 +149,25 @@ run_database_init() {
 # Main execution
 echo "Environment: ${ENVIRONMENT:-production}"
 echo "Database: ${POSTGRES_HOST:-unknown}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-unknown}"
+echo "Database enabled: ${DATABASE_ENABLED:-true}"
 echo ""
 
-# Wait for database
-if ! wait_for_db; then
-    echo "⚠️  Could not connect to database, starting anyway..."
-    echo "⚠️  Database-dependent features may not work properly"
+# Wait for database only when explicitly enabled
+if [ "${DATABASE_ENABLED:-true}" = "false" ]; then
+    echo "ℹ️  DATABASE_ENABLED=false, skipping database connectivity checks and migrations"
 else
-    # Run migrations if database is available
-    if ! run_migrations; then
-        echo "⚠️  Migration failed, but continuing to start application..."
-        echo "⚠️  Database may not be in the correct state"
+    if ! wait_for_db; then
+        echo "⚠️  Could not connect to database, starting anyway..."
+        echo "⚠️  Database-dependent features may not work properly"
     else
-        # Run database initialization (seeds, one-time scripts) after successful migrations
-        run_database_init
+        # Run migrations if database is available
+        if ! run_migrations; then
+            echo "⚠️  Migration failed, but continuing to start application..."
+            echo "⚠️  Database may not be in the correct state"
+        else
+            # Run database initialization (seeds, one-time scripts) after successful migrations
+            run_database_init
+        fi
     fi
 fi
 

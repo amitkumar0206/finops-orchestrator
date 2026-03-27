@@ -10,17 +10,39 @@ http {
     keepalive_timeout 65;
     gzip on;
 
+    # Backend upstream configuration
+    upstream api_backend {
+        server 172.17.0.1:8000;
+    }
+
     server {
         listen 80;
         server_name localhost;
 
-        ${AUTH_BASIC_DIRECTIVE}
-        ${AUTH_BASIC_USER_FILE_DIRECTIVE}
-
         root /usr/share/nginx/html;
         index index.html;
 
-        # SPA routing - always serve index.html for non-API routes
+        # API routes - proxy to backend
+        location /api/ {
+            proxy_pass http://api_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Authorization $http_authorization;
+            proxy_pass_header Authorization;
+            
+            # WebSocket support for streaming responses
+            proxy_buffering off;
+            proxy_request_buffering off;
+            
+            # Timeouts
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 300s;
+            proxy_read_timeout 300s;
+        }
+
+        # Frontend SPA routes
         location / {
             try_files $uri $uri/ /index.html;
         }

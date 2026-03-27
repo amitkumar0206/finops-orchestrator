@@ -243,7 +243,7 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  timestamp: Date;
+  timestamp: Date | string;
   charts?: any[];
   insights?: any[];  // Legacy field
   suggestions?: string[];
@@ -252,8 +252,8 @@ interface Message {
   results?: any[];  // Raw data rows for table rendering
   // Structured response fields
   summary?: string;
-  structuredInsights?: Array<{category: string; description: string}>;
-  recommendations?: Array<{action: string; description: string}>;
+  structuredInsights?: Array<{ category: string; description: string }>;
+  recommendations?: Array<{ action: string; description: string }>;
   metadata?: {
     time_period?: string;
     scope?: string;
@@ -280,6 +280,149 @@ interface ChatInterfaceProps {
   onClearChat?: () => void;
 }
 
+type ScopeInfo = NonNullable<NonNullable<Message['metadata']>['scope_info']>;
+
+const sanitizeSuggestions = (suggestions: unknown[] = []): string[] => {
+  const blockedPattern = /(couldn't parse|i couldn't|encountered an issue|error|rephras|specify a time period|backend service)/i;
+  const unique = new Set<string>();
+
+  for (const raw of suggestions) {
+    const suggestion = typeof raw === 'string' ? raw.trim() : '';
+    if (!suggestion) continue;
+    if (blockedPattern.test(suggestion)) continue;
+    unique.add(suggestion);
+  }
+
+  return Array.from(unique).slice(0, 4);
+};
+
+const safeText = (value: unknown, fallback = ''): string => {
+  if (typeof value === 'string') return value;
+  if (value == null) return fallback;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return fallback;
+  }
+};
+
+const formatScopeText = (scope: unknown, scopeInfo?: ScopeInfo): string => {
+  if (typeof scope === 'string') {
+    return scope;
+  }
+
+  if (typeof scope === 'number' || typeof scope === 'boolean') {
+    return String(scope);
+  }
+
+  const scopeObject =
+    scope && typeof scope === 'object' && !Array.isArray(scope)
+      ? (scope as Record<string, unknown>)
+      : undefined;
+
+  const scopeActiveView =
+    scopeObject?.active_view && typeof scopeObject.active_view === 'object' && !Array.isArray(scopeObject.active_view)
+      ? (scopeObject.active_view as Record<string, unknown>)
+      : undefined;
+
+  const organizationName =
+    scopeInfo?.organization_name ||
+    (typeof scopeObject?.organization_name === 'string' ? scopeObject.organization_name : undefined);
+
+  const activeViewName =
+    scopeInfo?.active_view?.name ||
+    (typeof scopeActiveView?.name === 'string' ? scopeActiveView.name : undefined);
+
+  let accountCount = scopeInfo?.account_count;
+  if (accountCount === undefined && typeof scopeObject?.account_count === 'number') {
+    accountCount = scopeObject.account_count;
+  }
+  if (accountCount === undefined && Array.isArray(scopeObject?.allowed_account_ids)) {
+    accountCount = scopeObject.allowed_account_ids.length;
+  }
+
+  const parts: string[] = [];
+  if (organizationName) {
+    parts.push(organizationName);
+  }
+  if (activeViewName) {
+    parts.push(`View: ${activeViewName}`);
+  }
+  if (accountCount !== undefined) {
+    parts.push(`${accountCount} account${accountCount !== 1 ? 's' : ''}`);
+  }
+
+  if (parts.length > 0) {
+    return parts.join(' | ');
+  }
+
+  return scope ? 'Applied scope' : '';
+};
+
+const formatMessageTime = (timestamp: Date | string): string => {
+  const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return '--:--';
+  }
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+const normalizePriority = (value: unknown): 'high' | 'medium' | 'low' => {
+  const normalized = typeof value === 'string' ? value.toLowerCase().trim() : '';
+  if (normalized === 'high' || normalized === 'medium' || normalized === 'low') {
+    return normalized;
+  }
+  return 'medium';
+};
+
+const toTitleCase = (value: unknown, fallback = 'Unknown'): string => {
+  const text = typeof value === 'string' && value.trim() ? value.trim() : fallback;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+
+const normalizeCharts = (charts: unknown): any[] => {
+  if (!Array.isArray(charts)) return [];
+  return charts.filter((chart) => (
+    chart &&
+    typeof chart === 'object' &&
+    typeof (chart as any).type === 'string' &&
+    (chart as any).data &&
+    typeof (chart as any).data === 'object'
+  ));
+};
+
+const normalizeObjectArray = (value: unknown): Record<string, any>[] => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) as Record<string, any>[];
+};
+
+const formatCellValue = (key: string, value: unknown): string => {
+  const loweredKey = key.toLowerCase();
+  const isCurrency = loweredKey.includes('cost') || loweredKey.includes('usd');
+
+  if (value == null) {
+    return '';
+  }
+
+  if (isCurrency) {
+    const numericValue = typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value.replace(/[^0-9.-]+/g, ''))
+        : Number(value);
+
+    if (Number.isFinite(numericValue)) {
+      return `$${numericValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+  }
+
+  return safeText(value);
+};
+
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -290,8 +433,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       suggestions: [
         'Show me my AWS costs for the last 30 days',
         'What are my top 5 most expensive services?',
-        'How can I optimize my EC2 costs?',
-        'Generate a cost optimization report'
+        'How can I optimize my EC2 costs?'
       ]
     }
   ]);
@@ -336,7 +478,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       // ALB routes /api/* to backend service based on path rules
       // So we just use relative path /api/v1/chat and let ALB handle routing
       const endpoint = '/api/v1/chat';
-      
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -348,7 +490,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
           chat_history: messages.map(msg => ({
             role: msg.role,
             content: msg.content,
-            timestamp: msg.timestamp.toISOString()
+            timestamp: (
+              msg.timestamp instanceof Date
+                ? msg.timestamp
+                : new Date(msg.timestamp)
+            ).toISOString()
           })), // Send full conversation history
           include_reasoning: false,
           context: conversationContext // Pass accumulated context
@@ -373,12 +519,49 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       }
 
       const data = await response.json();
-      
+
+      // Fallback path: if chat orchestration fails to parse SQL, try direct Athena generation.
+      if (data?.metadata?.status === 'llm_error') {
+        try {
+          const fallbackResp = await fetch('/api/v1/athena/generate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              user_query: messageToSend,
+              execute_query: true,
+            })
+          });
+
+          if (fallbackResp.ok) {
+            const fallbackData = await fallbackResp.json();
+            if (Array.isArray(fallbackData.results) && fallbackData.results.length > 0) {
+              data.message = fallbackData.description || 'Here are your requested cost results.';
+              data.results = fallbackData.results;
+              data.athena_query = fallbackData.sql_query || data.athena_query;
+              data.metadata = {
+                ...(data.metadata || {}),
+                status: 'ok',
+                generated_via: 'athena_fallback'
+              };
+              data.suggestions = [
+                'Break it down by resource',
+                'Compare with previous 30 days',
+                'Show top 5 cost drivers'
+              ];
+            }
+          }
+        } catch (fallbackError) {
+          console.warn('Athena fallback failed:', fallbackError);
+        }
+      }
+
       // Store conversation ID from first response
       if (!conversationId && data.conversation_id) {
         setConversationId(data.conversation_id);
       }
-      
+
       // Update conversation context with latest response data
       if (data.context) {
         setConversationContext((prev) => ({
@@ -389,26 +572,28 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
           cost_data_fetched: data.charts && data.charts.length > 0
         }));
       }
-      
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: data.message || 'I received your message but have no response.',
+        content: safeText(data.message, 'I received your message but have no response.'),
         timestamp: new Date(),
-        charts: data.charts || [],
-        insights: data.insights || [],
-        suggestions: data.suggestions || [],
-        actionItems: data.action_items || [],
+        charts: normalizeCharts(data.charts),
+        insights: normalizeObjectArray(data.insights),
+        suggestions: sanitizeSuggestions(data.suggestions || []),
+        actionItems: normalizeObjectArray(data.action_items),
         athenaQuery: data.athena_query || undefined,  // Include SQL query if available
-        results: data.results || [],  // Include results data for table rendering
+        results: normalizeObjectArray(data.results),  // Include results data for table rendering
         // Structured response fields
         summary: data.summary || '',
-        structuredInsights: data.structuredInsights || [],  // Changed from data.insights
-        recommendations: data.recommendations || [],
+        structuredInsights: normalizeObjectArray(data.structuredInsights) as Array<{ category: string; description: string }>,  // Changed from data.insights
+        recommendations: normalizeObjectArray(data.recommendations) as Array<{ action: string; description: string }>,
         metadata: {
           ...data.metadata,
-          // Extract scope info from metadata.scope if present (backend adds it there)
-          scope_info: data.metadata?.scope || undefined
+          // Extract scope info from metadata.scope if it is an object (backend can return either string or object)
+          scope_info: (data.metadata?.scope && typeof data.metadata.scope === 'object' && !Array.isArray(data.metadata.scope))
+            ? data.metadata.scope
+            : undefined
         }
       };
 
@@ -426,11 +611,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
         role: 'assistant',
         content: friendlyError,
         timestamp: new Date(),
-        suggestions: [
+        suggestions: sanitizeSuggestions([
           'Double-check that the backend service is reachable',
           'Try rephrasing or simplifying your question',
           'Review the server logs for additional details'
-        ]
+        ])
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
@@ -463,8 +648,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       suggestions: [
         'Show me my AWS costs for the last 30 days',
         'What are my top 5 most expensive services?',
-        'How can I optimize my EC2 costs?',
-        'Generate a cost optimization report'
+        'How can I optimize my EC2 costs?'
       ]
     }]);
     setInputMessage('');
@@ -484,7 +668,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       // Get the chart canvas element
       const chartId = `chart-${messageId}-${chartIndex}`;
       const canvas = document.getElementById(chartId) as HTMLCanvasElement;
-      
+
       if (!canvas) {
         console.error('Chart canvas not found');
         return;
@@ -496,7 +680,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
-          link.download = `${chart.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${Date.now()}.png`;
+          const chartTitle = safeText(chart?.title, 'chart');
+          link.download = `${chartTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${Date.now()}.png`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
@@ -509,6 +694,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
   };
 
   const renderChart = (chart: any, chartIndex: number, messageId: string) => {
+    if (!chart || typeof chart !== 'object' || typeof chart.type !== 'string') {
+      return <Alert severity="info">Chart data is unavailable for this response.</Alert>;
+    }
+
+    if (!chart.data || typeof chart.data !== 'object' || !Array.isArray(chart.data.datasets)) {
+      return <Alert severity="info">Chart payload is incomplete and could not be rendered.</Alert>;
+    }
+
     const chartId = `chart-${messageId}-${chartIndex}`;
     const {
       plugins: configPlugins = {},
@@ -520,15 +713,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
     const { legend: legendConfig = {}, title: titleConfig = {}, ...otherPluginConfig } = configPlugins;
     const resolvedIndexAxis = configIndexAxis ?? restConfig.indexAxis ?? undefined;
 
-      const mergeScales = (
-        defaults: Record<string, any>,
-        overrides: Record<string, any>
-      ) => {
-        const mergedKeys = new Set([
-          ...Object.keys(defaults),
-          ...Object.keys(overrides)
-        ]);
-        const result: Record<string, any> = {};      mergedKeys.forEach((key) => {
+    const mergeScales = (
+      defaults: Record<string, any>,
+      overrides: Record<string, any>
+    ) => {
+      const mergedKeys = new Set([
+        ...Object.keys(defaults),
+        ...Object.keys(overrides)
+      ]);
+      const result: Record<string, any> = {}; mergedKeys.forEach((key) => {
         const defaultAxis = defaults[key] || {};
         const overrideAxis = overrides[key] || {};
         result[key] = {
@@ -579,7 +772,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                   if (Number.isFinite(numeric)) {
                     // For large numbers, use toLocaleString without decimals
                     // For smaller numbers with decimals, show 2 decimal places
-                    return numeric >= 1000 
+                    return numeric >= 1000
                       ? '$' + Math.round(numeric).toLocaleString()
                       : '$' + numeric.toFixed(2);
                   }
@@ -612,7 +805,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
               maxRotation: 45,
               minRotation: 30,
               padding: 6,
-              callback: function(value: any, index: number, ticks: any[]) {
+              callback: function (value: any, index: number, ticks: any[]) {
                 const scale: any = this;
                 const tickLabel = ticks?.[index]?.label;
                 const scaleLabel = typeof scale?.getLabelForValue === 'function'
@@ -642,7 +835,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
               callback: (value: number | string) => {
                 const numeric = typeof value === 'number' ? value : Number(value);
                 if (Number.isFinite(numeric)) {
-                  return numeric >= 1000 
+                  return numeric >= 1000
                     ? '$' + Math.round(numeric).toLocaleString()
                     : '$' + numeric.toFixed(2);
                 }
@@ -678,15 +871,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
         // For bar/column charts showing services, generate legend from data labels not datasets
         generateLabels: (chartInstance: any) => {
           const hasMultipleDatasets = chartInstance.data.datasets && chartInstance.data.datasets.length > 1;
-          
+
           // If it's a bar chart with single dataset, use labels as legend items
-          if (isBarLike && !hasMultipleDatasets && chartInstance.data.labels) {
+          if (isBarLike && !hasMultipleDatasets && Array.isArray(chartInstance.data.labels)) {
             return chartInstance.data.labels.map((label: string, i: number) => {
               const dataset = chartInstance.data.datasets[0];
-              const backgroundColor = Array.isArray(dataset?.backgroundColor) 
-                ? dataset.backgroundColor[i] 
+              const backgroundColor = Array.isArray(dataset?.backgroundColor)
+                ? dataset.backgroundColor[i]
                 : dataset?.backgroundColor || '#1565C0';
-              
+
               return {
                 text: label,
                 fillStyle: backgroundColor,
@@ -695,7 +888,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
               };
             });
           }
-          
+
           // Otherwise use default legend generation (for multi-dataset charts)
           return chartInstance.data.datasets.map((dataset: any, i: number) => ({
             text: dataset.label || `Dataset ${i + 1}`,
@@ -733,7 +926,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
         },
         tooltip: {
           callbacks: {
-            label: function(context: any) {
+            label: function (context: any) {
               let label = context.dataset.label || '';
               if (label) {
                 label += ': ';
@@ -869,8 +1062,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
 
       // Helper: Convert any value to number with 2 decimal places
       const toNumeric = (value: any): number => {
-        const num = typeof value === 'string' 
-          ? Number(value.replace(/[^0-9.-]+/g, '')) || 0 
+        const num = typeof value === 'string'
+          ? Number(value.replace(/[^0-9.-]+/g, '')) || 0
           : Number(value) || 0;
         return Math.round(num * 100) / 100;
       };
@@ -967,10 +1160,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
   };
 
   return (
-    <Box 
-      sx={{ 
+    <Box
+      sx={{
         height: '100%',
-        display: 'flex', 
+        display: 'flex',
         flexDirection: 'column',
         bgcolor: '#f8fafc',
         position: 'relative',
@@ -978,10 +1171,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       }}
     >
       {/* Messages Area - Scrollable */}
-      <Box 
-        sx={{ 
-          flexGrow: 1, 
-          overflow: 'auto', 
+      <Box
+        sx={{
+          flexGrow: 1,
+          overflow: 'auto',
           px: 2,
           py: 2,
           pb: 3,
@@ -1002,808 +1195,800 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
         }}
       >
         {messages.map((message) => {
-          const hasCharts = message.role === 'assistant' && Array.isArray(message.charts) && message.charts.length > 0;
-          const charts = (hasCharts ? message.charts : []) as any[];
+          const charts = message.role === 'assistant' ? normalizeCharts(message.charts) : [];
+          const hasCharts = charts.length > 0;
           const chartCount = charts.length;
 
           return (
-          <Fade in={true} key={message.id} timeout={600}>
-            <Box sx={{ mb: 3.5 }}>
-              {/* Message Header with Avatar */}
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 1.5,
-                  mb: 1,
-                  flexDirection: message.role === 'user' ? 'row-reverse' : 'row'
-                }}
-              >
-                <Avatar
+            <Fade in={true} key={message.id} timeout={600}>
+              <Box sx={{ mb: 3.5 }}>
+                {/* Message Header with Avatar */}
+                <Box
                   sx={{
-                    width: 36,
-                    height: 36,
-                    bgcolor: message.role === 'user' ? '#1565C0' : '#f3f4f6',
-                    color: message.role === 'user' ? 'white' : '#1565C0',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 1.5,
+                    mb: 1,
+                    flexDirection: message.role === 'user' ? 'row-reverse' : 'row'
                   }}
                 >
-                  {message.role === 'user' ? (
-                    <PersonIcon sx={{ fontSize: 20 }} />
-                  ) : (
-                    <BotIcon sx={{ fontSize: 20 }} />
-                  )}
-                </Avatar>
-
-                {/* Message Bubble or Two-Column Layout */}
-                {hasCharts ? (
-                  <Box
+                  <Avatar
                     sx={{
-                      maxWidth: '90%',
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 0.75
+                      width: 36,
+                      height: 36,
+                      bgcolor: message.role === 'user' ? '#1565C0' : '#f3f4f6',
+                      color: message.role === 'user' ? 'white' : '#1565C0',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                     }}
                   >
-                    <Paper
-                      elevation={0}
+                    {message.role === 'user' ? (
+                      <PersonIcon sx={{ fontSize: 20 }} />
+                    ) : (
+                      <BotIcon sx={{ fontSize: 20 }} />
+                    )}
+                  </Avatar>
+
+                  {/* Message Bubble or Two-Column Layout */}
+                  {hasCharts ? (
+                    <Box
                       sx={{
-                        p: { xs: 2, sm: 2.5 },
-                        bgcolor: '#ffffff',
-                        color: 'text.primary',
-                        borderRadius: '18px 18px 18px 4px',
-                        boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-                        border: '1px solid rgba(0,0,0,0.06)',
-                        transition: 'all 0.2s ease-in-out',
-                        overflow: 'hidden',
-                        '&:hover': {
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-                        },
-                        height: '100%',
+                        maxWidth: '90%',
+                        width: '100%',
                         display: 'flex',
-                        flexDirection: 'column'
+                        flexDirection: 'column',
+                        gap: 0.75
                       }}
                     >
-                      <Grid container spacing={2.5} alignItems="stretch" sx={{ flexGrow: 1 }}>
-                        <Grid
-                          item
-                          xs={12}
-                          md={5}
-                          sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 1.5,
-                            justifyContent: chartCount === 1 ? 'center' : 'flex-start',
-                            height: '100%'
-                          }}
-                        >
-                          {/* Results heading above charts */}
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <Typography 
-                              variant="h6" 
-                              sx={{ 
-                                fontWeight: 600,
-                                fontSize: '0.95rem',
-                                color: 'text.primary'
-                              }}
-                            >
-                              Results
-                            </Typography>
-                            {/* Optional export all could go here later */}
-                          </Box>
-                          {charts.map((chart: any, index: number) => (
-                            <Box
-                              key={index}
-                              sx={{
-                                borderRadius: 2,
-                                border: '1px solid rgba(0,0,0,0.08)',
-                                bgcolor: 'rgba(21, 101, 192, 0.04)',
-                                p: 1.75,
-                                boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
-                                transition: 'all 0.3s ease-in-out',
-                                display: 'block',
-                                width: '100%',
-                                minHeight: chartCount === 1 ? { xs: 250, md: 320 } : 250,
-                                '&:hover': {
-                                  boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
-                                  transform: 'translateY(-2px)'
-                                }
-                              }}
-                            >
-                              <Box
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: { xs: 2, sm: 2.5 },
+                          bgcolor: '#ffffff',
+                          color: 'text.primary',
+                          borderRadius: '18px 18px 18px 4px',
+                          boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+                          border: '1px solid rgba(0,0,0,0.06)',
+                          transition: 'all 0.2s ease-in-out',
+                          overflow: 'hidden',
+                          '&:hover': {
+                            boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                          },
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column'
+                        }}
+                      >
+                        <Grid container spacing={2.5} alignItems="stretch" sx={{ flexGrow: 1 }}>
+                          <Grid
+                            item
+                            xs={12}
+                            md={5}
+                            sx={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 1.5,
+                              justifyContent: chartCount === 1 ? 'center' : 'flex-start',
+                              height: '100%'
+                            }}
+                          >
+                            {/* Results heading above charts */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <Typography
+                                variant="h6"
                                 sx={{
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  mb: 1.5
-                                }}
-                              >
-                                <Typography 
-                                  variant="h6" 
-                                  sx={{ 
-                                    fontWeight: 600,
-                                    fontSize: '0.95rem',
-                                    color: 'text.primary'
-                                  }}
-                                >
-                                  {chart.title}
-                                </Typography>
-                                <Button 
-                                  size="small" 
-                                  startIcon={<DownloadIcon />}
-                                  onClick={() => handleExportChart(chart, index, message.id)}
-                                  sx={{
-                                    textTransform: 'none',
-                                    fontWeight: 500,
-                                    fontSize: '0.8rem',
-                                    color: '#1565C0',
-                                    '&:hover': {
-                                      bgcolor: 'rgba(21, 101, 192, 0.12)'
-                                    }
-                                  }}
-                                >
-                                  Export
-                                </Button>
-                              </Box>
-                              <Box
-                                sx={{
-                                  position: 'relative',
-                                  flexGrow: 1,
-                                  minHeight: chartCount === 1 ? { xs: 250, md: 300 } : 280
-                                }}
-                              >
-                                {renderChart(chart, index, message.id)}
-                              </Box>
-                            </Box>
-                          ))}
-                        </Grid>
-                        <Grid
-                          item
-                          xs={12}
-                          md={7}
-                          sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'flex-start',
-                            alignItems: 'flex-start',
-                            height: '100%',
-                            gap: 1.2 // reduce vertical gap
-                          }}
-                        >
-                          {/* Clarification / Error Guardrail */}
-                          {message.metadata && message.metadata.status && message.metadata.status !== 'ok' ? (
-                            <Box sx={{ width: '100%' }}>
-                              {message.metadata.status === 'needs_clarification' && (
-                                <Box sx={{ p: 2, borderRadius: 2, border: '1px dashed rgba(102,126,234,0.4)', bgcolor: 'rgba(102,126,234,0.06)', mb: 2 }}>
-                                  <Typography sx={{ fontWeight: 600, mb: 1, color: 'text.primary' }}>I need a quick clarification:</Typography>
-                                  <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>
-                                    {Array.isArray(message.metadata.clarification) && message.metadata.clarification.length > 0
-                                      ? message.metadata.clarification[0]
-                                      : 'Please provide a time period or breakdown preference.'}
-                                  </Typography>
-                                </Box>
-                              )}
-                              {message.metadata.status === 'llm_error' && (
-                                <Box sx={{ p: 2, borderRadius: 2, border: '1px solid rgba(244,67,54,0.2)', bgcolor: 'rgba(244,67,54,0.06)', mb: 2 }}>
-                                  <Typography sx={{ fontWeight: 600, mb: 0.5, color: 'text.primary' }}>I couldn’t process that request reliably.</Typography>
-                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>Try rephrasing or specify a time period (e.g., “November 2025”).</Typography>
-                                </Box>
-                              )}
-                            </Box>
-                          ) : null}
-
-                          {/* Structured Response Rendering */}
-                          {message.summary || message.structuredInsights || message.recommendations ? (
-                            <Box sx={{ width: '100%' }}>
-                              {/* 1. Summary Section */}
-                              {message.summary && (
-                                <Box sx={{ mb: 2 }}>
-                                  <Typography 
-                                    variant="body1" 
-                                    sx={{ 
-                                      fontSize: '0.95rem',
-                                      lineHeight: 1.6,
-                                      color: 'text.primary',
-                                      fontWeight: 500
-                                    }}
-                                  >
-                                    <strong>Summary:</strong> {message.summary}
-                                  </Typography>
-                                </Box>
-                              )}
-
-                              {/* 2. Insights Section */}
-                              {message.structuredInsights && message.structuredInsights.length > 0 && (
-                                <Box sx={{ mb: 2 }}>
-                                  <Typography 
-                                    variant="h6" 
-                                    sx={{ 
-                                      fontWeight: 600,
-                                      fontSize: '0.95rem',
-                                      color: 'text.primary',
-                                      mb: 1
-                                    }}
-                                  >
-                                    Insights:
-                                  </Typography>
-                                  <Box component="ul" sx={{ pl: 3, mb: 0, mt: 0.5 }}>
-                                    {message.structuredInsights.map((insight: any, idx: number) => (
-                                      <Box 
-                                        key={idx}
-                                        component="li" 
-                                        sx={{ 
-                                          fontSize: '0.95rem',
-                                          mb: 1,
-                                          color: 'text.primary',
-                                          lineHeight: 1.6
-                                        }}
-                                      >
-                                        <strong>{insight.category}:</strong> {insight.description}
-                                      </Box>
-                                    ))}
-                                  </Box>
-                                </Box>
-                              )}
-                            </Box>
-                          ) : (
-                            <Box sx={{ width: '100%' }}>
-                              <MarkdownRenderer content={message.content} />
-                            </Box>
-                          )}
-                          
-                          {/* Results Data Table */}
-                          {message.results && message.results.length > 0 && (
-                            <Box sx={{ width: '100%', mt: 0.5 }}>
-                              <Typography 
-                                variant="h6" 
-                                sx={{ 
                                   fontWeight: 600,
                                   fontSize: '0.95rem',
-                                  color: 'text.primary',
-                                  mb: 1
+                                  color: 'text.primary'
                                 }}
                               >
-                                Data Table
+                                Results
                               </Typography>
-                              <TableContainer 
-                                component={Paper} 
-                                sx={{ 
+                              {/* Optional export all could go here later */}
+                            </Box>
+                            {charts.map((chart: any, index: number) => (
+                              <Box
+                                key={index}
+                                sx={{
                                   borderRadius: 2,
                                   border: '1px solid rgba(0,0,0,0.08)',
-                                  boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                                  maxHeight: 400,
-                                  overflow: 'auto'
+                                  bgcolor: 'rgba(21, 101, 192, 0.04)',
+                                  p: 1.75,
+                                  boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
+                                  transition: 'all 0.3s ease-in-out',
+                                  display: 'block',
+                                  width: '100%',
+                                  minHeight: chartCount === 1 ? { xs: 250, md: 320 } : 250,
+                                  '&:hover': {
+                                    boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
+                                    transform: 'translateY(-2px)'
+                                  }
                                 }}
                               >
-                                <Table stickyHeader size="small" sx={{ minWidth: 300 }}>
-                                  <TableHead>
-                                    <TableRow>
-                                      {Object.keys(message.results[0] || {}).map((key) => (
-                                        <TableCell 
-                                          key={key}
-                                          sx={{ 
-                                            fontWeight: 600,
-                                            bgcolor: 'rgba(21, 101, 192, 0.08)',
-                                            color: '#1565C0',
-                                            textTransform: 'capitalize',
-                                            fontSize: '0.85rem'
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    mb: 1.5
+                                  }}
+                                >
+                                  <Typography
+                                    variant="h6"
+                                    sx={{
+                                      fontWeight: 600,
+                                      fontSize: '0.95rem',
+                                      color: 'text.primary'
+                                    }}
+                                  >
+                                    {safeText(chart?.title, `Chart ${index + 1}`)}
+                                  </Typography>
+                                  <Button
+                                    size="small"
+                                    startIcon={<DownloadIcon />}
+                                    onClick={() => handleExportChart(chart, index, message.id)}
+                                    sx={{
+                                      textTransform: 'none',
+                                      fontWeight: 500,
+                                      fontSize: '0.8rem',
+                                      color: '#1565C0',
+                                      '&:hover': {
+                                        bgcolor: 'rgba(21, 101, 192, 0.12)'
+                                      }
+                                    }}
+                                  >
+                                    Export
+                                  </Button>
+                                </Box>
+                                <Box
+                                  sx={{
+                                    position: 'relative',
+                                    flexGrow: 1,
+                                    minHeight: chartCount === 1 ? { xs: 250, md: 300 } : 280
+                                  }}
+                                >
+                                  {renderChart(chart, index, message.id)}
+                                </Box>
+                              </Box>
+                            ))}
+                          </Grid>
+                          <Grid
+                            item
+                            xs={12}
+                            md={7}
+                            sx={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'flex-start',
+                              alignItems: 'flex-start',
+                              height: '100%',
+                              gap: 1.2 // reduce vertical gap
+                            }}
+                          >
+                            {/* Clarification / Error Guardrail */}
+                            {message.metadata && message.metadata.status && message.metadata.status !== 'ok' ? (
+                              <Box sx={{ width: '100%' }}>
+                                {message.metadata.status === 'needs_clarification' && (
+                                  <Box sx={{ p: 2, borderRadius: 2, border: '1px dashed rgba(102,126,234,0.4)', bgcolor: 'rgba(102,126,234,0.06)', mb: 2 }}>
+                                    <Typography sx={{ fontWeight: 600, mb: 1, color: 'text.primary' }}>I need a quick clarification:</Typography>
+                                    <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>
+                                      {Array.isArray(message.metadata.clarification) && message.metadata.clarification.length > 0
+                                        ? message.metadata.clarification[0]
+                                        : 'Please provide a time period or breakdown preference.'}
+                                    </Typography>
+                                  </Box>
+                                )}
+                                {message.metadata.status === 'llm_error' && (
+                                  <Box sx={{ p: 2, borderRadius: 2, border: '1px solid rgba(244,67,54,0.2)', bgcolor: 'rgba(244,67,54,0.06)', mb: 2 }}>
+                                    <Typography sx={{ fontWeight: 600, mb: 0.5, color: 'text.primary' }}>I couldn’t process that request reliably.</Typography>
+                                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>Try rephrasing or specify a time period (e.g., “November 2025”).</Typography>
+                                  </Box>
+                                )}
+                              </Box>
+                            ) : null}
+
+                            {/* Structured Response Rendering */}
+                            {message.summary || message.structuredInsights || message.recommendations ? (
+                              <Box sx={{ width: '100%' }}>
+                                {/* 1. Summary Section */}
+                                {message.summary && (
+                                  <Box sx={{ mb: 2 }}>
+                                    <Typography
+                                      variant="body1"
+                                      sx={{
+                                        fontSize: '0.95rem',
+                                        lineHeight: 1.6,
+                                        color: 'text.primary',
+                                        fontWeight: 500
+                                      }}
+                                    >
+                                      <strong>Summary:</strong> {message.summary}
+                                    </Typography>
+                                  </Box>
+                                )}
+
+                                {/* 2. Insights Section */}
+                                {message.structuredInsights && message.structuredInsights.length > 0 && (
+                                  <Box sx={{ mb: 2 }}>
+                                    <Typography
+                                      variant="h6"
+                                      sx={{
+                                        fontWeight: 600,
+                                        fontSize: '0.95rem',
+                                        color: 'text.primary',
+                                        mb: 1
+                                      }}
+                                    >
+                                      Insights:
+                                    </Typography>
+                                    <Box component="ul" sx={{ pl: 3, mb: 0, mt: 0.5 }}>
+                                      {message.structuredInsights.map((insight: any, idx: number) => (
+                                        <Box
+                                          key={idx}
+                                          component="li"
+                                          sx={{
+                                            fontSize: '0.95rem',
+                                            mb: 1,
+                                            color: 'text.primary',
+                                            lineHeight: 1.6
                                           }}
                                         >
-                                          {key.replace(/_/g, ' ')}
-                                        </TableCell>
+                                          <strong>{safeText(insight.category, 'Insight')}:</strong> {safeText(insight.description)}
+                                        </Box>
                                       ))}
-                                    </TableRow>
-                                  </TableHead>
-                                  <TableBody>
-                                    {message.results.map((row: any, index: number) => (
-                                      <TableRow 
-                                        key={index}
-                                        sx={{ 
-                                          '&:nth-of-type(odd)': { bgcolor: 'rgba(0,0,0,0.02)' },
-                                          '&:hover': { bgcolor: 'rgba(21, 101, 192, 0.04)' }
-                                        }}
-                                      >
-                                        {Object.entries(row).map(([key, value]: [string, any], cellIndex: number) => (
-                                          <TableCell 
-                                            key={cellIndex}
-                                            sx={{ fontSize: '0.85rem' }}
+                                    </Box>
+                                  </Box>
+                                )}
+                              </Box>
+                            ) : (
+                              <Box sx={{ width: '100%' }}>
+                                <MarkdownRenderer content={safeText(message.content)} />
+                              </Box>
+                            )}
+
+                            {/* Results Data Table */}
+                            {message.results && message.results.length > 0 && (
+                              <Box sx={{ width: '100%', mt: 0.5 }}>
+                                <Typography
+                                  variant="h6"
+                                  sx={{
+                                    fontWeight: 600,
+                                    fontSize: '0.95rem',
+                                    color: 'text.primary',
+                                    mb: 1
+                                  }}
+                                >
+                                  Data Table
+                                </Typography>
+                                <TableContainer
+                                  component={Paper}
+                                  sx={{
+                                    borderRadius: 2,
+                                    border: '1px solid rgba(0,0,0,0.08)',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                                    maxHeight: 400,
+                                    overflow: 'auto'
+                                  }}
+                                >
+                                  <Table stickyHeader size="small" sx={{ minWidth: 300 }}>
+                                    <TableHead>
+                                      <TableRow>
+                                        {Object.keys(message.results[0] || {}).map((key) => (
+                                          <TableCell
+                                            key={key}
+                                            sx={{
+                                              fontWeight: 600,
+                                              bgcolor: 'rgba(21, 101, 192, 0.08)',
+                                              color: '#1565C0',
+                                              textTransform: 'capitalize',
+                                              fontSize: '0.85rem'
+                                            }}
                                           >
-                                            {key.toLowerCase().includes('cost') || key.toLowerCase().includes('usd') 
-                                              ? `$${typeof value === 'number' ? value.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : value}`
-                                              : value}
+                                            {key.replace(/_/g, ' ')}
                                           </TableCell>
                                         ))}
                                       </TableRow>
-                                    ))}
-                                  </TableBody>
-                                </Table>
-                              </TableContainer>
-                            </Box>
-                          )}
-
-                          {/* 4. Scope/Time Period Section */}
-                          {message.metadata && (
-                            (message.metadata.time_period || message.metadata.scope || message.metadata.filters || message.metadata.scope_info) && (
-                              <Box sx={{ width: '100%', mt: 2, p: 1.5, bgcolor: 'rgba(21, 101, 192, 0.06)', borderRadius: 1, border: '1px solid rgba(21, 101, 192, 0.2)' }}>
-                                {/* Multi-tenant scope info */}
-                                {message.metadata.scope_info && (
-                                  <Box sx={{ mb: 1, pb: 1, borderBottom: message.metadata.time_period || message.metadata.scope ? '1px solid rgba(21, 101, 192, 0.2)' : 'none' }}>
-                                    {message.metadata.scope_info.organization_name && (
-                                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                        <strong>Organization:</strong> {message.metadata.scope_info.organization_name}
-                                      </Typography>
-                                    )}
-                                    {message.metadata.scope_info.active_view?.name && (
-                                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                        <strong>View:</strong> {message.metadata.scope_info.active_view.name}
-                                      </Typography>
-                                    )}
-                                    {message.metadata.scope_info.account_count !== undefined && (
-                                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                        <strong>Accounts:</strong> {message.metadata.scope_info.account_count} account{message.metadata.scope_info.account_count !== 1 ? 's' : ''}
-                                      </Typography>
-                                    )}
-                                  </Box>
-                                )}
-                                {message.metadata.time_period && (
-                                  <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                    <strong>Period:</strong> {message.metadata.time_period}
-                                  </Typography>
-                                )}
-                                {message.metadata.scope && (
-                                  <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                    <strong>Scope:</strong> {message.metadata.scope}
-                                  </Typography>
-                                )}
-                                {message.metadata.filters && (
-                                  <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
-                                    <strong>Filters:</strong> {message.metadata.filters}
-                                  </Typography>
-                                )}
+                                    </TableHead>
+                                    <TableBody>
+                                      {message.results.map((row: any, index: number) => (
+                                        <TableRow
+                                          key={index}
+                                          sx={{
+                                            '&:nth-of-type(odd)': { bgcolor: 'rgba(0,0,0,0.02)' },
+                                            '&:hover': { bgcolor: 'rgba(21, 101, 192, 0.04)' }
+                                          }}
+                                        >
+                                          {Object.entries(row).map(([key, value]: [string, any], cellIndex: number) => (
+                                            <TableCell
+                                              key={cellIndex}
+                                              sx={{ fontSize: '0.85rem' }}
+                                            >
+                                              {formatCellValue(key, value)}
+                                            </TableCell>
+                                          ))}
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </TableContainer>
                               </Box>
-                            )
-                          )}
+                            )}
 
-                          {/* 5. Recommendations Section */}
-                          {message.recommendations && message.recommendations.length > 0 && (
-                            <Box sx={{ width: '100%', mt: 2 }}>
-                              <Typography 
-                                variant="h6" 
-                                sx={{ 
-                                  fontWeight: 600,
-                                  fontSize: '0.95rem',
-                                  color: 'text.primary',
-                                  mb: 1
-                                }}
-                              >
-                                Recommendations:
-                              </Typography>
-                              <Box component="ol" sx={{ pl: 3, mb: 0, mt: 0.5 }}>
-                                {message.recommendations.map((rec: any, idx: number) => (
-                                  <Box 
-                                    key={idx}
-                                    component="li" 
-                                    sx={{ 
-                                      fontSize: '0.95rem',
-                                      mb: 1,
-                                      color: 'text.primary',
-                                      lineHeight: 1.6
-                                    }}
-                                  >
-                                    <strong>{rec.action}:</strong> {rec.description}
-                                  </Box>
-                                ))}
+                            {/* 4. Scope/Time Period Section */}
+                            {message.metadata && (
+                              (message.metadata.time_period || message.metadata.scope || message.metadata.filters || message.metadata.scope_info) && (
+                                <Box sx={{ width: '100%', mt: 2, p: 1.5, bgcolor: 'rgba(21, 101, 192, 0.06)', borderRadius: 1, border: '1px solid rgba(21, 101, 192, 0.2)' }}>
+                                  {/* Multi-tenant scope info */}
+                                  {message.metadata.scope_info && (
+                                    <Box sx={{ mb: 1, pb: 1, borderBottom: message.metadata.time_period || message.metadata.scope ? '1px solid rgba(21, 101, 192, 0.2)' : 'none' }}>
+                                      {message.metadata.scope_info.organization_name && (
+                                        <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                          <strong>Organization:</strong> {message.metadata.scope_info.organization_name}
+                                        </Typography>
+                                      )}
+                                      {message.metadata.scope_info.active_view?.name && (
+                                        <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                          <strong>View:</strong> {message.metadata.scope_info.active_view.name}
+                                        </Typography>
+                                      )}
+                                      {message.metadata.scope_info.account_count !== undefined && (
+                                        <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                          <strong>Accounts:</strong> {message.metadata.scope_info.account_count} account{message.metadata.scope_info.account_count !== 1 ? 's' : ''}
+                                        </Typography>
+                                      )}
+                                    </Box>
+                                  )}
+                                  {message.metadata.time_period && (
+                                    <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                      <strong>Period:</strong> {safeText(message.metadata.time_period)}
+                                    </Typography>
+                                  )}
+                                  {message.metadata.scope && (
+                                    <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                      <strong>Scope:</strong> {formatScopeText(message.metadata.scope, message.metadata.scope_info)}
+                                    </Typography>
+                                  )}
+                                  {message.metadata.filters && (
+                                    <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
+                                      <strong>Filters:</strong> {safeText(message.metadata.filters)}
+                                    </Typography>
+                                  )}
+                                </Box>
+                              )
+                            )}
+
+                            {/* 5. Recommendations Section */}
+                            {message.recommendations && message.recommendations.length > 0 && (
+                              <Box sx={{ width: '100%', mt: 2 }}>
+                                <Typography
+                                  variant="h6"
+                                  sx={{
+                                    fontWeight: 600,
+                                    fontSize: '0.95rem',
+                                    color: 'text.primary',
+                                    mb: 1
+                                  }}
+                                >
+                                  Recommendations:
+                                </Typography>
+                                <Box component="ol" sx={{ pl: 3, mb: 0, mt: 0.5 }}>
+                                  {message.recommendations.map((rec: any, idx: number) => (
+                                    <Box
+                                      key={idx}
+                                      component="li"
+                                      sx={{
+                                        fontSize: '0.95rem',
+                                        mb: 1,
+                                        color: 'text.primary',
+                                        lineHeight: 1.6
+                                      }}
+                                    >
+                                      <strong>{safeText(rec.action, 'Recommendation')}:</strong> {safeText(rec.description)}
+                                    </Box>
+                                  ))}
+                                </Box>
                               </Box>
-                            </Box>
-                          )}
+                            )}
+                          </Grid>
                         </Grid>
-                      </Grid>
-                    </Paper>
-                    <Typography 
-                      variant="caption" 
-                      sx={{ 
-                        color: 'text.secondary',
-                        px: 1,
-                        fontSize: '0.75rem',
-                        alignSelf: 'flex-start'
-                      }}
-                    >
-                      {message.timestamp.toLocaleTimeString([], { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })}
-                    </Typography>
-                  </Box>
-                ) : (
-                  <Box
-                    sx={{
-                      maxWidth: message.role === 'user' ? '75%' : '90%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 1
-                    }}
-                  >
-                    <Paper
-                      elevation={0}
+                      </Paper>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: 'text.secondary',
+                          px: 1,
+                          fontSize: '0.75rem',
+                          alignSelf: 'flex-start'
+                        }}
+                      >
+                        {formatMessageTime(message.timestamp)}
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Box
                       sx={{
-                        p: 2.5,
-                        bgcolor: message.role === 'user' 
-                          ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
-                          : '#ffffff',
-                        background: message.role === 'user' 
-                          ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
-                          : '#ffffff',
-                        color: message.role === 'user' ? 'white' : 'text.primary',
-                        borderRadius: message.role === 'user' 
-                          ? '18px 18px 4px 18px' 
-                          : '18px 18px 18px 4px',
-                        boxShadow: message.role === 'user'
-                          ? '0 4px 12px rgba(21, 101, 192, 0.25)'
-                          : '0 2px 12px rgba(0,0,0,0.08)',
-                        border: message.role === 'user' 
-                          ? 'none'
-                          : '1px solid rgba(0,0,0,0.06)',
-                        transition: 'all 0.2s ease-in-out',
-                        '&:hover': {
+                        maxWidth: message.role === 'user' ? '75%' : '90%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 1
+                      }}
+                    >
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 2.5,
+                          bgcolor: message.role === 'user'
+                            ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
+                            : '#ffffff',
+                          background: message.role === 'user'
+                            ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
+                            : '#ffffff',
+                          color: message.role === 'user' ? 'white' : 'text.primary',
+                          borderRadius: message.role === 'user'
+                            ? '18px 18px 4px 18px'
+                            : '18px 18px 18px 4px',
                           boxShadow: message.role === 'user'
-                            ? '0 6px 16px rgba(21, 101, 192, 0.3)'
-                            : '0 4px 16px rgba(0,0,0,0.12)',
-                        }
+                            ? '0 4px 12px rgba(21, 101, 192, 0.25)'
+                            : '0 2px 12px rgba(0,0,0,0.08)',
+                          border: message.role === 'user'
+                            ? 'none'
+                            : '1px solid rgba(0,0,0,0.06)',
+                          transition: 'all 0.2s ease-in-out',
+                          '&:hover': {
+                            boxShadow: message.role === 'user'
+                              ? '0 6px 16px rgba(21, 101, 192, 0.3)'
+                              : '0 4px 16px rgba(0,0,0,0.12)',
+                          }
+                        }}
+                      >
+                        {message.role === 'user' ? (
+                          <Typography
+                            variant="body1"
+                            sx={{
+                              whiteSpace: 'pre-wrap',
+                              lineHeight: 1.6,
+                              fontSize: '0.95rem'
+                            }}
+                          >
+                            {message.content}
+                          </Typography>
+                        ) : (
+                          <MarkdownRenderer content={safeText(message.content)} />
+                        )}
+                      </Paper>
+                      {/* Timestamp */}
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: 'text.secondary',
+                          px: 1,
+                          fontSize: '0.75rem',
+                          alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start'
+                        }}
+                      >
+                        {formatMessageTime(message.timestamp)}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+
+                {/* Athena SQL Query Display */}
+                {message.athenaQuery && message.role === 'assistant' && (
+                  <Box sx={{ mt: 2, ml: 6, maxWidth: '90%' }}>
+                    <Accordion
+                      sx={{
+                        borderRadius: 2,
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        border: '1px solid rgba(0,0,0,0.08)',
+                        '&:before': {
+                          display: 'none',
+                        },
+                        overflow: 'hidden'
                       }}
                     >
-                      {message.role === 'user' ? (
-                        <Typography 
-                          variant="body1" 
-                          sx={{ 
-                            whiteSpace: 'pre-wrap',
-                            lineHeight: 1.6,
-                            fontSize: '0.95rem'
+                      <AccordionSummary
+                        expandIcon={<ExpandMoreIcon />}
+                        sx={{
+                          bgcolor: 'rgba(21, 101, 192, 0.04)',
+                          '&:hover': {
+                            bgcolor: 'rgba(21, 101, 192, 0.08)',
+                          },
+                          borderRadius: 2,
+                          px: 2.5,
+                          py: 1
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <CodeIcon sx={{ color: '#1565C0', fontSize: 20 }} />
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontWeight: 600,
+                              color: '#1565C0',
+                              fontSize: '0.875rem'
+                            }}
+                          >
+                            View Athena SQL Query
+                          </Typography>
+                        </Box>
+                      </AccordionSummary>
+                      <AccordionDetails
+                        sx={{
+                          p: 0,
+                          bgcolor: '#1e1e1e',
+                          '& pre': {
+                            margin: 0,
+                            borderRadius: 0
+                          }
+                        }}
+                      >
+                        <SyntaxHighlighter
+                          language="sql"
+                          style={vscDarkPlus}
+                          customStyle={{
+                            margin: 0,
+                            borderRadius: 0,
+                            fontSize: '0.85rem',
+                            padding: '16px'
                           }}
+                          showLineNumbers
                         >
-                          {message.content}
-                        </Typography>
-                      ) : (
-                        <MarkdownRenderer content={message.content} />
-                      )}
-                    </Paper>
-                    {/* Timestamp */}
-                    <Typography 
-                      variant="caption" 
-                      sx={{ 
-                        color: 'text.secondary',
-                        px: 1,
-                        fontSize: '0.75rem',
-                        alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start'
-                      }}
-                    >
-                      {message.timestamp.toLocaleTimeString([], { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })}
-                    </Typography>
+                          {message.athenaQuery}
+                        </SyntaxHighlighter>
+                      </AccordionDetails>
+                    </Accordion>
                   </Box>
                 )}
-              </Box>
 
-              {/* Athena SQL Query Display */}
-              {message.athenaQuery && message.role === 'assistant' && (
-                <Box sx={{ mt: 2, ml: 6, maxWidth: '90%' }}>
-                  <Accordion
-                    sx={{
-                      borderRadius: 2,
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                      border: '1px solid rgba(0,0,0,0.08)',
-                      '&:before': {
-                        display: 'none',
-                      },
-                      overflow: 'hidden'
-                    }}
-                  >
-                    <AccordionSummary
-                      expandIcon={<ExpandMoreIcon />}
-                      sx={{
-                        bgcolor: 'rgba(21, 101, 192, 0.04)',
-                        '&:hover': {
-                          bgcolor: 'rgba(21, 101, 192, 0.08)',
-                        },
-                        borderRadius: 2,
-                        px: 2.5,
-                        py: 1
-                      }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <CodeIcon sx={{ color: '#1565C0', fontSize: 20 }} />
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontWeight: 600,
-                            color: '#1565C0',
-                            fontSize: '0.875rem'
-                          }}
-                        >
-                          View Athena SQL Query
-                        </Typography>
-                      </Box>
-                    </AccordionSummary>
-                    <AccordionDetails
-                      sx={{
-                        p: 0,
-                        bgcolor: '#1e1e1e',
-                        '& pre': {
-                          margin: 0,
-                          borderRadius: 0
-                        }
-                      }}
-                    >
-                      <SyntaxHighlighter
-                        language="sql"
-                        style={vscDarkPlus}
-                        customStyle={{
-                          margin: 0,
-                          borderRadius: 0,
-                          fontSize: '0.85rem',
-                          padding: '16px'
-                        }}
-                        showLineNumbers
-                      >
-                        {message.athenaQuery}
-                      </SyntaxHighlighter>
-                    </AccordionDetails>
-                  </Accordion>
-                </Box>
-              )}
-
-              {/* Insights */}
-              {message.insights && message.insights.length > 0 && (
-                <Box sx={{ mt: 2, ml: message.role === 'user' ? 0 : 6 }}>
-                  <Box 
-                    sx={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 1.5,
-                      mb: 1.5
-                    }}
-                  >
+                {/* Insights */}
+                {message.insights && message.insights.length > 0 && (
+                  <Box sx={{ mt: 2, ml: message.role === 'user' ? 0 : 6 }}>
                     <Box
                       sx={{
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 32,
-                        height: 32,
-                        borderRadius: '8px',
-                        bgcolor: 'rgba(255, 193, 7, 0.15)',
+                        gap: 1.5,
+                        mb: 1.5
                       }}
                     >
-                      <LightbulbIcon sx={{ color: '#f59e0b', fontSize: 20 }} />
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 32,
+                          height: 32,
+                          borderRadius: '8px',
+                          bgcolor: 'rgba(255, 193, 7, 0.15)',
+                        }}
+                      >
+                        <LightbulbIcon sx={{ color: '#f59e0b', fontSize: 20 }} />
+                      </Box>
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontWeight: 600,
+                          fontSize: '0.95rem',
+                          color: 'text.primary'
+                        }}
+                      >
+                        Key Insights
+                      </Typography>
                     </Box>
-                    <Typography 
-                      variant="h6" 
-                      sx={{ 
+                    <Grid container spacing={1.5}>
+                      {message.insights.map((insight: any, index: number) => (
+                        <Grid item xs={12} md={6} key={index}>
+                          <Alert
+                            severity={insight.type === 'alert' ? 'warning' : insight.type === 'saving' ? 'success' : 'info'}
+                            sx={{
+                              borderRadius: 2.5,
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                              border: '1px solid',
+                              borderColor: insight.type === 'alert'
+                                ? 'rgba(237, 108, 2, 0.2)'
+                                : insight.type === 'saving'
+                                  ? 'rgba(46, 125, 50, 0.2)'
+                                  : 'rgba(2, 136, 209, 0.2)',
+                              '& .MuiAlert-icon': {
+                                fontSize: 24
+                              }
+                            }}
+                          >
+                            <Typography
+                              variant="subtitle2"
+                              sx={{
+                                fontWeight: 600,
+                                mb: 0.5,
+                                fontSize: '0.95rem'
+                              }}
+                            >
+                              {insight.title}
+                            </Typography>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontSize: '0.875rem',
+                                lineHeight: 1.5
+                              }}
+                            >
+                              {insight.description}
+                            </Typography>
+                          </Alert>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Box>
+                )}
+
+                {/* Action Items */}
+                {message.actionItems && message.actionItems.length > 0 && (
+                  <Box sx={{ mt: 2, ml: message.role === 'user' ? 0 : 6 }}>
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        mb: 1.5,
                         fontWeight: 600,
                         fontSize: '0.95rem',
                         color: 'text.primary'
                       }}
                     >
-                      Key Insights
+                      💡 Recommended Actions
                     </Typography>
-                  </Box>
-                  <Grid container spacing={1.5}>
-                    {message.insights.map((insight: any, index: number) => (
-                      <Grid item xs={12} md={6} key={index}>
-                        <Alert 
-                          severity={insight.type === 'alert' ? 'warning' : insight.type === 'saving' ? 'success' : 'info'}
-                          sx={{ 
-                            borderRadius: 2.5,
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                            border: '1px solid',
-                            borderColor: insight.type === 'alert' 
-                              ? 'rgba(237, 108, 2, 0.2)' 
-                              : insight.type === 'saving' 
-                                ? 'rgba(46, 125, 50, 0.2)' 
-                                : 'rgba(2, 136, 209, 0.2)',
-                            '& .MuiAlert-icon': {
-                              fontSize: 24
-                            }
-                          }}
-                        >
-                          <Typography 
-                            variant="subtitle2" 
-                            sx={{ 
-                              fontWeight: 600,
-                              mb: 0.5,
-                              fontSize: '0.95rem'
-                            }}
-                          >
-                            {insight.title}
-                          </Typography>
-                          <Typography 
-                            variant="body2"
+                    <Grid container spacing={1.5}>
+                      {message.actionItems.map((item: any, index: number) => (
+                        <Grid item xs={12} key={index}>
+                          <Card
+                            elevation={0}
                             sx={{
-                              fontSize: '0.875rem',
-                              lineHeight: 1.5
+                              borderRadius: 2,
+                              border: '2px solid',
+                              borderColor: normalizePriority(item?.priority) === 'high'
+                                ? 'rgba(211, 47, 47, 0.3)'
+                                : normalizePriority(item?.priority) === 'medium'
+                                  ? 'rgba(237, 108, 2, 0.3)'
+                                  : 'rgba(46, 125, 50, 0.3)',
+                              bgcolor: 'background.paper',
+                              transition: 'all 0.3s ease-in-out',
+                              '&:hover': {
+                                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                                transform: 'translateX(2px)'
+                              }
                             }}
                           >
-                            {insight.description}
-                          </Typography>
-                        </Alert>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Box>
-              )}
-
-              {/* Action Items */}
-              {message.actionItems && message.actionItems.length > 0 && (
-                <Box sx={{ mt: 2, ml: message.role === 'user' ? 0 : 6 }}>
-                  <Typography 
-                    variant="h6" 
-                    sx={{ 
-                      mb: 1.5,
-                      fontWeight: 600,
-                      fontSize: '0.95rem',
-                      color: 'text.primary'
-                    }}
-                  >
-                    💡 Recommended Actions
-                  </Typography>
-                  <Grid container spacing={1.5}>
-                    {message.actionItems.map((item: any, index: number) => (
-                      <Grid item xs={12} key={index}>
-                        <Card 
-                          elevation={0}
-                          sx={{ 
-                            borderRadius: 2,
-                            border: '2px solid',
-                            borderColor: item.priority === 'high' 
-                              ? 'rgba(211, 47, 47, 0.3)'
-                              : item.priority === 'medium'
-                                ? 'rgba(237, 108, 2, 0.3)'
-                                : 'rgba(46, 125, 50, 0.3)',
-                            bgcolor: 'background.paper',
-                            transition: 'all 0.3s ease-in-out',
-                            '&:hover': {
-                              boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                              transform: 'translateX(2px)'
-                            }
-                          }}
-                        >
-                          <CardContent sx={{ p: 2 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 2 }}>
-                              <Box sx={{ flexGrow: 1 }}>
-                                <Typography 
-                                  variant="subtitle1" 
-                                  sx={{ 
-                                    fontWeight: 600, 
-                                    mb: 1,
-                                    fontSize: '0.95rem',
-                                    color: 'text.primary'
-                                  }}
-                                >
-                                  {item.title}
-                                </Typography>
-                                <Typography 
-                                  variant="body2" 
-                                  color="text.secondary" 
-                                  sx={{ 
-                                    mb: 1.5,
-                                    lineHeight: 1.5,
-                                    fontSize: '0.85rem'
-                                  }}
-                                >
-                                  {item.description}
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                                  <Chip 
-                                    label={`${item.priority.charAt(0).toUpperCase() + item.priority.slice(1)} Priority`}
-                                    color={item.priority === 'high' ? 'error' : item.priority === 'medium' ? 'warning' : 'success'}
-                                    size="small"
+                            <CardContent sx={{ p: 2 }}>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 2 }}>
+                                <Box sx={{ flexGrow: 1 }}>
+                                  <Typography
+                                    variant="subtitle1"
                                     sx={{
                                       fontWeight: 600,
-                                      fontSize: '0.75rem'
+                                      mb: 1,
+                                      fontSize: '0.95rem',
+                                      color: 'text.primary'
                                     }}
-                                  />
-                                  {item.estimated_savings && (
-                                    <Chip 
-                                      icon={<MoneyIcon sx={{ fontSize: 16 }} />}
-                                      label={`$${item.estimated_savings.toLocaleString()} savings`}
-                                      sx={{
-                                        bgcolor: 'rgba(46, 125, 50, 0.15)',
-                                        color: '#2e7d32',
-                                        fontWeight: 600,
-                                        fontSize: '0.75rem',
-                                        '& .MuiChip-icon': {
-                                          color: '#2e7d32'
-                                        }
-                                      }}
-                                      size="small"
-                                    />
-                                  )}
-                                  <Chip 
-                                    label={`${item.effort_level.charAt(0).toUpperCase() + item.effort_level.slice(1)} effort`}
-                                    variant="outlined"
-                                    size="small"
+                                  >
+                                    {item.title}
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
                                     sx={{
-                                      fontWeight: 500,
-                                      fontSize: '0.75rem'
+                                      mb: 1.5,
+                                      lineHeight: 1.5,
+                                      fontSize: '0.85rem'
                                     }}
-                                  />
+                                  >
+                                    {item.description}
+                                  </Typography>
+                                  <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                                    <Chip
+                                      label={`${toTitleCase(item?.priority, 'Medium')} Priority`}
+                                      color={normalizePriority(item?.priority) === 'high' ? 'error' : normalizePriority(item?.priority) === 'medium' ? 'warning' : 'success'}
+                                      size="small"
+                                      sx={{
+                                        fontWeight: 600,
+                                        fontSize: '0.75rem'
+                                      }}
+                                    />
+                                    {item.estimated_savings && (
+                                      <Chip
+                                        icon={<MoneyIcon sx={{ fontSize: 16 }} />}
+                                        label={`${formatCellValue('estimated_savings_usd', item.estimated_savings)} savings`}
+                                        sx={{
+                                          bgcolor: 'rgba(46, 125, 50, 0.15)',
+                                          color: '#2e7d32',
+                                          fontWeight: 600,
+                                          fontSize: '0.75rem',
+                                          '& .MuiChip-icon': {
+                                            color: '#2e7d32'
+                                          }
+                                        }}
+                                        size="small"
+                                      />
+                                    )}
+                                    <Chip
+                                      label={`${toTitleCase(item?.effort_level, 'Medium')} effort`}
+                                      variant="outlined"
+                                      size="small"
+                                      sx={{
+                                        fontWeight: 500,
+                                        fontSize: '0.75rem'
+                                      }}
+                                    />
+                                  </Box>
                                 </Box>
+                                <Button
+                                  variant="outlined"
+                                  size="small"
+                                  sx={{
+                                    textTransform: 'none',
+                                    fontWeight: 600,
+                                    borderRadius: 2,
+                                    minWidth: '100px',
+                                    borderColor: '#1565C0',
+                                    color: '#1565C0',
+                                    '&:hover': {
+                                      bgcolor: 'rgba(21, 101, 192, 0.08)',
+                                      borderColor: '#1565C0'
+                                    }
+                                  }}
+                                >
+                                  Learn More
+                                </Button>
                               </Box>
-                              <Button 
-                                variant="outlined" 
-                                size="small"
-                                sx={{
-                                  textTransform: 'none',
-                                  fontWeight: 600,
-                                  borderRadius: 2,
-                                  minWidth: '100px',
-                                  borderColor: '#1565C0',
-                                  color: '#1565C0',
-                                  '&:hover': {
-                                    bgcolor: 'rgba(21, 101, 192, 0.08)',
-                                    borderColor: '#1565C0'
-                                  }
-                                }}
-                              >
-                                Learn More
-                              </Button>
-                            </Box>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Box>
-              )}
-
-              {/* Suggestions */}
-              {message.suggestions && message.suggestions.length > 0 && (
-                <Box sx={{ mt: 2.5, ml: message.role === 'user' ? 0 : 6 }}>
-                  <Typography 
-                    variant="body2" 
-                    sx={{ 
-                      mb: 1.5,
-                      fontWeight: 500,
-                      color: 'text.secondary',
-                      fontSize: '0.85rem'
-                    }}
-                  >
-                    💬 Suggested follow-up questions:
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                    {message.suggestions.map((suggestion: string, index: number) => (
-                      <Chip
-                        key={index}
-                        label={suggestion}
-                        onClick={() => handleSuggestionClick(suggestion)}
-                        clickable
-                        variant="outlined"
-                        size="medium"
-                        sx={{
-                          borderRadius: 2.5,
-                          borderColor: 'rgba(21, 101, 192, 0.3)',
-                          color: '#1565C0',
-                          fontWeight: 500,
-                          fontSize: '0.85rem',
-                          py: 2.5,
-                          transition: 'all 0.2s ease-in-out',
-                          '&:hover': {
-                            bgcolor: 'rgba(21, 101, 192, 0.08)',
-                            borderColor: '#1565C0',
-                            transform: 'translateY(-2px)',
-                            boxShadow: '0 4px 12px rgba(21, 101, 192, 0.2)'
-                          }
-                        }}
-                      />
-                    ))}
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      ))}
+                    </Grid>
                   </Box>
-                </Box>
-              )}
-            </Box>
-          </Fade>
-        );
+                )}
+
+                {/* Suggestions */}
+                {sanitizeSuggestions(message.suggestions || []).length > 0 && (
+                  <Box sx={{ mt: 2.5, ml: message.role === 'user' ? 0 : 6 }}>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        mb: 1.5,
+                        fontWeight: 500,
+                        color: 'text.secondary',
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      💬 Suggested follow-up questions:
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                      {sanitizeSuggestions(message.suggestions || []).map((suggestion: string, index: number) => (
+                        <Chip
+                          key={index}
+                          label={suggestion}
+                          onClick={() => handleSuggestionClick(suggestion)}
+                          clickable
+                          variant="outlined"
+                          size="medium"
+                          sx={{
+                            borderRadius: 2.5,
+                            borderColor: 'rgba(21, 101, 192, 0.3)',
+                            color: '#1565C0',
+                            fontWeight: 500,
+                            fontSize: '0.85rem',
+                            py: 2.5,
+                            transition: 'all 0.2s ease-in-out',
+                            '&:hover': {
+                              bgcolor: 'rgba(21, 101, 192, 0.08)',
+                              borderColor: '#1565C0',
+                              transform: 'translateY(-2px)',
+                              boxShadow: '0 4px 12px rgba(21, 101, 192, 0.2)'
+                            }
+                          }}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+              </Box>
+            </Fade>
+          );
         })}
 
         {isLoading && (
@@ -1820,10 +2005,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
               >
                 <BotIcon sx={{ fontSize: 20 }} />
               </Avatar>
-              <Paper 
-                elevation={0} 
-                sx={{ 
-                  p: 2.5, 
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
                   bgcolor: '#ffffff',
                   borderRadius: '18px 18px 18px 4px',
                   boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
@@ -1832,9 +2017,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <CircularProgress size={20} sx={{ color: '#1565C0' }} />
-                  <Typography 
-                    variant="body2" 
-                    sx={{ 
+                  <Typography
+                    variant="body2"
+                    sx={{
                       color: 'text.secondary',
                       fontWeight: 500
                     }}
@@ -1851,9 +2036,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       </Box>
 
       {/* Fixed Footer with Input and Buttons */}
-      <Paper 
-        elevation={3} 
-        sx={{ 
+      <Paper
+        elevation={3}
+        sx={{
           position: 'sticky',
           bottom: 0,
           left: 0,

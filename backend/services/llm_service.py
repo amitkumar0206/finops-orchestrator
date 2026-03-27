@@ -255,7 +255,9 @@ class BedrockLLMService:
 
         max_tokens = self.model_kwargs.get("max_tokens", self.settings.max_tokens)
         if max_tokens:
-            config["maxTokens"] = int(max_tokens)
+            # Guard against model hard limits to prevent Bedrock validation failures.
+            # Claude Haiku accepts up to 4096 output tokens.
+            config["maxTokens"] = max(1, min(int(max_tokens), 4096))
 
         temperature = self.model_kwargs.get("temperature", self.settings.temperature)
         if temperature is not None:
@@ -368,7 +370,7 @@ class BedrockLLMService:
                     request_payload["inferenceConfig"] = inference_config
                 additional_fields = {
                     key: value for key, value in self.model_kwargs.items()
-                    if key not in {"temperature", "top_p", "max_tokens", "p", "stop_sequences", "stopWords"}
+                    if key not in {"temperature", "top_p", "max_tokens", "p", "stop_sequences", "stopWords", "response_format"}
                 }
                 # Do NOT set response_format on Converse (it caused ValidationException);
                 # we will set it on InvokeModel payload instead.
@@ -382,29 +384,52 @@ class BedrockLLMService:
             loop = asyncio.get_running_loop()
 
             def _do_call() -> Dict[str, Any]:
-                # For Nova models via InvokeModel, use the native request format
-                payload: Dict[str, Any] = {
-                    "messages": bedrock_messages,
-                }
-                # Enforce strict JSON response when requested
-                if context and context.get("expect_json"):
-                    payload.setdefault("additionalModelRequestFields", {})
-                    payload["additionalModelRequestFields"]["response_format"] = {"type": "json"}
-                
-                # Nova models require inferenceConfig structure
-                if inference_config:
-                    inference_params = {}
-                    if "maxTokens" in inference_config:
-                        inference_params["max_new_tokens"] = inference_config["maxTokens"]
-                    if "temperature" in inference_config:
-                        inference_params["temperature"] = inference_config["temperature"]
-                    if "topP" in inference_config:
-                        inference_params["top_p"] = inference_config["topP"]
-                    if "stopSequences" in inference_config:
-                        inference_params["stop_sequences"] = inference_config["stopSequences"]
-                    
-                    if inference_params:
-                        payload["inferenceConfig"] = inference_params
+                model_id_lower = (self.model_id or "").lower()
+
+                # Anthropic models require content parts with explicit type.
+                if "anthropic." in model_id_lower:
+                    anthropic_messages: List[Dict[str, Any]] = []
+                    for message in bedrock_messages:
+                        content_parts = []
+                        for part in message.get("content", []):
+                            text_value = part.get("text") if isinstance(part, dict) else None
+                            if text_value:
+                                content_parts.append({"type": "text", "text": text_value})
+                        if content_parts:
+                            anthropic_messages.append(
+                                {"role": message.get("role", "user"), "content": content_parts}
+                            )
+
+                    payload: Dict[str, Any] = {
+                        "anthropic_version": "bedrock-2023-05-31",
+                        "messages": anthropic_messages,
+                    }
+                    if inference_config:
+                        if "maxTokens" in inference_config:
+                            payload["max_tokens"] = max(1, min(int(inference_config["maxTokens"]), 4096))
+                        if "temperature" in inference_config:
+                            payload["temperature"] = inference_config["temperature"]
+                        if "topP" in inference_config:
+                            payload["top_p"] = inference_config["topP"]
+                        if "stopSequences" in inference_config:
+                            payload["stop_sequences"] = inference_config["stopSequences"]
+                else:
+                    # For Nova models via InvokeModel, use the native request format.
+                    payload = {
+                        "messages": bedrock_messages,
+                    }
+                    if inference_config:
+                        inference_params = {}
+                        if "maxTokens" in inference_config:
+                            inference_params["max_new_tokens"] = inference_config["maxTokens"]
+                        if "temperature" in inference_config:
+                            inference_params["temperature"] = inference_config["temperature"]
+                        if "topP" in inference_config:
+                            inference_params["top_p"] = inference_config["topP"]
+                        if "stopSequences" in inference_config:
+                            inference_params["stop_sequences"] = inference_config["stopSequences"]
+                        if inference_params:
+                            payload["inferenceConfig"] = inference_params
 
                 response = self.bedrock_client.invoke_model(
                     modelId=self.model_id,

@@ -44,6 +44,9 @@ from backend.services.opportunities_service import (
     get_opportunities_service,
 )
 from backend.services.aws_optimization_signals import get_optimization_signals_service
+from backend.services.cloudwatch_optimization_signals import CloudWatchOptimizationSignalsService
+from backend.services.ri_savings_plans_signals import RISavingsPlansSignalsService
+from backend.services.storage_optimization_signals import StorageOptimizationSignalsService
 from backend.services.request_context import require_context, RequestContext
 from backend.middleware.rate_limiting import check_ingest_rate_limit
 from backend.utils.errors import (
@@ -487,9 +490,12 @@ async def ingest_signals(
     Trigger ingestion of optimization signals from AWS APIs.
 
     This endpoint fetches recommendations from:
-    - Cost Explorer (rightsizing recommendations)
+    - Cost Explorer (rightsizing, RI/SP coverage, purchase recommendations)
     - Trusted Advisor (cost optimization checks)
     - Compute Optimizer (EC2 and Lambda recommendations)
+    - CloudWatch (idle EC2, RDS, ELB, Lambda — works at all support tiers)
+    - RI & Savings Plans coverage and utilization analysis
+    - S3 and EBS storage lifecycle optimization
 
     The ingestion runs in the background and returns immediately with a result summary.
 
@@ -529,6 +535,42 @@ async def ingest_signals(
             except Exception as e:
                 logger.warning(f"Failed to fetch Compute Optimizer signals: {e}")
                 ingestion_errors.append("Compute Optimizer: Unable to fetch recommendations")
+
+        # Feature 1: CloudWatch idle/underutilized resource detection (all support tiers)
+        if source is None or source == OpportunitySource.CLOUDWATCH_ANALYSIS:
+            try:
+                cw_svc = CloudWatchOptimizationSignalsService(
+                    organization_id=context.organization_id
+                )
+                cw_signals = await cw_svc.fetch_all_cloudwatch_signals()
+                signals.extend(cw_signals)
+            except Exception as e:
+                logger.warning(f"Failed to fetch CloudWatch signals: {e}")
+                ingestion_errors.append("CloudWatch: Unable to fetch idle resource signals")
+
+        # Feature 2: RI and Savings Plans coverage/utilization analysis
+        if source is None:
+            try:
+                ri_svc = RISavingsPlansSignalsService(
+                    organization_id=context.organization_id
+                )
+                ri_signals = await ri_svc.fetch_all_ri_sp_signals()
+                signals.extend(ri_signals)
+            except Exception as e:
+                logger.warning(f"Failed to fetch RI/SP signals: {e}")
+                ingestion_errors.append("RI/Savings Plans: Unable to fetch coverage signals")
+
+        # Feature 3: S3 and EBS storage lifecycle optimization
+        if source is None:
+            try:
+                storage_svc = StorageOptimizationSignalsService(
+                    organization_id=context.organization_id
+                )
+                storage_signals = await storage_svc.fetch_all_storage_signals()
+                signals.extend(storage_signals)
+            except Exception as e:
+                logger.warning(f"Failed to fetch storage signals: {e}")
+                ingestion_errors.append("Storage: Unable to fetch S3/EBS optimization signals")
 
         # Deduplicate
         signals = signals_svc.deduplicate_opportunities(signals)

@@ -1,0 +1,6 @@
+{
+    "commands": [
+        "set -e",
+        "docker logs aasmaa-backend 2>&1 | grep -E 'OperationalError|connection refused|localhost|Traceback|Query execution failed' | tail -n 80"
+    ]
+}

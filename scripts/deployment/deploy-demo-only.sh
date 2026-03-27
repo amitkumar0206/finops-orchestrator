@@ -81,8 +81,8 @@ ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 S3_BUCKET="${S3_BUCKET:-aasmaa-demo-data-${AWS_ACCOUNT_ID}}"
 CUR_BUCKET="${CUR_BUCKET:-$S3_BUCKET}"
 CUR_PREFIX="${CUR_PREFIX:-demo-cur/}"
-ATHENA_DB="${ATHENA_DB:-cost_usage_db}"
-ATHENA_TABLE="${ATHENA_TABLE:-cur_data}"
+ATHENA_DB="${ATHENA_DB:-cost_and_usage_db}"
+ATHENA_TABLE="${ATHENA_TABLE:-costandusagereport}"
 DB_PASSWORD_PLACEHOLDER="demo-disabled-db-password"
 
 BACKEND_IMAGE_URI="${BACKEND_IMAGE_URI:-${ECR_REGISTRY}/aasmaa-backend:demo}"
@@ -139,11 +139,34 @@ else
   log "Using hosted zone ID: ${HOSTED_ZONE_ID}"
 fi
 
+BASIC_AUTH_PASSWORD_PARAM_NAME="${BASIC_AUTH_PASSWORD_PARAM_NAME:-/aasmaa/demo/basic-auth/password}"
+
 if [[ "$DEPLOYMENT_BACKEND" == "ec2" ]]; then
   log "Preparing demo password protection (HTTP Basic Auth via nginx + browser login prompt)"
 
   if [[ -z "$BASIC_AUTH_PASSWORD" ]]; then
-    BASIC_AUTH_PASSWORD="$(openssl rand -base64 18 | tr -d '=+/' | cut -c1-16)"
+    # Attempt to reuse existing password stored in SSM to avoid rotating on every deploy
+    BASIC_AUTH_PASSWORD="$(aws ssm get-parameter \
+      --name "$BASIC_AUTH_PASSWORD_PARAM_NAME" \
+      --with-decryption \
+      --query Parameter.Value \
+      --output text \
+      --region "$AWS_REGION" 2>/dev/null || true)"
+
+    if [[ -n "$BASIC_AUTH_PASSWORD" ]]; then
+      log "Reusing existing password from SSM (${BASIC_AUTH_PASSWORD_PARAM_NAME})"
+    else
+      log "No existing password found; generating a new one"
+      BASIC_AUTH_PASSWORD="$(openssl rand -base64 18 | tr -d '=+/' | cut -c1-16)"
+      # Persist plain password so future deploys can reuse it
+      aws ssm put-parameter \
+        --name "$BASIC_AUTH_PASSWORD_PARAM_NAME" \
+        --type SecureString \
+        --overwrite \
+        --value "$BASIC_AUTH_PASSWORD" \
+        --region "$AWS_REGION" >/dev/null
+      log "New password stored in SSM (${BASIC_AUTH_PASSWORD_PARAM_NAME})"
+    fi
   fi
 
   HTPASSWD_HASH="$(openssl passwd -apr1 "$BASIC_AUTH_PASSWORD")"

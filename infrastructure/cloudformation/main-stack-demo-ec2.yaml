@@ -204,6 +204,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Policies:
         - PolicyName: S3Access
           PolicyDocument:
@@ -267,6 +268,15 @@ Resources:
                 Action:
                   - ecr:GetAuthorizationToken
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:DescribeImages
+                Resource:
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/aasmaa-backend'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/aasmaa-frontend'
         - PolicyName: DemoAuthParameterAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -298,13 +308,9 @@ Resources:
         - !Ref DemoSecurityGroup
       IamInstanceProfile: !Ref DemoEC2InstanceProfile
       EbsOptimized: false
-      # Allocate public IP
-      AssociatePublicIpAddress: true
-      TagSpecifications:
-        - ResourceType: instance
-          Tags:
-            - Key: Name
-              Value: !Sub '${AWS::StackName}-instance'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-instance'
       # UserData: Install Docker + start demo services
       UserData:
         Fn::Base64: !Sub |
@@ -327,6 +333,7 @@ Resources:
           mkdir -p /opt/aasmaa-demo
           mkdir -p /opt/aasmaa-demo/auth
           cd /opt/aasmaa-demo
+          echo "bootstrap-version=2026-03-27-3" > /opt/aasmaa-demo/bootstrap.version
 
           # Retrieve htpasswd entry from SSM Parameter Store and persist locally.
           aws ssm get-parameter \
@@ -335,7 +342,8 @@ Resources:
             --region ${AWS::Region} \
             --query 'Parameter.Value' \
             --output text > /opt/aasmaa-demo/auth/.htpasswd
-          chmod 600 /opt/aasmaa-demo/auth/.htpasswd
+          # nginx worker process must be able to read this file inside container.
+          chmod 644 /opt/aasmaa-demo/auth/.htpasswd
           
           # Create docker-compose.yml (inline)
           cat > docker-compose.yml << 'EOF'
@@ -364,8 +372,9 @@ Resources:
                 AWS_S3_BUCKET: '${S3BucketName}'
                 CUR_S3_PREFIX: 'cost-exports/aasmaa-cost-export'
                 ATHENA_OUTPUT_LOCATION: 's3://${S3BucketName}/athena-results/'
-                AWS_CUR_DATABASE: 'cost_usage_db'
-                AWS_CUR_TABLE: 'cur_data'
+                ATHENA_WORKGROUP: 'primary'
+                AWS_CUR_DATABASE: 'cost_and_usage_db'
+                AWS_CUR_TABLE: 'costandusagereport'
                 
                 # LLM settings
                 BEDROCK_MODEL_ID: '${BedrockModelId}'
@@ -373,6 +382,7 @@ Resources:
                 
                 # App settings
                 ENVIRONMENT: 'production'
+                SECRET_KEY: 'temporary-demo-secret-key-change-in-production'
                 TRUSTED_PROXY_COUNT: '0'
                 LLM_PROVIDER: 'bedrock'
                 ALLOWED_ORIGINS: '["http://localhost","http://localhost:3000","http://127.0.0.1:3000","https://${DomainName}"]'

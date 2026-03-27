@@ -162,10 +162,14 @@ async def execute_multi_agent_query(
 
     except Exception as e:
         logger.error(f"Query execution failed: {e}", exc_info=True)
+        safe_message = (
+            "I couldn\'t complete that request right now. "
+            "Please try a cost question with a clear time range, like 'last 30 days'."
+        )
         return {
             "conversation_id": conversation_id,
-            "message": f"I encountered an error: {str(e)}. Please try rephrasing your question.",
-            "final_response": f"I encountered an error: {str(e)}. Please try rephrasing your question.",
+            "message": safe_message,
+            "final_response": safe_message,
             "charts": [],
             "suggestions": [
                 "Show me my AWS costs for the last 30 days",
@@ -176,7 +180,8 @@ async def execute_multi_agent_query(
                 "time_range": time_range_result.primary.to_dict() if time_range_result else {}
             },
             "metadata": {
-                "error": str(e),
+                "status": "llm_error",
+                "error": type(e).__name__,
                 "scope": {
                     "time_range": time_range_result.to_scope_dict() if time_range_result else {}
                 }

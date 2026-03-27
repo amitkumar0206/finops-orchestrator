@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Demo CloudFormation template with optimization opportunities
+
+Resources:
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: m5.xlarge
+      ImageId: ami-0c55b159cbfafe1f0
+      Tags:
+        - Key: Name
+          Value: DemoAppInstance
+
+  AppDatabase:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.m5.large
+      Engine: postgres
+      AllocatedStorage: 200
+      MultiAZ: true
+      PubliclyAccessible: false
+      DeletionProtection: false
+
+  ArchiveBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: finops-client-demo-cfn-bucket
+
+  AppAsg:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: '1'
+      MaxSize: '6'
+      DesiredCapacity: '1'
+      VPCZoneIdentifier:
+        - subnet-abc12345
+      LaunchTemplate:
+        LaunchTemplateId: lt-abc12345
+        Version: '1'

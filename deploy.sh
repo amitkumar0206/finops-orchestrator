@@ -14,10 +14,10 @@ set -E
 trap 'log_error "Unhandled error at line $LINENO: ${BASH_COMMAND}"; log_error "Aborting deployment."; exit 1' ERR
 
 # Configuration
-STACK_NAME="aasmaa"
-AWS_REGION="us-east-1"
-ENVIRONMENT="production"
-ENV_FILE="deployment.env"
+STACK_NAME="${STACK_NAME:-aasmaa}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+ENVIRONMENT="${ENVIRONMENT:-production}"
+ENV_FILE="${ENV_FILE:-deployment.env}"
 FRESH_INSTALL=false
 DEPLOYMENT_FAILED=false
 
@@ -1335,18 +1335,18 @@ deploy_services() {
     log_info "Deploying ECS services..."
     
     # Source deployment environment
-    if [ ! -f deployment.env ]; then
-        log_error "deployment.env not found. This file should have been created during infrastructure deployment."
+    if [ ! -f "$ENV_FILE" ]; then
+        log_error "$ENV_FILE not found. This file should have been created during infrastructure deployment."
         log_error "Cannot proceed without database password and other deployment information."
         rollback_deployment "deployment.env file missing"
     fi
     
-    source deployment.env
+    source "$ENV_FILE"
     
     # Verify critical variables
     if [ -z "${DB_PASSWORD:-}" ]; then
-        log_error "DB_PASSWORD not found in deployment.env"
-        rollback_deployment "DB_PASSWORD missing from deployment.env"
+        log_error "DB_PASSWORD not found in $ENV_FILE"
+        rollback_deployment "DB_PASSWORD missing from deployment env file"
     fi
     
     # Set defaults for optional variables
@@ -1372,10 +1372,21 @@ deploy_services() {
         --stack-name "$STACK_NAME" \
         --query 'Stacks[0].Outputs[?OutputKey==`ECSClusterName`].OutputValue' \
         --output text)
+
+    local deployment_mode="${DEPLOYMENT_MODE:-}"
+    if [ -z "$deployment_mode" ]; then
+        if [[ "$STACK_NAME" == *"-demo"* ]] || [[ "${ENVIRONMENT:-}" == "development" ]]; then
+            deployment_mode="demo"
+        else
+            deployment_mode="full"
+        fi
+    fi
+    log_info "Using services deployment mode: $deployment_mode"
     
     # Deploy ECS services using the service stack
     ECS_SERVICE_PARAMS=(
         ParentStackName="$STACK_NAME"
+        DeploymentMode="$deployment_mode"
         BackendImageUri="$BACKEND_IMAGE_URI"
         FrontendImageUri="$FRONTEND_IMAGE_URI"
         DatabaseEndpoint="$DB_ENDPOINT"
@@ -1495,7 +1506,8 @@ validate_migration_state() {
         --query 'Stacks[0].Outputs[?OutputKey==`BackendServiceName`].OutputValue' \
         --output text 2>/dev/null || echo "${STACK_NAME}-backend")
     
-    if [ -z "$ecs_cluster" ]; then\n        log_warning "Cannot validate - ECS cluster not found"
+    if [ -z "$ecs_cluster" ]; then
+        log_warning "Cannot validate - ECS cluster not found"
         return 1
     fi
     

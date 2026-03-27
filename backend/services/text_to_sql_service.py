@@ -41,8 +41,8 @@ Never return data from accounts not in this list.
 CUR_SCHEMA_CONTEXT = """
 AWS Cost and Usage Report (CUR) Schema for Athena Queries:
 
-**Database**: cost_usage_db
-**Table**: cur_data
+**Database**: {database_name}
+**Table**: {table_name}
 
 **Key Columns:**
 - line_item_usage_start_date: DATE - When the usage started
@@ -102,7 +102,7 @@ When user asks for costs of these "wrapper" services, automatically expand to th
 SELECT 
   line_item_product_code AS service,
   ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {database_name}.{table_name}
 WHERE CAST(line_item_usage_start_date AS DATE) >= DATE '2025-11-03'
   AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-12-03'
 GROUP BY line_item_product_code
@@ -115,7 +115,7 @@ LIMIT 5;
 SELECT 
   line_item_usage_type AS usage_type,
   ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {database_name}.{table_name}
 WHERE line_item_product_code = 'AmazonCloudWatch'
   AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-11-03'
   AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-12-03'
@@ -128,7 +128,7 @@ ORDER BY cost_usd DESC;
 SELECT 
   product_region_code AS region,
   ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {database_name}.{table_name}
 WHERE CAST(line_item_usage_start_date AS DATE) >= DATE '2025-11-03'
   AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-12-03'
 GROUP BY product_region_code
@@ -140,7 +140,7 @@ ORDER BY cost_usd DESC;
 SELECT 
   CAST(line_item_usage_start_date AS DATE) AS date,
   ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {database_name}.{table_name}
 WHERE CAST(line_item_usage_start_date AS DATE) >= DATE '2025-11-03'
   AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-12-03'
 GROUP BY CAST(line_item_usage_start_date AS DATE)
@@ -152,7 +152,7 @@ ORDER BY date;
 SELECT 
   line_item_resource_id AS resource_id,
   ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {database_name}.{table_name}
 WHERE line_item_product_code = 'AmazonRDS'
   AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-09-01'
   AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-09-30'
@@ -168,7 +168,7 @@ SELECT
   line_item_product_code AS service,
   line_item_resource_id AS resource_id,
   ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {database_name}.{table_name}
 WHERE line_item_resource_id = 'arn:aws:s3:::my-bucket-name'
   AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-11-01'
   AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-11-30'
@@ -196,7 +196,7 @@ SELECT
     ELSE 'Other'
   END AS os_type,
   ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {database_name}.{table_name}
 WHERE line_item_product_code = 'AmazonEC2'
   AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-10-01'
   AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-10-31'
@@ -219,7 +219,7 @@ ECS doesn't bill as 'AmazonECS' - it uses underlying services. For ECS-related c
 SELECT 
   line_item_product_code AS service,
   ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {database_name}.{table_name}
 WHERE (
     line_item_product_code IN ('AmazonEC2', 'AmazonECR')
     OR line_item_usage_type LIKE '%Fargate%'
@@ -233,7 +233,7 @@ ORDER BY cost_usd DESC;
 SELECT 
   line_item_product_code AS service,
   ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {database_name}.{table_name}
 WHERE line_item_resource_id = 'arn:aws:ecs:us-east-1:123456789:cluster/my-cluster'
   AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-11-01'
   AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-11-30'
@@ -347,7 +347,7 @@ Your task: Generate a COMPLETE, EXECUTABLE Athena SQL query that answers the use
      SELECT 
        line_item_product_code AS service,
        ROUND(SUM(...effective_cost...), 2) AS cost_usd
-     FROM cost_usage_db.cur_data
+     FROM {database_name}.{table_name}
      WHERE line_item_product_code IN ('AmazonEC2', 'AmazonCloudFront')
        AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-08-01'
        AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-11-30'
@@ -360,7 +360,7 @@ Your task: Generate a COMPLETE, EXECUTABLE Athena SQL query that answers the use
        DATE_TRUNC('month', CAST(line_item_usage_start_date AS DATE)) AS month,
        line_item_product_code AS service,
        ROUND(SUM(...effective_cost...), 2) AS cost_usd
-     FROM cost_usage_db.cur_data
+     FROM {database_name}.{table_name}
      WHERE line_item_product_code IN ('AmazonEC2', 'AmazonCloudFront')
        AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-08-01'
        AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-11-30'
@@ -505,7 +505,7 @@ Example for monthly time-series:
 
 User: "Show me my AWS costs for the last 30 days"
 {{
-  "sql": "SELECT line_item_product_code AS service, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd FROM cost_usage_db.cur_data WHERE CAST(line_item_usage_start_date AS DATE) >= DATE '{start_date_30d}' AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_date}' GROUP BY line_item_product_code ORDER BY cost_usd DESC LIMIT 10",
+  "sql": "SELECT line_item_product_code AS service, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd FROM {database_name}.{table_name} WHERE CAST(line_item_usage_start_date AS DATE) >= DATE '{start_date_30d}' AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_date}' GROUP BY line_item_product_code ORDER BY cost_usd DESC LIMIT 10",
   "explanation": "**Summary:** Your total AWS spend is ${{TotalCost}} across ${{NumItems}} services for the last 30 days.
 
 **Insights:**
@@ -519,7 +519,7 @@ User: "Show me my AWS costs for the last 30 days"
 
 User: "How can I optimize my EC2 costs?"
 {{
-  "sql": "SELECT line_item_usage_type AS instance_type, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd FROM cost_usage_db.cur_data WHERE line_item_product_code = 'AmazonEC2' AND CAST(line_item_usage_start_date AS DATE) >= DATE '{start_date_30d}' AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_date}' GROUP BY line_item_usage_type ORDER BY cost_usd DESC",
+  "sql": "SELECT line_item_usage_type AS instance_type, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd FROM {database_name}.{table_name} WHERE line_item_product_code = 'AmazonEC2' AND CAST(line_item_usage_start_date AS DATE) >= DATE '{start_date_30d}' AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_date}' GROUP BY line_item_usage_type ORDER BY cost_usd DESC",
   "explanation": "**Summary:** Your EC2 costs total $92.26 for the last 30 days, with t4g.medium representing your largest cost driver at $45.77.
 
   "explanation": "**Summary:** Your EC2 costs total $92.26 for the last 30 days, with t4g.medium representing your largest cost driver at $45.77.
@@ -541,7 +541,7 @@ User: "How can I optimize my EC2 costs?"
 
 User: "show me monthly cost for last 4 months"
 {{
-  "sql": "SELECT DATE_TRUNC('month', CAST(line_item_usage_start_date AS DATE)) AS month, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS total_cost_usd FROM cost_usage_db.cur_data WHERE CAST(line_item_usage_start_date AS DATE) >= DATE_ADD('month', -4, CURRENT_DATE) GROUP BY DATE_TRUNC('month', CAST(line_item_usage_start_date AS DATE)) ORDER BY month",
+  "sql": "SELECT DATE_TRUNC('month', CAST(line_item_usage_start_date AS DATE)) AS month, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS total_cost_usd FROM {database_name}.{table_name} WHERE CAST(line_item_usage_start_date AS DATE) >= DATE_ADD('month', -4, CURRENT_DATE) GROUP BY DATE_TRUNC('month', CAST(line_item_usage_start_date AS DATE)) ORDER BY month",
   "explanation": "**Summary:** Your costs decreased by $409.34 (72.9%) from $561.22 to $151.88 over the last 4 months.
 
 **Insights:**
@@ -566,7 +566,7 @@ User: "Compare current vs previous period"
 
 User: "show me RDS costs for September 2025 per resource"
 {{
-  "sql": "SELECT line_item_resource_id AS resource_id, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd FROM cost_usage_db.cur_data WHERE line_item_product_code = 'AmazonRDS' AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-09-01' AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-09-30' AND line_item_resource_id IS NOT NULL AND line_item_resource_id != '' GROUP BY line_item_resource_id ORDER BY cost_usd DESC",
+  "sql": "SELECT line_item_resource_id AS resource_id, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd FROM {database_name}.{table_name} WHERE line_item_product_code = 'AmazonRDS' AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-09-01' AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-09-30' AND line_item_resource_id IS NOT NULL AND line_item_resource_id != '' GROUP BY line_item_resource_id ORDER BY cost_usd DESC",
   "explanation": "**Summary:** Your RDS costs for September 2025 broken down by individual database instance.
 
 **Insights:**
@@ -628,13 +628,24 @@ class TextToSQLService:
                 if context_parts:
                     conv_context += "\n\nPrevious Query Context:\n" + "\n".join(context_parts)
             
+            cur_database = settings.aws_cur_database or "cost_and_usage_db"
+            cur_table = settings.aws_cur_table or "costandusagereport"
+            schema_context = CUR_SCHEMA_CONTEXT.format(
+              database_name=cur_database,
+              table_name=cur_table,
+              current_date=current_date,
+              start_date_30d=start_date_30d,
+            )
+
             # Format prompt
             prompt = TEXT_TO_SQL_PROMPT.format(
-                schema_context=CUR_SCHEMA_CONTEXT,
+              schema_context=schema_context,
                 current_date=current_date,
                 start_date_30d=start_date_30d,
                 conversation_history=conv_context,
-                user_query=user_query
+              user_query=user_query,
+              database_name=cur_database,
+              table_name=cur_table,
             )
             
             logger.info(
@@ -829,8 +840,8 @@ class TextToSQLService:
                     metadata.update({
                         "status": "validation_failed",
                         "clarification": [
-                            "The generated query failed security validation. Please try rephrasing your request.",
-                            "Ensure you're requesting data analysis, not data modification."
+                        "Try asking with a specific time period, such as 'last 7 days' or 'last month'.",
+                        "You can also ask for a breakdown, for example 'cost by service for last 30 days'."
                         ]
                     })
                     return "", metadata
@@ -1149,9 +1160,13 @@ class TextToSQLService:
         # 6. Validate table access - ensure only CUR table is queried
         table_name = (settings.aws_cur_table or 'cur_table').lower()
 
-        # First, extract CTE (Common Table Expression) names from WITH clauses
-        # CTEs are temporary and should be excluded from unauthorized table check
-        cte_pattern = re.compile(r'\bWITH\s+([a-z_][a-z0-9_]*)\s+AS\s*\(', re.IGNORECASE)
+        # First, extract CTE (Common Table Expression) names from WITH clauses.
+        # Support multi-CTE queries: WITH a AS (...), b AS (...)
+        # CTEs are temporary and should be excluded from unauthorized table check.
+        cte_pattern = re.compile(
+          r'(?:\bWITH\b|,)\s*([a-z_][a-z0-9_]*)\s+AS\s*\(',
+          re.IGNORECASE
+        )
         cte_names = {match.group(1).lower() for match in cte_pattern.finditer(sql)}
 
         # Extract all table references from FROM and JOIN clauses

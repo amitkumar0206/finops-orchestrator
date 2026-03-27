@@ -205,6 +205,11 @@ async def chat(
                     clarifications[0] if clarifications else
                     "Please try rephrasing or provide more specific details (e.g., time period, service name)."
                 )
+            elif status == "validation_failed":
+                message_text = (
+                    clarifications[0] if clarifications else
+                    "I can help with that. Try asking with a clear time period, such as 'last 7 days' or 'last month'."
+                )
             elif status == "needs_clarification":
                 message_text = (clarifications[0] if clarifications else
                     "I need more information to proceed. Could you specify a time period or breakdown preference?")
