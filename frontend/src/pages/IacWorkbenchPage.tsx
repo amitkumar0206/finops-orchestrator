@@ -325,16 +325,35 @@ const IacWorkbenchPage: React.FC = () => {
                 <Paper
                     elevation={0}
                     sx={{
-                        p: { xs: 2.2, md: 3 },
-                        borderRadius: 3,
-                        background: 'linear-gradient(115deg, #1558ad 0%, #0b8f9e 100%)',
-                        color: 'white',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        p: { xs: 1.4, md: 1.8 },
+                        borderRadius: 2.5,
+                        border: '1px solid rgba(21, 101, 192, 0.16)',
+                        background: 'linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%)',
                     }}
                 >
-                    <Typography variant="h4" fontWeight={800}>Cloud Setup Analyzer</Typography>
-                    <Typography variant="body1" sx={{ mt: 1.2, opacity: 0.96, maxWidth: 980 }}>
-                        Review cloud setup files with clear business insights: cost impact, risk highlights, and practical improvement options.
-                    </Typography>
+                    <Box
+                        sx={{
+                            position: 'absolute',
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: 5,
+                            background: 'linear-gradient(180deg, #1558ad 0%, #0b8f9e 100%)',
+                        }}
+                    />
+                    <Stack spacing={0.55} sx={{ pl: { xs: 1.1, md: 1.4 } }}>
+                        <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700, letterSpacing: 0.8 }}>
+                            Analyze
+                        </Typography>
+                        <Typography variant="h5" sx={{ fontWeight: 700, color: '#123a63', lineHeight: 1.2 }}>
+                            Cloud Setup Analyzer
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: 'text.secondary', maxWidth: 920 }}>
+                            Review cloud setup files for business impact, key risks, and practical optimization options.
+                        </Typography>
+                    </Stack>
                 </Paper>
 
                 {!analysis && (
