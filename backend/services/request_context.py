@@ -10,6 +10,7 @@ from uuid import UUID
 from datetime import datetime
 import re
 import structlog
+from fastapi import Request
 
 from backend.utils.sql_constants import SQL_VALUE_SEPARATOR, quote_sql_string
 
@@ -160,7 +161,7 @@ def create_empty_context(user_email: str = 'anonymous') -> RequestContext:
     )
 
 
-def get_context_from_request(request) -> Optional[RequestContext]:
+def get_context_from_request(request: Request) -> Optional[RequestContext]:
     """
     Extract RequestContext from a FastAPI request.
     Returns None if no context is attached.
@@ -170,7 +171,7 @@ def get_context_from_request(request) -> Optional[RequestContext]:
     return None
 
 
-def require_context(request) -> RequestContext:
+def require_context(request: Request) -> RequestContext:
     """
     Get RequestContext from request, raising an error if not present.
     Use this when authentication/scoping is required.
@@ -182,7 +183,7 @@ def require_context(request) -> RequestContext:
     return ctx
 
 
-def require_org_admin(request) -> RequestContext:
+def require_org_admin(request: Request) -> RequestContext:
     """
     Get RequestContext and verify user is an organization admin.
     """

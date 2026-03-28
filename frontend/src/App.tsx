@@ -20,6 +20,7 @@ import {
 import ChatInterface from './components/Chat/ChatInterface';
 import LoginPage from './pages/LoginPage';
 import IacWorkbenchPage from './pages/IacWorkbenchPage';
+import GenerateBlueprintPage from './pages/GenerateBlueprintPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ScopeIndicator } from './components/Scope';
 
@@ -83,9 +84,11 @@ const App: React.FC = () => {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  const activeRoute = (location.pathname.startsWith('/iac') || location.pathname.startsWith('/analyze'))
-    ? '/analyze'
-    : '/chat';
+  const activeRoute = (() => {
+    if (location.pathname.startsWith('/generate')) return '/generate';
+    if (location.pathname.startsWith('/iac') || location.pathname.startsWith('/analyze')) return '/analyze';
+    return '/chat';
+  })();
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc', flexDirection: 'column' }}>
@@ -179,6 +182,28 @@ const App: React.FC = () => {
             >
               Analyze
             </Button>
+            <Button
+              component={Link}
+              to="/generate"
+              color="inherit"
+              size="small"
+              sx={{
+                px: 1.2,
+                textTransform: 'none',
+                fontWeight: 700,
+                letterSpacing: 0.2,
+                color: activeRoute === '/generate' ? '#ffffff' : 'rgba(255, 255, 255, 0.74)',
+                borderBottom: activeRoute === '/generate' ? '2px solid #ffffff' : '2px solid transparent',
+                borderRadius: 0,
+                minHeight: 34,
+                '&:hover': {
+                  backgroundColor: 'transparent',
+                  color: '#ffffff'
+                }
+              }}
+            >
+              Generate
+            </Button>
           </Box>
 
           <Chip
@@ -239,6 +264,14 @@ const App: React.FC = () => {
             >
               Analyze
             </MenuItem>
+            <MenuItem
+              component={Link}
+              to="/generate"
+              onClick={handleCloseNavMenu}
+              selected={activeRoute === '/generate'}
+            >
+              Generate
+            </MenuItem>
             <Divider />
             <MenuItem
               onClick={() => {
@@ -282,6 +315,8 @@ const App: React.FC = () => {
           <Route path="/chat/*" element={<Navigate to="/chat" replace />} />
           <Route path="/analyze" element={<ErrorBoundary><IacWorkbenchPage /></ErrorBoundary>} />
           <Route path="/analyze/*" element={<Navigate to="/analyze" replace />} />
+          <Route path="/generate" element={<ErrorBoundary><GenerateBlueprintPage /></ErrorBoundary>} />
+          <Route path="/generate/*" element={<Navigate to="/generate" replace />} />
           <Route path="/iac" element={<Navigate to="/analyze" replace />} />
           <Route path="/iac/*" element={<Navigate to="/analyze" replace />} />
           <Route path="*" element={<Navigate to="/chat" replace />} />
