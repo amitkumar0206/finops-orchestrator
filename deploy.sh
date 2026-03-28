@@ -93,7 +93,7 @@ AWS_REGION=us-east-1
 ENVIRONMENT=production
 
 # Bedrock AI Model (use inference profile for Nova models)
-BEDROCK_MODEL=us.amazon.nova-premier-v1:0
+BEDROCK_MODEL=us.amazon.nova-pro-v1:0
 
 # Universal Parameter Schema (UPS) Configuration
 # Toggle to disable LLM extraction (use heuristic-only mode for deterministic testing)
@@ -371,7 +371,7 @@ check_prerequisites() {
     
     # 5. Check Bedrock model access
     log_info "[5/7] Validating Bedrock model access..."
-    BEDROCK_MODEL="${BEDROCK_MODEL:-us.amazon.nova-premier-v1:0}"
+    BEDROCK_MODEL="${BEDROCK_MODEL:-us.amazon.nova-pro-v1:0}"
     
     # Test Bedrock access with the configured model
     if aws bedrock-runtime invoke-model \
@@ -696,7 +696,7 @@ deploy_infrastructure() {
         3) BEDROCK_MODEL="amazon.nova-2-sonic-v1:0" ;;
         4) BEDROCK_MODEL="meta.llama3-70b-instruct-v1:0" ;;
         5) BEDROCK_MODEL="mistral.mistral-large-2402-v1:0" ;;
-        *) BEDROCK_MODEL="us.amazon.nova-premier-v1:0" ;;
+        *) BEDROCK_MODEL="us.amazon.nova-pro-v1:0" ;;
     esac
     
     log_info "Using Bedrock model: $BEDROCK_MODEL"
@@ -1350,7 +1350,7 @@ deploy_services() {
     fi
     
     # Set defaults for optional variables
-    BEDROCK_MODEL="${BEDROCK_MODEL:-amazon.nova-premier-v1:0}"
+    BEDROCK_MODEL="${BEDROCK_MODEL:-amazon.nova-pro-v1:0}"
     
     # Get stack outputs
     VPC_ID=$(aws cloudformation describe-stacks \

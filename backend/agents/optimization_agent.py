@@ -497,6 +497,9 @@ class OptimizationAgent:
             Formatted response dict with message, insights, recommendations
         """
         if not opportunities:
+            if self._should_return_generic_guidance(intent, stats):
+                return self._build_generic_guidance_response(intent)
+
             return {
                 "message": self._no_opportunities_message(intent),
                 "summary": "No optimization opportunities found matching your criteria.",
@@ -551,6 +554,108 @@ class OptimizationAgent:
                 "services": list(set(opp.get("service") for opp in opportunities))
             }
         }
+
+    def _should_return_generic_guidance(
+        self,
+        intent: Dict[str, Any],
+        stats: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Return generic guidance when query is broad and no ingestion data exists."""
+        if not stats:
+            return False
+
+        total_opportunities = None
+        if isinstance(stats, dict):
+            total_opportunities = stats.get("total_opportunities")
+        else:
+            total_opportunities = getattr(stats, "total_opportunities", None)
+
+        if total_opportunities != 0:
+            return False
+
+        # Broad query = no explicit optimization category filter.
+        return not bool(intent.get("categories"))
+
+    def _build_generic_guidance_response(self, intent: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a practical fallback response when no signals have been ingested yet."""
+        services = intent.get("services") or []
+        service_label = f" for {', '.join(services)}" if services else ""
+
+        message = (
+            f"I don't see any ingested optimization signals yet{service_label}, "
+            "so I can't show account-specific opportunities right now.\n\n"
+            "Here are practical best practices you can apply immediately:\n\n"
+            f"{self._generic_tips_for_services(services)}\n"
+            "Run an ingestion when ready, and I can then rank concrete opportunities by monthly savings."
+        )
+
+        recommendations = [
+            {
+                "action": "Run Opportunity Ingestion",
+                "description": "Fetch latest recommendations from AWS Cost Explorer, Trusted Advisor, and Compute Optimizer.",
+            },
+            {
+                "action": "Enable Rightsizing Governance",
+                "description": "Set recurring reviews for underutilized compute and storage resources.",
+            },
+            {
+                "action": "Adopt Commitment Strategy",
+                "description": "Use Savings Plans or Reserved Instances for steady-state workloads.",
+            },
+        ]
+
+        return {
+            "message": message,
+            "summary": "No ingested optimization records found yet. Provided generic optimization guidance.",
+            "insights": [
+                {
+                    "category": "Data Availability",
+                    "description": "No optimization signals are currently ingested for this scope, so guidance is based on FinOps best practices.",
+                }
+            ],
+            "recommendations": recommendations,
+            "results": [],
+            "metadata": {
+                "type": "optimization",
+                "opportunities_count": 0,
+                "response_mode": "generic_guidance",
+            },
+        }
+
+    def _generic_tips_for_services(self, services: List[str]) -> str:
+        """Return concise, service-aware optimization tips."""
+        normalized = {s.lower() for s in services}
+
+        if "ec2" in normalized:
+            return (
+                "1. Right-size EC2 by reviewing CPU/Memory and downshifting underutilized instances.\n"
+                "2. Schedule non-production instances to stop outside business hours.\n"
+                "3. Purchase Savings Plans/Reserved Instances for baseline EC2 usage.\n"
+                "4. Use Spot Instances for fault-tolerant or batch workloads."
+            )
+
+        if "rds" in normalized:
+            return (
+                "1. Right-size RDS instance classes based on utilization and query patterns.\n"
+                "2. Enable storage autoscaling and remove over-provisioned IOPS where possible.\n"
+                "3. Consider Reserved Instances for always-on production databases.\n"
+                "4. Stop or snapshot unused dev/test databases."
+            )
+
+        if "s3" in normalized:
+            return (
+                "1. Apply lifecycle policies to transition infrequently accessed data to cheaper tiers.\n"
+                "2. Use Intelligent-Tiering where access patterns are unpredictable.\n"
+                "3. Clean up incomplete multipart uploads and orphaned objects.\n"
+                "4. Review replication and retention settings to avoid unnecessary duplication."
+            )
+
+        return (
+            "1. Prioritize rightsizing for consistently underutilized resources.\n"
+            "2. Remove idle resources (unused volumes, IPs, snapshots, and old load balancers).\n"
+            "3. Use commitment discounts for steady workloads and spot capacity for flexible jobs.\n"
+            "4. Set budgets and anomaly alerts to catch waste early."
+        )
 
     def _no_opportunities_message(self, intent: Dict[str, Any]) -> str:
         """Generate message when no opportunities found"""

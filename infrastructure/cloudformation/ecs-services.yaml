@@ -35,8 +35,8 @@ Parameters:
 
   BedrockModelId:
     Type: String
-    Default: us.amazon.nova-premier-v1:0
-    Description: AWS Bedrock model ID for LLM operations (Amazon Nova Premier recommended)
+    Default: us.amazon.nova-pro-v1:0
+    Description: AWS Bedrock model ID for LLM operations (Amazon Nova Pro recommended)
     AllowedValues:
       - us.amazon.nova-premier-v1:0
       - us.amazon.nova-pro-v1:0

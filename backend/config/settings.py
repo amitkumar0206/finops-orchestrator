@@ -236,19 +236,18 @@ class Settings(BaseSettings):
     
     # AWS Bedrock Configuration
     bedrock_model_id: str = Field(
-        default="us.amazon.nova-premier-v1:0", 
+        default="us.amazon.nova-pro-v1:0",
         env="BEDROCK_MODEL_ID",
-        description="Bedrock cross-region inference profile for Amazon Nova Premier"
+        description="Bedrock cross-region inference profile for Amazon Nova Pro"
     )
     
     # Available models for dynamic switching (use inference profiles for Nova models)
     available_models: list = [
-        "us.amazon.nova-premier-v1:0",                   # Amazon Nova Premier - DEFAULT (most powerful, requires inference profile)
-        "us.amazon.nova-pro-v1:0",                        # Amazon Nova 1 Pro (legacy, requires inference profile)
-        "us.amazon.nova-lite-v1:0",                       # Amazon Nova 1 Lite (legacy, requires inference profile)
-        "us.amazon.nova-micro-v1:0",                      # Amazon Nova 1 Micro (legacy, requires inference profile)
+        "us.amazon.nova-pro-v1:0",                        # Amazon Nova Pro - DEFAULT (balanced quality and cost)
+        "us.amazon.nova-lite-v1:0",                       # Amazon Nova Lite (lower cost inference profile)
+        "us.amazon.nova-micro-v1:0",                      # Amazon Nova Micro (fastest inference profile)
         "us.amazon.nova-2-lite-v1:0",                     # Amazon Nova 2 Lite (requires inference profile)
-        "amazon.nova-2-sonic-v1:0",                       # Amazon Nova 2 Sonic (model ID works)
+        "amazon.nova-2-sonic-v1:0",                       # Amazon Nova 2 Sonic (speech/text model)
         "meta.llama3-70b-instruct-v1:0",                  # Meta Llama 3 70B (open source alternative)
         "meta.llama3-8b-instruct-v1:0",                   # Meta Llama 3 8B (lighter alternative)
         "mistral.mistral-large-2402-v1:0",                # Mistral Large (European alternative)
@@ -261,7 +260,7 @@ class Settings(BaseSettings):
     temperature: float = Field(default=0.7, env="TEMPERATURE", description="Temperature for LLM responses")
     
     # Model Configuration
-    default_llm_model: str = Field(default="us.amazon.nova-premier-v1:0", env="DEFAULT_LLM_MODEL")
+    default_llm_model: str = Field(default="us.amazon.nova-pro-v1:0", env="DEFAULT_LLM_MODEL")
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2", env="EMBEDDING_MODEL")
     
     # Vector Store
