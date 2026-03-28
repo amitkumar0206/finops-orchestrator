@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
-import { Box, AppBar, Toolbar, Chip, Button, Tabs, Tab } from '@mui/material';
-import { TrendingUp as TrendingUpIcon, Logout as LogoutIcon } from '@mui/icons-material';
+import {
+  Box,
+  AppBar,
+  Toolbar,
+  Chip,
+  Button,
+  IconButton,
+  Menu,
+  MenuItem,
+  Divider,
+} from '@mui/material';
+import {
+  TrendingUp as TrendingUpIcon,
+  Logout as LogoutIcon,
+  Menu as MenuIcon,
+} from '@mui/icons-material';
 
 import ChatInterface from './components/Chat/ChatInterface';
 import LoginPage from './pages/LoginPage';
@@ -14,6 +28,7 @@ const App: React.FC = () => {
   const [scopeVersion, setScopeVersion] = useState(0);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [navMenuAnchor, setNavMenuAnchor] = useState<null | HTMLElement>(null);
 
   // Check authentication on component mount.
   // In demo mode we keep auth state client-side to avoid forced re-login loops.
@@ -38,6 +53,14 @@ const App: React.FC = () => {
     setIsAuthenticated(false);
   };
 
+  const handleOpenNavMenu = (event: React.MouseEvent<HTMLElement>) => {
+    setNavMenuAnchor(event.currentTarget);
+  };
+
+  const handleCloseNavMenu = () => {
+    setNavMenuAnchor(null);
+  };
+
   if (isCheckingAuth) {
     return (
       <Box
@@ -60,7 +83,7 @@ const App: React.FC = () => {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  const activeTab = location.pathname.startsWith('/iac') ? '/iac' : '/chat';
+  const activeRoute = location.pathname.startsWith('/iac') ? '/iac' : '/chat';
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc', flexDirection: 'column' }}>
@@ -98,9 +121,56 @@ const App: React.FC = () => {
               }}
             />
           </Box>
-          <Box sx={{ flexGrow: 1 }}>
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <ScopeIndicator onScopeChange={handleScopeChange} />
           </Box>
+
+          <Box
+            sx={{
+              display: { xs: 'none', md: 'flex' },
+              alignItems: 'center',
+              gap: 0.5,
+              mr: 1,
+              p: 0.5,
+              borderRadius: 2,
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              border: '1px solid rgba(255, 255, 255, 0.15)'
+            }}
+          >
+            <Button
+              component={Link}
+              to="/chat"
+              color="inherit"
+              size="small"
+              sx={{
+                px: 1.6,
+                textTransform: 'none',
+                fontWeight: 700,
+                color: activeRoute === '/chat' ? '#ffffff' : 'rgba(255, 255, 255, 0.78)',
+                borderBottom: activeRoute === '/chat' ? '2px solid #ffffff' : '2px solid transparent',
+                borderRadius: 1,
+              }}
+            >
+              Cost Chat
+            </Button>
+            <Button
+              component={Link}
+              to="/iac"
+              color="inherit"
+              size="small"
+              sx={{
+                px: 1.6,
+                textTransform: 'none',
+                fontWeight: 700,
+                color: activeRoute === '/iac' ? '#ffffff' : 'rgba(255, 255, 255, 0.78)',
+                borderBottom: activeRoute === '/iac' ? '2px solid #ffffff' : '2px solid transparent',
+                borderRadius: 1,
+              }}
+            >
+              IaC Workbench
+            </Button>
+          </Box>
+
           <Chip
             icon={<TrendingUpIcon sx={{ fontSize: 18 }} />}
             label="Live"
@@ -111,15 +181,72 @@ const App: React.FC = () => {
               color: 'white',
               fontWeight: 600,
               border: '1px solid rgba(255, 255, 255, 0.3)',
-              mr: 2
+              mr: { xs: 1, md: 2 }
             }}
           />
+
+          <IconButton
+            color="inherit"
+            onClick={handleOpenNavMenu}
+            sx={{
+              display: { xs: 'inline-flex', md: 'none' },
+              mr: 0.5,
+              border: '1px solid rgba(255, 255, 255, 0.25)',
+              backgroundColor: 'rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            <MenuIcon />
+          </IconButton>
+
+          <Menu
+            anchorEl={navMenuAnchor}
+            open={Boolean(navMenuAnchor)}
+            onClose={handleCloseNavMenu}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            PaperProps={{
+              sx: {
+                mt: 1,
+                minWidth: 220,
+                borderRadius: 2,
+                border: '1px solid rgba(15, 23, 42, 0.08)'
+              }
+            }}
+          >
+            <MenuItem
+              component={Link}
+              to="/chat"
+              onClick={handleCloseNavMenu}
+              selected={activeRoute === '/chat'}
+            >
+              Cost Chat
+            </MenuItem>
+            <MenuItem
+              component={Link}
+              to="/iac"
+              onClick={handleCloseNavMenu}
+              selected={activeRoute === '/iac'}
+            >
+              IaC Workbench
+            </MenuItem>
+            <Divider />
+            <MenuItem
+              onClick={() => {
+                handleCloseNavMenu();
+                handleLogout();
+              }}
+            >
+              Logout
+            </MenuItem>
+          </Menu>
+
           <Button
             color="inherit"
             size="small"
             startIcon={<LogoutIcon />}
             onClick={handleLogout}
             sx={{
+              display: { xs: 'none', md: 'inline-flex' },
               textTransform: 'none',
               '&:hover': {
                 backgroundColor: 'rgba(255, 255, 255, 0.1)'
@@ -129,33 +256,6 @@ const App: React.FC = () => {
             Logout
           </Button>
         </Toolbar>
-
-        <Box sx={{ px: { xs: 1, sm: 2 }, pb: 1 }}>
-          <Tabs
-            value={activeTab}
-            variant="fullWidth"
-            textColor="inherit"
-            TabIndicatorProps={{ style: { backgroundColor: '#ffffff' } }}
-            sx={{
-              minHeight: 42,
-              bgcolor: 'rgba(255, 255, 255, 0.12)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: 2,
-              '& .MuiTab-root': {
-                minHeight: 42,
-                textTransform: 'none',
-                fontWeight: 700,
-                color: 'rgba(255, 255, 255, 0.85)'
-              },
-              '& .Mui-selected': {
-                color: '#ffffff'
-              }
-            }}
-          >
-            <Tab value="/chat" label="Cost Chat" component={Link} to="/chat" />
-            <Tab value="/iac" label="IaC Workbench" component={Link} to="/iac" />
-          </Tabs>
-        </Box>
       </AppBar>
 
       <Box
