@@ -10,11 +10,16 @@ import {
   Menu,
   MenuItem,
   Divider,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
   Logout as LogoutIcon,
   Menu as MenuIcon,
+  ForumOutlined as ForumOutlinedIcon,
+  InsightsOutlined as InsightsOutlinedIcon,
+  AutoFixHighOutlined as AutoFixHighOutlinedIcon,
 } from '@mui/icons-material';
 
 import ChatInterface from './components/Chat/ChatInterface';
@@ -143,6 +148,7 @@ const App: React.FC = () => {
               to="/chat"
               color="inherit"
               size="small"
+              startIcon={<ForumOutlinedIcon sx={{ fontSize: 16 }} />}
               sx={{
                 px: 1.2,
                 textTransform: 'none',
@@ -152,6 +158,10 @@ const App: React.FC = () => {
                 borderBottom: activeRoute === '/chat' ? '2px solid #ffffff' : '2px solid transparent',
                 borderRadius: 0,
                 minHeight: 34,
+                '& .MuiButton-startIcon': {
+                  mr: 0.6,
+                  ml: 0,
+                },
                 '&:hover': {
                   backgroundColor: 'transparent',
                   color: '#ffffff'
@@ -165,6 +175,7 @@ const App: React.FC = () => {
               to="/analyze"
               color="inherit"
               size="small"
+              startIcon={<InsightsOutlinedIcon sx={{ fontSize: 16 }} />}
               sx={{
                 px: 1.2,
                 textTransform: 'none',
@@ -174,6 +185,10 @@ const App: React.FC = () => {
                 borderBottom: activeRoute === '/analyze' ? '2px solid #ffffff' : '2px solid transparent',
                 borderRadius: 0,
                 minHeight: 34,
+                '& .MuiButton-startIcon': {
+                  mr: 0.6,
+                  ml: 0,
+                },
                 '&:hover': {
                   backgroundColor: 'transparent',
                   color: '#ffffff'
@@ -187,6 +202,7 @@ const App: React.FC = () => {
               to="/generate"
               color="inherit"
               size="small"
+              startIcon={<AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />}
               sx={{
                 px: 1.2,
                 textTransform: 'none',
@@ -196,6 +212,10 @@ const App: React.FC = () => {
                 borderBottom: activeRoute === '/generate' ? '2px solid #ffffff' : '2px solid transparent',
                 borderRadius: 0,
                 minHeight: 34,
+                '& .MuiButton-startIcon': {
+                  mr: 0.6,
+                  ml: 0,
+                },
                 '&:hover': {
                   backgroundColor: 'transparent',
                   color: '#ffffff'
@@ -207,15 +227,15 @@ const App: React.FC = () => {
           </Box>
 
           <Chip
-            icon={<TrendingUpIcon sx={{ fontSize: 18 }} />}
+            icon={<TrendingUpIcon sx={{ fontSize: 18, color: '#22c55e !important' }} />}
             label="Live"
             size="small"
             sx={{
-              bgcolor: 'rgba(255, 255, 255, 0.25)',
+              bgcolor: 'rgba(16, 185, 129, 0.18)',
               backdropFilter: 'blur(10px)',
               color: 'white',
               fontWeight: 600,
-              border: '1px solid rgba(255, 255, 255, 0.3)',
+              border: '1px solid rgba(34, 197, 94, 0.55)',
               mr: { xs: 1, md: 2 }
             }}
           />
@@ -254,7 +274,10 @@ const App: React.FC = () => {
               onClick={handleCloseNavMenu}
               selected={activeRoute === '/chat'}
             >
-              Cost Chat
+              <ListItemIcon sx={{ minWidth: 30 }}>
+                <ForumOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Cost Chat" />
             </MenuItem>
             <MenuItem
               component={Link}
@@ -262,7 +285,10 @@ const App: React.FC = () => {
               onClick={handleCloseNavMenu}
               selected={activeRoute === '/analyze'}
             >
-              Analyze
+              <ListItemIcon sx={{ minWidth: 30 }}>
+                <InsightsOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Analyze" />
             </MenuItem>
             <MenuItem
               component={Link}
@@ -270,7 +296,10 @@ const App: React.FC = () => {
               onClick={handleCloseNavMenu}
               selected={activeRoute === '/generate'}
             >
-              Generate
+              <ListItemIcon sx={{ minWidth: 30 }}>
+                <AutoFixHighOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Generate" />
             </MenuItem>
             <Divider />
             <MenuItem
