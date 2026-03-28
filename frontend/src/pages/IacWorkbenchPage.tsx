@@ -106,6 +106,38 @@ const IacWorkbenchPage: React.FC = () => {
         setError(null);
     };
 
+    const parseApiError = async (response: Response, fallback: string): Promise<string> => {
+        try {
+            const body = await response.text();
+            if (!body) return fallback;
+
+            let parsed: any = null;
+            try {
+                parsed = JSON.parse(body);
+            } catch {
+                parsed = null;
+            }
+
+            const detail = parsed?.detail || parsed?.message;
+
+            if (response.status === 404) {
+                return 'This analysis feature is not available in the current environment yet. Please refresh and try again shortly.';
+            }
+
+            if (typeof detail === 'string' && detail.trim()) {
+                return detail;
+            }
+
+            if (typeof body === 'string' && body.trim()) {
+                return body;
+            }
+
+            return fallback;
+        } catch {
+            return fallback;
+        }
+    };
+
     const analyzeFile = async () => {
         if (selectedFiles.length === 0) return;
 
@@ -128,8 +160,8 @@ const IacWorkbenchPage: React.FC = () => {
             });
 
             if (!response.ok) {
-                const body = await response.text();
-                throw new Error(body || `Upload failed with status ${response.status}`);
+                const message = await parseApiError(response, `Upload failed with status ${response.status}`);
+                throw new Error(message);
             }
 
             const data: AnalysisResponse = await response.json();
@@ -171,8 +203,8 @@ const IacWorkbenchPage: React.FC = () => {
             });
 
             if (!response.ok) {
-                const body = await response.text();
-                throw new Error(body || `Chat failed with status ${response.status}`);
+                const message = await parseApiError(response, `Chat failed with status ${response.status}`);
+                throw new Error(message);
             }
 
             const data = await response.json();
@@ -205,8 +237,8 @@ const IacWorkbenchPage: React.FC = () => {
             });
 
             if (!response.ok) {
-                const body = await response.text();
-                throw new Error(body || `Generate failed with status ${response.status}`);
+                const message = await parseApiError(response, `Generate failed with status ${response.status}`);
+                throw new Error(message);
             }
 
             const data = await response.json();
@@ -224,8 +256,8 @@ const IacWorkbenchPage: React.FC = () => {
         try {
             const response = await fetch(`/api/v1/iac/${activeAnalysis.analysis_id}/download?version=${version}`);
             if (!response.ok) {
-                const body = await response.text();
-                throw new Error(body || `Download failed with status ${response.status}`);
+                const message = await parseApiError(response, `Download failed with status ${response.status}`);
+                throw new Error(message);
             }
             const content = await response.text();
             const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -255,26 +287,26 @@ const IacWorkbenchPage: React.FC = () => {
                         color: 'white',
                     }}
                 >
-                    <Typography variant="h4" fontWeight={800}>IaC Architecture Workbench</Typography>
+                    <Typography variant="h4" fontWeight={800}>Cloud Setup Analyzer</Typography>
                     <Typography variant="body1" sx={{ mt: 1.2, opacity: 0.95 }}>
-                        Upload Terraform, CloudFormation, or JSON templates to analyze architecture, explain trade-offs,
-                        estimate cost impact, chat with the assistant, and generate a final optimized file.
+                        Upload your cloud setup files to understand cost impact, risks, and improvement options in plain language.
+                        You can ask follow-up questions and generate a polished recommended version.
                     </Typography>
                 </Paper>
 
                 <Card sx={{ borderRadius: 3 }}>
                     <CardContent>
                         <Stack spacing={2}>
-                            <Typography variant="h6" fontWeight={700}>1) Upload IaC File</Typography>
+                            <Typography variant="h6" fontWeight={700}>1) Upload Cloud Files</Typography>
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
                                 <Button component="label" variant="outlined" startIcon={<CloudUploadIcon />}>
-                                    Choose File
+                                    Choose Files
                                     <input hidden type="file" multiple accept=".tf,.tfvars,.hcl,.yaml,.yml,.json" onChange={onFileChange} />
                                 </Button>
                                 <Typography variant="body2" color="text.secondary">
                                     {selectedFiles.length > 0
                                         ? `${selectedFiles.length} file(s) selected`
-                                        : 'No files selected'}
+                                        : 'No files selected yet'}
                                 </Typography>
                                 <Box sx={{ flex: 1 }} />
                                 <Button
@@ -283,7 +315,7 @@ const IacWorkbenchPage: React.FC = () => {
                                     disabled={selectedFiles.length === 0 || isUploading}
                                     startIcon={isUploading ? <CircularProgress size={16} color="inherit" /> : <AutoFixHighIcon />}
                                 >
-                                    {isUploading ? 'Analyzing...' : 'Analyze File'}
+                                    {isUploading ? 'Analyzing...' : 'Analyze'}
                                 </Button>
                             </Stack>
                             {error && <Alert severity="error">{error}</Alert>}
@@ -297,16 +329,16 @@ const IacWorkbenchPage: React.FC = () => {
                             {analysis.cross_file_analysis && (analysis.file_count || 0) > 1 && (
                                 <Card sx={{ borderRadius: 3, mb: 2 }}>
                                     <CardContent>
-                                        <Typography variant="h6" fontWeight={700}>Cross-file Architecture Analysis</Typography>
+                                        <Typography variant="h6" fontWeight={700}>Combined Findings</Typography>
                                         <Typography variant="body2" sx={{ mt: 1 }}>{analysis.cross_file_analysis.summary}</Typography>
                                         <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 1 }}>
-                                            <Chip label={`Files: ${analysis.file_count || analysis.files?.length || 0}`} size="small" />
-                                            <Chip label={`Cross-file savings: $${Number(analysis.cross_file_analysis.total_estimated_monthly_savings || 0).toFixed(2)}/mo`} size="small" color="primary" />
+                                            <Chip label={`Files reviewed: ${analysis.file_count || analysis.files?.length || 0}`} size="small" />
+                                            <Chip label={`Estimated savings: $${Number(analysis.cross_file_analysis.total_estimated_monthly_savings || 0).toFixed(2)}/month`} size="small" color="primary" />
                                             {(analysis.cross_file_analysis.regions_detected || []).map((region) => (
                                                 <Chip key={region} label={region} size="small" variant="outlined" />
                                             ))}
                                         </Stack>
-                                        <Typography variant="subtitle2" sx={{ mt: 1.5 }}>Key Risks</Typography>
+                                        <Typography variant="subtitle2" sx={{ mt: 1.5 }}>Key Risks to Review</Typography>
                                         <Stack spacing={0.5}>
                                             {(analysis.cross_file_analysis.risks || []).map((risk, idx) => (
                                                 <Typography key={idx} variant="body2">• {risk}</Typography>
@@ -320,7 +352,7 @@ const IacWorkbenchPage: React.FC = () => {
                                 <CardContent>
                                     <Stack spacing={1.2}>
                                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                                            <Typography variant="h6" fontWeight={700}>2) Analysis</Typography>
+                                            <Typography variant="h6" fontWeight={700}>2) Findings</Typography>
                                             <Chip label={activeAnalysis.format} size="small" />
                                             <Chip label={activeAnalysis.filename} size="small" variant="outlined" />
                                             {analysis.files && analysis.files.length > 1 && (
@@ -404,7 +436,7 @@ const IacWorkbenchPage: React.FC = () => {
                         <Grid item xs={12} lg={5}>
                             <Card sx={{ borderRadius: 3, mb: 2 }}>
                                 <CardContent>
-                                    <Typography variant="h6" fontWeight={700}>3) Chat About This Template</Typography>
+                                    <Typography variant="h6" fontWeight={700}>3) Ask Questions</Typography>
                                     <Paper variant="outlined" sx={{ mt: 1.5, p: 1.2, maxHeight: 280, overflowY: 'auto', borderRadius: 2 }}>
                                         <Stack spacing={1}>
                                             {chatMessages.map((m, idx) => (
@@ -430,7 +462,7 @@ const IacWorkbenchPage: React.FC = () => {
                                         <TextField
                                             value={chatInput}
                                             onChange={(e) => setChatInput(e.target.value)}
-                                            placeholder="Ask: explain this architecture, trade-offs, risks..."
+                                            placeholder="Ask: What should leadership focus on? Where can we reduce risk or cost?"
                                             size="small"
                                             fullWidth
                                             onKeyDown={(e) => {
@@ -454,14 +486,14 @@ const IacWorkbenchPage: React.FC = () => {
 
                             <Card sx={{ borderRadius: 3 }}>
                                 <CardContent>
-                                    <Typography variant="h6" fontWeight={700}>4) Generate Final Best Version</Typography>
+                                    <Typography variant="h6" fontWeight={700}>4) Create Improved Version</Typography>
                                     <TextField
                                         fullWidth
                                         multiline
                                         rows={3}
                                         value={finalGoals}
                                         onChange={(e) => setFinalGoals(e.target.value)}
-                                        placeholder="Optional goals: prioritize resiliency, keep Multi-AZ in prod, enforce tags..."
+                                        placeholder="Optional goal: focus on lower cost, stronger reliability, or simpler operations."
                                         sx={{ mt: 1.2 }}
                                     />
                                     <Stack direction="row" spacing={1} sx={{ mt: 1.2 }}>
@@ -471,7 +503,7 @@ const IacWorkbenchPage: React.FC = () => {
                                             disabled={isGenerating}
                                             startIcon={isGenerating ? <CircularProgress size={16} color="inherit" /> : <AutoFixHighIcon />}
                                         >
-                                            {isGenerating ? 'Generating...' : 'Generate Final File'}
+                                            {isGenerating ? 'Generating...' : 'Generate Improved Version'}
                                         </Button>
                                         <Button variant="outlined" startIcon={<DownloadIcon />} onClick={() => downloadVersion('original')}>
                                             Original

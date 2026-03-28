@@ -83,7 +83,9 @@ const App: React.FC = () => {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  const activeRoute = location.pathname.startsWith('/iac') ? '/iac' : '/chat';
+  const activeRoute = (location.pathname.startsWith('/iac') || location.pathname.startsWith('/analyze'))
+    ? '/analyze'
+    : '/chat';
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc', flexDirection: 'column' }}>
@@ -129,12 +131,8 @@ const App: React.FC = () => {
             sx={{
               display: { xs: 'none', md: 'flex' },
               alignItems: 'center',
-              gap: 0.5,
-              mr: 1,
-              p: 0.5,
-              borderRadius: 2,
-              backgroundColor: 'rgba(255, 255, 255, 0.1)',
-              border: '1px solid rgba(255, 255, 255, 0.15)'
+              gap: 1,
+              mr: 1.5,
             }}
           >
             <Button
@@ -143,31 +141,43 @@ const App: React.FC = () => {
               color="inherit"
               size="small"
               sx={{
-                px: 1.6,
+                px: 1.2,
                 textTransform: 'none',
                 fontWeight: 700,
-                color: activeRoute === '/chat' ? '#ffffff' : 'rgba(255, 255, 255, 0.78)',
+                letterSpacing: 0.2,
+                color: activeRoute === '/chat' ? '#ffffff' : 'rgba(255, 255, 255, 0.74)',
                 borderBottom: activeRoute === '/chat' ? '2px solid #ffffff' : '2px solid transparent',
-                borderRadius: 1,
+                borderRadius: 0,
+                minHeight: 34,
+                '&:hover': {
+                  backgroundColor: 'transparent',
+                  color: '#ffffff'
+                }
               }}
             >
               Cost Chat
             </Button>
             <Button
               component={Link}
-              to="/iac"
+              to="/analyze"
               color="inherit"
               size="small"
               sx={{
-                px: 1.6,
+                px: 1.2,
                 textTransform: 'none',
                 fontWeight: 700,
-                color: activeRoute === '/iac' ? '#ffffff' : 'rgba(255, 255, 255, 0.78)',
-                borderBottom: activeRoute === '/iac' ? '2px solid #ffffff' : '2px solid transparent',
-                borderRadius: 1,
+                letterSpacing: 0.2,
+                color: activeRoute === '/analyze' ? '#ffffff' : 'rgba(255, 255, 255, 0.74)',
+                borderBottom: activeRoute === '/analyze' ? '2px solid #ffffff' : '2px solid transparent',
+                borderRadius: 0,
+                minHeight: 34,
+                '&:hover': {
+                  backgroundColor: 'transparent',
+                  color: '#ffffff'
+                }
               }}
             >
-              IaC Workbench
+              Analyze
             </Button>
           </Box>
 
@@ -223,11 +233,11 @@ const App: React.FC = () => {
             </MenuItem>
             <MenuItem
               component={Link}
-              to="/iac"
+              to="/analyze"
               onClick={handleCloseNavMenu}
-              selected={activeRoute === '/iac'}
+              selected={activeRoute === '/analyze'}
             >
-              IaC Workbench
+              Analyze
             </MenuItem>
             <Divider />
             <MenuItem
@@ -270,8 +280,10 @@ const App: React.FC = () => {
           <Route path="/" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
           <Route path="/chat" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
           <Route path="/chat/*" element={<Navigate to="/chat" replace />} />
-          <Route path="/iac" element={<ErrorBoundary><IacWorkbenchPage /></ErrorBoundary>} />
-          <Route path="/iac/*" element={<Navigate to="/iac" replace />} />
+          <Route path="/analyze" element={<ErrorBoundary><IacWorkbenchPage /></ErrorBoundary>} />
+          <Route path="/analyze/*" element={<Navigate to="/analyze" replace />} />
+          <Route path="/iac" element={<Navigate to="/analyze" replace />} />
+          <Route path="/iac/*" element={<Navigate to="/analyze" replace />} />
           <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>
       </Box>
