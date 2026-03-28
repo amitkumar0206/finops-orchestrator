@@ -43,7 +43,7 @@
                 },
                 {
                     "name": "DEFAULT_LLM_MODEL",
-                    "value": "amazon.nova-premier-v1:0"
+                    "value": "us.amazon.nova-pro-v1:0"
                 },
                 {
                     "name": "POSTGRES_PORT",
@@ -79,7 +79,7 @@
                 },
                 {
                     "name": "BEDROCK_MODEL_ID",
-                    "value": "amazon.nova-premier-v1:0"
+                    "value": "us.amazon.nova-pro-v1:0"
                 },
                 {
                     "name": "TRUSTED_PROXY_COUNT",
