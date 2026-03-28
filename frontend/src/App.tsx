@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Box, AppBar, Toolbar, Chip, Button } from '@mui/material';
+import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import { Box, AppBar, Toolbar, Chip, Button, Tabs, Tab } from '@mui/material';
 import { TrendingUp as TrendingUpIcon, Logout as LogoutIcon } from '@mui/icons-material';
 
 import ChatInterface from './components/Chat/ChatInterface';
@@ -60,6 +60,8 @@ const App: React.FC = () => {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
+  const activeTab = location.pathname.startsWith('/iac') ? '/iac' : '/chat';
+
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc', flexDirection: 'column' }}>
       <AppBar
@@ -115,36 +117,6 @@ const App: React.FC = () => {
           <Button
             color="inherit"
             size="small"
-            component={Link}
-            to="/chat"
-            sx={{
-              textTransform: 'none',
-              mr: 1,
-              backgroundColor: location.pathname === '/chat' || location.pathname === '/'
-                ? 'rgba(255, 255, 255, 0.15)'
-                : 'transparent',
-            }}
-          >
-            Cost Chat
-          </Button>
-          <Button
-            color="inherit"
-            size="small"
-            component={Link}
-            to="/iac"
-            sx={{
-              textTransform: 'none',
-              mr: 1,
-              backgroundColor: location.pathname === '/iac'
-                ? 'rgba(255, 255, 255, 0.15)'
-                : 'transparent',
-            }}
-          >
-            IaC Workbench
-          </Button>
-          <Button
-            color="inherit"
-            size="small"
             startIcon={<LogoutIcon />}
             onClick={handleLogout}
             sx={{
@@ -157,6 +129,33 @@ const App: React.FC = () => {
             Logout
           </Button>
         </Toolbar>
+
+        <Box sx={{ px: { xs: 1, sm: 2 }, pb: 1 }}>
+          <Tabs
+            value={activeTab}
+            variant="fullWidth"
+            textColor="inherit"
+            TabIndicatorProps={{ style: { backgroundColor: '#ffffff' } }}
+            sx={{
+              minHeight: 42,
+              bgcolor: 'rgba(255, 255, 255, 0.12)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: 2,
+              '& .MuiTab-root': {
+                minHeight: 42,
+                textTransform: 'none',
+                fontWeight: 700,
+                color: 'rgba(255, 255, 255, 0.85)'
+              },
+              '& .Mui-selected': {
+                color: '#ffffff'
+              }
+            }}
+          >
+            <Tab value="/chat" label="Cost Chat" component={Link} to="/chat" />
+            <Tab value="/iac" label="IaC Workbench" component={Link} to="/iac" />
+          </Tabs>
+        </Box>
       </AppBar>
 
       <Box
@@ -170,7 +169,10 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
           <Route path="/chat" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
+          <Route path="/chat/*" element={<Navigate to="/chat" replace />} />
           <Route path="/iac" element={<ErrorBoundary><IacWorkbenchPage /></ErrorBoundary>} />
+          <Route path="/iac/*" element={<Navigate to="/iac" replace />} />
+          <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>
       </Box>
     </Box>
