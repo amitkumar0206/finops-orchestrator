@@ -190,6 +190,18 @@ class TestResponseFormatting:
         assert "couldn't find any" in response["message"] or "No" in response["message"]
         assert response["metadata"]["opportunities_count"] == 0
 
+    def test_formats_generic_guidance_when_no_ingestion_data(self, agent):
+        """Test generic guidance fallback for broad queries before ingestion."""
+        intent = {"categories": [], "services": ["EC2"]}
+        stats = {"total_opportunities": 0}
+
+        response = agent.format_opportunities_response([], intent, stats)
+
+        assert response["metadata"]["opportunities_count"] == 0
+        assert response["metadata"]["response_mode"] == "generic_guidance"
+        assert "best practices" in response["message"].lower()
+        assert "right-size ec2" in response["message"].lower()
+
     def test_generates_insights(self, agent):
         """Test that insights are generated"""
         opportunities = [
