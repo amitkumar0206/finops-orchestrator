@@ -8,7 +8,8 @@ WORKDIR /app
 COPY frontend/package*.json ./
 
 # Install dependencies (includes React, MUI, Chart.js, and TypeScript types)
-RUN npm install
+# Use npm install --force to skip platform validation for darwin-specific packages
+RUN npm install --force
 
 # Copy frontend source code
 COPY frontend/ .
