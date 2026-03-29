@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -33,6 +33,7 @@ import { ScopeIndicator } from './components/Scope';
 
 const App: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [scopeVersion, setScopeVersion] = useState(0);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -64,6 +65,7 @@ const App: React.FC = () => {
     localStorage.removeItem('aasmaa_authenticated');
     localStorage.removeItem('aasmaa_username');
     setIsAuthenticated(false);
+    navigate('/');
   };
 
   if (isCheckingAuth) {
@@ -100,7 +102,6 @@ const App: React.FC = () => {
   const hideSidebar = location.pathname === '/' || location.pathname.startsWith('/home');
 
   const navItems = [
-    { key: '/', label: 'Home', icon: <HomeOutlinedIcon sx={{ fontSize: 20 }} /> },
     { key: '/chat', label: 'Cost Chat', icon: <ForumOutlinedIcon sx={{ fontSize: 20 }} /> },
     { key: '/analyze', label: 'Analyze', icon: <InsightsOutlinedIcon sx={{ fontSize: 20 }} /> },
     { key: '/generate', label: 'Generate', icon: <AutoFixHighOutlinedIcon sx={{ fontSize: 20 }} /> },
@@ -157,7 +158,45 @@ const App: React.FC = () => {
             </Box>
           )}
 
-          <Box sx={{ px: isSidebarCollapsed ? 1 : 1.25, pt: 1.25 }}>
+          <List sx={{ px: isSidebarCollapsed ? 0.9 : 1.2, pb: 0.5 }}>
+            <ListItem disablePadding sx={{ mb: 0.5 }}>
+              <Tooltip title={isSidebarCollapsed ? 'Home' : ''} placement="right">
+                <ListItemButton
+                  component={Link}
+                  to="/"
+                  selected={activeRoute === '/'}
+                  sx={{
+                    borderRadius: 2,
+                    minHeight: 44,
+                    justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                    px: isSidebarCollapsed ? 1 : 1.3,
+                    color: activeRoute === '/' ? '#0D47A1' : '#334155',
+                    bgcolor: activeRoute === '/' ? 'rgba(21,101,192,0.12)' : 'transparent',
+                    '&:hover': {
+                      bgcolor: activeRoute === '/' ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)',
+                    },
+                  }}
+                >
+                  <ListItemIcon
+                    sx={{
+                      minWidth: isSidebarCollapsed ? 0 : 34,
+                      color: 'inherit',
+                    }}
+                  >
+                    <HomeOutlinedIcon sx={{ fontSize: 20 }} />
+                  </ListItemIcon>
+                  {!isSidebarCollapsed && (
+                    <ListItemText
+                      primary="Home"
+                      primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 600 }}
+                    />
+                  )}
+                </ListItemButton>
+              </Tooltip>
+            </ListItem>
+          </List>
+
+          <Box sx={{ px: isSidebarCollapsed ? 1 : 1.25, pt: 0.5 }}>
             <Tooltip title={isSidebarCollapsed ? 'New Chat' : ''} placement="right">
               <Button
                 component={Link}
