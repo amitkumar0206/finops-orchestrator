@@ -1362,56 +1362,96 @@ build_and_push_images() {
 
 # Force ECS services to redeploy with latest images
 force_ecs_deployment() {
-    log_info "Forcing ECS services to update with new Docker images..."
-    
+    log_info "Updating ECS task definitions and forcing redeployment with new images..."
+
     local ecs_cluster="${STACK_NAME}-cluster"
     local backend_service="${STACK_NAME}-backend"
     local frontend_service="${STACK_NAME}-frontend"
-    
-    # Check if services exist
-    if aws ecs describe-services \
-        --cluster "$ecs_cluster" \
-        --services "$backend_service" \
-        --region "$AWS_REGION" \
-        --query 'services[0].serviceName' \
-        --output text 2>/dev/null | grep -q "$backend_service"; then
-        
-        log_info "Forcing backend service deployment..."
+
+    # Register a new task definition revision with the given image, then update the service.
+    # This ensures the running tasks always use the freshly-pushed ECR image regardless of
+    # what tag the previous task definition was pinned to (e.g. :demo).
+    _update_service_image() {
+        local service_name="$1"
+        local new_image="$2"
+        local label="$3"
+
+        # Get the task definition ARN currently attached to the service
+        local current_task_def
+        current_task_def=$(aws ecs describe-services \
+            --cluster "$ecs_cluster" \
+            --services "$service_name" \
+            --region "$AWS_REGION" \
+            --query 'services[0].taskDefinition' \
+            --output text 2>/dev/null)
+
+        if [ -z "$current_task_def" ] || [ "$current_task_def" = "None" ]; then
+            log_info "${label} service not found yet - will be created during service deployment"
+            return 0
+        fi
+
+        log_info "Registering new ${label} task definition with image: ${new_image}..."
+
+        # Fetch current task def, strip read-only metadata fields, update container image
+        local new_task_def_json
+        new_task_def_json=$(aws ecs describe-task-definition \
+            --task-definition "$current_task_def" \
+            --region "$AWS_REGION" \
+            --query 'taskDefinition' \
+            --output json | \
+            jq --arg IMG "$new_image" \
+               'del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                    .compatibilities, .registeredAt, .registeredBy) |
+                .containerDefinitions[0].image = $IMG')
+
+        if [ -z "$new_task_def_json" ]; then
+            log_warning "⚠️  Failed to build new task definition JSON for ${label}; falling back to force-redeploy only"
+            aws ecs update-service \
+                --cluster "$ecs_cluster" \
+                --service "$service_name" \
+                --force-new-deployment \
+                --region "$AWS_REGION" >/dev/null 2>&1 || true
+            return 0
+        fi
+
+        # Register the new revision
+        local new_task_def_arn
+        new_task_def_arn=$(aws ecs register-task-definition \
+            --cli-input-json "$new_task_def_json" \
+            --region "$AWS_REGION" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text 2>/dev/null)
+
+        if [ -z "$new_task_def_arn" ] || [ "$new_task_def_arn" = "None" ]; then
+            log_warning "⚠️  Failed to register new task definition for ${label}; falling back to force-redeploy only"
+            aws ecs update-service \
+                --cluster "$ecs_cluster" \
+                --service "$service_name" \
+                --force-new-deployment \
+                --region "$AWS_REGION" >/dev/null 2>&1 || true
+            return 0
+        fi
+
+        local revision="${new_task_def_arn##*:}"
+        log_success "✓ Registered ${label} task definition revision :${revision} with ${new_image##*/}"
+
+        # Point the service at the new revision and force a fresh deployment
         if aws ecs update-service \
             --cluster "$ecs_cluster" \
-            --service "$backend_service" \
+            --service "$service_name" \
+            --task-definition "$new_task_def_arn" \
             --force-new-deployment \
             --region "$AWS_REGION" >/dev/null 2>&1; then
-            log_success "✓ Backend service forced to redeploy"
+            log_success "✓ ${label} service updated → now deploying revision :${revision}"
         else
-            log_warning "⚠️  Backend service update failed (service may not exist yet)"
+            log_warning "⚠️  ${label} service update failed"
         fi
-    else
-        log_info "Backend service not found yet - will be created during service deployment"
-    fi
-    
-    if aws ecs describe-services \
-        --cluster "$ecs_cluster" \
-        --services "$frontend_service" \
-        --region "$AWS_REGION" \
-        --query 'services[0].serviceName' \
-        --output text 2>/dev/null | grep -q "$frontend_service"; then
-        
-        log_info "Forcing frontend service deployment..."
-        if aws ecs update-service \
-            --cluster "$ecs_cluster" \
-            --service "$frontend_service" \
-            --force-new-deployment \
-            --region "$AWS_REGION" >/dev/null 2>&1; then
-            log_success "✓ Frontend service forced to redeploy"
-        else
-            log_warning "⚠️  Frontend service update failed (service may not exist yet)"
-        fi
-    else
-        log_info "Frontend service not found yet - will be created during service deployment"
-    fi
-    
-    log_info "ECS services will pull and deploy new images within 2-3 minutes"
+    }
+
+    _update_service_image "$backend_service"  "$BACKEND_IMAGE_URI"  "Backend"
+    _update_service_image "$frontend_service" "$FRONTEND_IMAGE_URI" "Frontend"
+
+    log_info "ECS services will stabilize with new images within 2-3 minutes"
 }
 
 # Deploy ECS services

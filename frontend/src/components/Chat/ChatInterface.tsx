@@ -401,6 +401,13 @@ const normalizeObjectArray = (value: unknown): Record<string, any>[] => {
   return value.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) as Record<string, any>[];
 };
 
+const STARTER_PROMPTS = [
+  'Show me my AWS costs for the last 30 days',
+  'What are my top 5 most expensive services?',
+  'Compare this month costs vs last month',
+  'How can I optimize my EC2 costs?'
+];
+
 const formatCellValue = (key: string, value: unknown): string => {
   const loweredKey = key.toLowerCase();
   const isCurrency = loweredKey.includes('cost') || loweredKey.includes('usd');
@@ -425,19 +432,7 @@ const formatCellValue = (key: string, value: unknown): string => {
 };
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: 'Hello! I\'m your AI-powered aasmaa assistant. I can help you analyze AWS costs, identify optimization opportunities, and answer questions about your cloud spending. What would you like to know?',
-      timestamp: new Date(),
-      suggestions: [
-        'Show me my AWS costs for the last 30 days',
-        'What are my top 5 most expensive services?',
-        'How can I optimize my EC2 costs?'
-      ]
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -639,6 +634,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
     setInputMessage(suggestion);
     inputRef.current?.focus();
   };
+
+  const hasConversationStarted = messages.length > 0;
 
   const handleExportChart = (chart: any, chartIndex: number, messageId: string) => {
     try {
@@ -1147,975 +1144,1144 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
         overflow: 'hidden'
       }}
     >
-      {/* Messages Area - Scrollable */}
-      <Box
-        sx={{
-          flexGrow: 1,
-          overflow: 'auto',
-          px: 2,
-          py: 2,
-          pb: 3,
-          '&::-webkit-scrollbar': {
-            width: '8px',
-          },
-          '&::-webkit-scrollbar-track': {
-            background: 'rgba(0,0,0,0.05)',
-            borderRadius: '10px',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: 'rgba(0,0,0,0.2)',
-            borderRadius: '10px',
-            '&:hover': {
-              background: 'rgba(0,0,0,0.3)',
+      {hasConversationStarted ? (
+        <Box
+          sx={{
+            flexGrow: 1,
+            overflow: 'auto',
+            px: 2,
+            py: 2,
+            pb: 3,
+            '&::-webkit-scrollbar': {
+              width: '8px',
             },
-          },
-        }}
-      >
-        {messages.map((message) => {
-          const charts = message.role === 'assistant' ? normalizeCharts(message.charts) : [];
-          const hasCharts = charts.length > 0;
-          const chartCount = charts.length;
+            '&::-webkit-scrollbar-track': {
+              background: 'rgba(0,0,0,0.05)',
+              borderRadius: '10px',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: 'rgba(0,0,0,0.2)',
+              borderRadius: '10px',
+              '&:hover': {
+                background: 'rgba(0,0,0,0.3)',
+              },
+            },
+          }}
+        >
+          {messages.map((message) => {
+            const charts = message.role === 'assistant' ? normalizeCharts(message.charts) : [];
+            const hasCharts = charts.length > 0;
+            const chartCount = charts.length;
 
-          return (
-            <Fade in={true} key={message.id} timeout={600}>
-              <Box sx={{ mb: 3.5 }}>
-                {/* Message Header with Avatar */}
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 1.5,
-                    mb: 1,
-                    flexDirection: message.role === 'user' ? 'row-reverse' : 'row'
-                  }}
-                >
-                  <Avatar
+            return (
+              <Fade in={true} key={message.id} timeout={600}>
+                <Box sx={{ mb: 3.5 }}>
+                  {/* Message Header with Avatar */}
+                  <Box
                     sx={{
-                      width: 36,
-                      height: 36,
-                      bgcolor: message.role === 'user' ? '#1565C0' : '#f3f4f6',
-                      color: message.role === 'user' ? 'white' : '#1565C0',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 1.5,
+                      mb: 1,
+                      flexDirection: message.role === 'user' ? 'row-reverse' : 'row'
                     }}
                   >
-                    {message.role === 'user' ? (
-                      <PersonIcon sx={{ fontSize: 20 }} />
-                    ) : (
-                      <BotIcon sx={{ fontSize: 20 }} />
-                    )}
-                  </Avatar>
-
-                  {/* Message Bubble or Two-Column Layout */}
-                  {hasCharts ? (
-                    <Box
+                    <Avatar
                       sx={{
-                        maxWidth: '90%',
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 0.75
+                        width: 36,
+                        height: 36,
+                        bgcolor: message.role === 'user' ? '#1565C0' : '#f3f4f6',
+                        color: message.role === 'user' ? 'white' : '#1565C0',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                       }}
                     >
-                      <Paper
-                        elevation={0}
+                      {message.role === 'user' ? (
+                        <PersonIcon sx={{ fontSize: 20 }} />
+                      ) : (
+                        <BotIcon sx={{ fontSize: 20 }} />
+                      )}
+                    </Avatar>
+
+                    {/* Message Bubble or Two-Column Layout */}
+                    {hasCharts ? (
+                      <Box
                         sx={{
-                          p: { xs: 2, sm: 2.5 },
-                          bgcolor: '#ffffff',
-                          color: 'text.primary',
-                          borderRadius: '18px 18px 18px 4px',
-                          boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-                          border: '1px solid rgba(0,0,0,0.06)',
-                          transition: 'all 0.2s ease-in-out',
-                          overflow: 'hidden',
-                          '&:hover': {
-                            boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-                          },
-                          height: '100%',
+                          maxWidth: '90%',
+                          width: '100%',
                           display: 'flex',
-                          flexDirection: 'column'
+                          flexDirection: 'column',
+                          gap: 0.75
                         }}
                       >
-                        <Grid container spacing={2.5} alignItems="stretch" sx={{ flexGrow: 1 }}>
-                          <Grid
-                            item
-                            xs={12}
-                            md={5}
-                            sx={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 1.5,
-                              justifyContent: chartCount === 1 ? 'center' : 'flex-start',
-                              height: '100%'
-                            }}
-                          >
-                            {/* Results heading above charts */}
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <Typography
-                                variant="h6"
-                                sx={{
-                                  fontWeight: 600,
-                                  fontSize: '0.95rem',
-                                  color: 'text.primary'
-                                }}
-                              >
-                                Results
-                              </Typography>
-                              {/* Optional export all could go here later */}
-                            </Box>
-                            {charts.map((chart: any, index: number) => (
-                              <Box
-                                key={index}
-                                sx={{
-                                  borderRadius: 2,
-                                  border: '1px solid rgba(0,0,0,0.08)',
-                                  bgcolor: 'rgba(21, 101, 192, 0.04)',
-                                  p: 1.75,
-                                  boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
-                                  transition: 'all 0.3s ease-in-out',
-                                  display: 'block',
-                                  width: '100%',
-                                  minHeight: chartCount === 1 ? { xs: 250, md: 320 } : 250,
-                                  '&:hover': {
-                                    boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
-                                    transform: 'translateY(-2px)'
-                                  }
-                                }}
-                              >
-                                <Box
+                        <Paper
+                          elevation={0}
+                          sx={{
+                            p: { xs: 2, sm: 2.5 },
+                            bgcolor: '#ffffff',
+                            color: 'text.primary',
+                            borderRadius: '18px 18px 18px 4px',
+                            boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+                            border: '1px solid rgba(0,0,0,0.06)',
+                            transition: 'all 0.2s ease-in-out',
+                            overflow: 'hidden',
+                            '&:hover': {
+                              boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                            },
+                            height: '100%',
+                            display: 'flex',
+                            flexDirection: 'column'
+                          }}
+                        >
+                          <Grid container spacing={2.5} alignItems="stretch" sx={{ flexGrow: 1 }}>
+                            <Grid
+                              item
+                              xs={12}
+                              md={5}
+                              sx={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 1.5,
+                                justifyContent: chartCount === 1 ? 'center' : 'flex-start',
+                                height: '100%'
+                              }}
+                            >
+                              {/* Results heading above charts */}
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Typography
+                                  variant="h6"
                                   sx={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    mb: 1.5
+                                    fontWeight: 600,
+                                    fontSize: '0.95rem',
+                                    color: 'text.primary'
                                   }}
                                 >
-                                  <Typography
-                                    variant="h6"
-                                    sx={{
-                                      fontWeight: 600,
-                                      fontSize: '0.95rem',
-                                      color: 'text.primary'
-                                    }}
-                                  >
-                                    {safeText(chart?.title, `Chart ${index + 1}`)}
-                                  </Typography>
-                                  <Button
-                                    size="small"
-                                    startIcon={<DownloadIcon />}
-                                    onClick={() => handleExportChart(chart, index, message.id)}
-                                    sx={{
-                                      textTransform: 'none',
-                                      fontWeight: 500,
-                                      fontSize: '0.8rem',
-                                      color: '#1565C0',
-                                      '&:hover': {
-                                        bgcolor: 'rgba(21, 101, 192, 0.12)'
-                                      }
-                                    }}
-                                  >
-                                    Export
-                                  </Button>
-                                </Box>
+                                  Results
+                                </Typography>
+                                {/* Optional export all could go here later */}
+                              </Box>
+                              {charts.map((chart: any, index: number) => (
                                 <Box
+                                  key={index}
                                   sx={{
-                                    position: 'relative',
-                                    flexGrow: 1,
-                                    minHeight: chartCount === 1 ? { xs: 250, md: 300 } : 280
+                                    borderRadius: 2,
+                                    border: '1px solid rgba(0,0,0,0.08)',
+                                    bgcolor: 'rgba(21, 101, 192, 0.04)',
+                                    p: 1.75,
+                                    boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
+                                    transition: 'all 0.3s ease-in-out',
+                                    display: 'block',
+                                    width: '100%',
+                                    minHeight: chartCount === 1 ? { xs: 250, md: 320 } : 250,
+                                    '&:hover': {
+                                      boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
+                                      transform: 'translateY(-2px)'
+                                    }
                                   }}
                                 >
-                                  {renderChart(chart, index, message.id)}
-                                </Box>
-                              </Box>
-                            ))}
-                          </Grid>
-                          <Grid
-                            item
-                            xs={12}
-                            md={7}
-                            sx={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              justifyContent: 'flex-start',
-                              alignItems: 'flex-start',
-                              height: '100%',
-                              gap: 1.2 // reduce vertical gap
-                            }}
-                          >
-                            {/* Clarification / Error Guardrail */}
-                            {message.metadata && message.metadata.status && message.metadata.status !== 'ok' ? (
-                              <Box sx={{ width: '100%' }}>
-                                {message.metadata.status === 'needs_clarification' && (
-                                  <Box sx={{ p: 2, borderRadius: 2, border: '1px dashed rgba(102,126,234,0.4)', bgcolor: 'rgba(102,126,234,0.06)', mb: 2 }}>
-                                    <Typography sx={{ fontWeight: 600, mb: 1, color: 'text.primary' }}>I need a quick clarification:</Typography>
-                                    <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>
-                                      {Array.isArray(message.metadata.clarification) && message.metadata.clarification.length > 0
-                                        ? message.metadata.clarification[0]
-                                        : 'Please provide a time period or breakdown preference.'}
-                                    </Typography>
-                                  </Box>
-                                )}
-                                {message.metadata.status === 'llm_error' && (
-                                  <Box sx={{ p: 2, borderRadius: 2, border: '1px solid rgba(244,67,54,0.2)', bgcolor: 'rgba(244,67,54,0.06)', mb: 2 }}>
-                                    <Typography sx={{ fontWeight: 600, mb: 0.5, color: 'text.primary' }}>I couldn’t process that request reliably.</Typography>
-                                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>Try rephrasing or specify a time period (e.g., “November 2025”).</Typography>
-                                  </Box>
-                                )}
-                              </Box>
-                            ) : null}
-
-                            {/* Structured Response Rendering */}
-                            {message.summary || message.structuredInsights || message.recommendations ? (
-                              <Box sx={{ width: '100%' }}>
-                                {/* 1. Summary Section */}
-                                {message.summary && (
-                                  <Box sx={{ mb: 2 }}>
-                                    <Typography
-                                      variant="body1"
-                                      sx={{
-                                        fontSize: '0.95rem',
-                                        lineHeight: 1.6,
-                                        color: 'text.primary',
-                                        fontWeight: 500
-                                      }}
-                                    >
-                                      <strong>Summary:</strong> {message.summary}
-                                    </Typography>
-                                  </Box>
-                                )}
-
-                                {/* 2. Insights Section */}
-                                {message.structuredInsights && message.structuredInsights.length > 0 && (
-                                  <Box sx={{ mb: 2 }}>
+                                  <Box
+                                    sx={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      mb: 1.5
+                                    }}
+                                  >
                                     <Typography
                                       variant="h6"
                                       sx={{
                                         fontWeight: 600,
                                         fontSize: '0.95rem',
-                                        color: 'text.primary',
-                                        mb: 1
+                                        color: 'text.primary'
                                       }}
                                     >
-                                      Insights:
+                                      {safeText(chart?.title, `Chart ${index + 1}`)}
                                     </Typography>
-                                    <Box component="ul" sx={{ pl: 3, mb: 0, mt: 0.5 }}>
-                                      {message.structuredInsights.map((insight: any, idx: number) => (
-                                        <Box
-                                          key={idx}
-                                          component="li"
-                                          sx={{
-                                            fontSize: '0.95rem',
-                                            mb: 1,
-                                            color: 'text.primary',
-                                            lineHeight: 1.6
-                                          }}
-                                        >
-                                          <strong>{safeText(insight.category, 'Insight')}:</strong> {safeText(insight.description)}
-                                        </Box>
-                                      ))}
-                                    </Box>
+                                    <Button
+                                      size="small"
+                                      startIcon={<DownloadIcon />}
+                                      onClick={() => handleExportChart(chart, index, message.id)}
+                                      sx={{
+                                        textTransform: 'none',
+                                        fontWeight: 500,
+                                        fontSize: '0.8rem',
+                                        color: '#1565C0',
+                                        '&:hover': {
+                                          bgcolor: 'rgba(21, 101, 192, 0.12)'
+                                        }
+                                      }}
+                                    >
+                                      Export
+                                    </Button>
                                   </Box>
-                                )}
-                              </Box>
-                            ) : (
-                              <Box sx={{ width: '100%' }}>
-                                <MarkdownRenderer content={safeText(message.content)} />
-                              </Box>
-                            )}
+                                  <Box
+                                    sx={{
+                                      position: 'relative',
+                                      flexGrow: 1,
+                                      minHeight: chartCount === 1 ? { xs: 250, md: 300 } : 280
+                                    }}
+                                  >
+                                    {renderChart(chart, index, message.id)}
+                                  </Box>
+                                </Box>
+                              ))}
+                            </Grid>
+                            <Grid
+                              item
+                              xs={12}
+                              md={7}
+                              sx={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'flex-start',
+                                alignItems: 'flex-start',
+                                height: '100%',
+                                gap: 1.2 // reduce vertical gap
+                              }}
+                            >
+                              {/* Clarification / Error Guardrail */}
+                              {message.metadata && message.metadata.status && message.metadata.status !== 'ok' ? (
+                                <Box sx={{ width: '100%' }}>
+                                  {message.metadata.status === 'needs_clarification' && (
+                                    <Box sx={{ p: 2, borderRadius: 2, border: '1px dashed rgba(102,126,234,0.4)', bgcolor: 'rgba(102,126,234,0.06)', mb: 2 }}>
+                                      <Typography sx={{ fontWeight: 600, mb: 1, color: 'text.primary' }}>I need a quick clarification:</Typography>
+                                      <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>
+                                        {Array.isArray(message.metadata.clarification) && message.metadata.clarification.length > 0
+                                          ? message.metadata.clarification[0]
+                                          : 'Please provide a time period or breakdown preference.'}
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                  {message.metadata.status === 'llm_error' && (
+                                    <Box sx={{ p: 2, borderRadius: 2, border: '1px solid rgba(244,67,54,0.2)', bgcolor: 'rgba(244,67,54,0.06)', mb: 2 }}>
+                                      <Typography sx={{ fontWeight: 600, mb: 0.5, color: 'text.primary' }}>I couldn’t process that request reliably.</Typography>
+                                      <Typography variant="body2" sx={{ color: 'text.secondary' }}>Try rephrasing or specify a time period (e.g., “November 2025”).</Typography>
+                                    </Box>
+                                  )}
+                                </Box>
+                              ) : null}
 
-                            {/* Results Data Table */}
-                            {message.results && message.results.length > 0 && (
-                              <Box sx={{ width: '100%', mt: 0.5 }}>
-                                <Typography
-                                  variant="h6"
-                                  sx={{
-                                    fontWeight: 600,
-                                    fontSize: '0.95rem',
-                                    color: 'text.primary',
-                                    mb: 1
-                                  }}
-                                >
-                                  Data Table
-                                </Typography>
-                                <TableContainer
-                                  component={Paper}
-                                  sx={{
-                                    borderRadius: 2,
-                                    border: '1px solid rgba(0,0,0,0.08)',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                                    maxHeight: 400,
-                                    overflow: 'auto'
-                                  }}
-                                >
-                                  <Table stickyHeader size="small" sx={{ minWidth: 300 }}>
-                                    <TableHead>
-                                      <TableRow>
-                                        {Object.keys(message.results[0] || {}).map((key) => (
-                                          <TableCell
-                                            key={key}
+                              {/* Structured Response Rendering */}
+                              {message.summary || message.structuredInsights || message.recommendations ? (
+                                <Box sx={{ width: '100%' }}>
+                                  {/* 1. Summary Section */}
+                                  {message.summary && (
+                                    <Box sx={{ mb: 2 }}>
+                                      <Typography
+                                        variant="body1"
+                                        sx={{
+                                          fontSize: '0.95rem',
+                                          lineHeight: 1.6,
+                                          color: 'text.primary',
+                                          fontWeight: 500
+                                        }}
+                                      >
+                                        <strong>Summary:</strong> {message.summary}
+                                      </Typography>
+                                    </Box>
+                                  )}
+
+                                  {/* 2. Insights Section */}
+                                  {message.structuredInsights && message.structuredInsights.length > 0 && (
+                                    <Box sx={{ mb: 2 }}>
+                                      <Typography
+                                        variant="h6"
+                                        sx={{
+                                          fontWeight: 600,
+                                          fontSize: '0.95rem',
+                                          color: 'text.primary',
+                                          mb: 1
+                                        }}
+                                      >
+                                        Insights:
+                                      </Typography>
+                                      <Box component="ul" sx={{ pl: 3, mb: 0, mt: 0.5 }}>
+                                        {message.structuredInsights.map((insight: any, idx: number) => (
+                                          <Box
+                                            key={idx}
+                                            component="li"
                                             sx={{
-                                              fontWeight: 600,
-                                              bgcolor: 'rgba(21, 101, 192, 0.08)',
-                                              color: '#1565C0',
-                                              textTransform: 'capitalize',
-                                              fontSize: '0.85rem'
+                                              fontSize: '0.95rem',
+                                              mb: 1,
+                                              color: 'text.primary',
+                                              lineHeight: 1.6
                                             }}
                                           >
-                                            {key.replace(/_/g, ' ')}
-                                          </TableCell>
+                                            <strong>{safeText(insight.category, 'Insight')}:</strong> {safeText(insight.description)}
+                                          </Box>
                                         ))}
-                                      </TableRow>
-                                    </TableHead>
-                                    <TableBody>
-                                      {message.results.map((row: any, index: number) => (
-                                        <TableRow
-                                          key={index}
-                                          sx={{
-                                            '&:nth-of-type(odd)': { bgcolor: 'rgba(0,0,0,0.02)' },
-                                            '&:hover': { bgcolor: 'rgba(21, 101, 192, 0.04)' }
-                                          }}
-                                        >
-                                          {Object.entries(row).map(([key, value]: [string, any], cellIndex: number) => (
+                                      </Box>
+                                    </Box>
+                                  )}
+                                </Box>
+                              ) : (
+                                <Box sx={{ width: '100%' }}>
+                                  <MarkdownRenderer content={safeText(message.content)} />
+                                </Box>
+                              )}
+
+                              {/* Results Data Table */}
+                              {message.results && message.results.length > 0 && (
+                                <Box sx={{ width: '100%', mt: 0.5 }}>
+                                  <Typography
+                                    variant="h6"
+                                    sx={{
+                                      fontWeight: 600,
+                                      fontSize: '0.95rem',
+                                      color: 'text.primary',
+                                      mb: 1
+                                    }}
+                                  >
+                                    Data Table
+                                  </Typography>
+                                  <TableContainer
+                                    component={Paper}
+                                    sx={{
+                                      borderRadius: 2,
+                                      border: '1px solid rgba(0,0,0,0.08)',
+                                      boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                                      maxHeight: 400,
+                                      overflow: 'auto'
+                                    }}
+                                  >
+                                    <Table stickyHeader size="small" sx={{ minWidth: 300 }}>
+                                      <TableHead>
+                                        <TableRow>
+                                          {Object.keys(message.results[0] || {}).map((key) => (
                                             <TableCell
-                                              key={cellIndex}
-                                              sx={{ fontSize: '0.85rem' }}
+                                              key={key}
+                                              sx={{
+                                                fontWeight: 600,
+                                                bgcolor: 'rgba(21, 101, 192, 0.08)',
+                                                color: '#1565C0',
+                                                textTransform: 'capitalize',
+                                                fontSize: '0.85rem'
+                                              }}
                                             >
-                                              {formatCellValue(key, value)}
+                                              {key.replace(/_/g, ' ')}
                                             </TableCell>
                                           ))}
                                         </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </TableContainer>
-                              </Box>
-                            )}
-
-                            {/* 4. Scope/Time Period Section */}
-                            {message.metadata && (
-                              (message.metadata.time_period || message.metadata.scope || message.metadata.filters || message.metadata.scope_info) && (
-                                <Box sx={{ width: '100%', mt: 2, p: 1.5, bgcolor: 'rgba(21, 101, 192, 0.06)', borderRadius: 1, border: '1px solid rgba(21, 101, 192, 0.2)' }}>
-                                  {/* Multi-tenant scope info */}
-                                  {message.metadata.scope_info && (
-                                    <Box sx={{ mb: 1, pb: 1, borderBottom: message.metadata.time_period || message.metadata.scope ? '1px solid rgba(21, 101, 192, 0.2)' : 'none' }}>
-                                      {message.metadata.scope_info.organization_name && (
-                                        <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                          <strong>Organization:</strong> {message.metadata.scope_info.organization_name}
-                                        </Typography>
-                                      )}
-                                      {message.metadata.scope_info.active_view?.name && (
-                                        <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                          <strong>View:</strong> {message.metadata.scope_info.active_view.name}
-                                        </Typography>
-                                      )}
-                                      {message.metadata.scope_info.account_count !== undefined && (
-                                        <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                          <strong>Accounts:</strong> {message.metadata.scope_info.account_count} account{message.metadata.scope_info.account_count !== 1 ? 's' : ''}
-                                        </Typography>
-                                      )}
-                                    </Box>
-                                  )}
-                                  {message.metadata.time_period && (
-                                    <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                      <strong>Period:</strong> {safeText(message.metadata.time_period)}
-                                    </Typography>
-                                  )}
-                                  {message.metadata.scope && (
-                                    <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
-                                      <strong>Scope:</strong> {formatScopeText(message.metadata.scope, message.metadata.scope_info)}
-                                    </Typography>
-                                  )}
-                                  {message.metadata.filters && (
-                                    <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
-                                      <strong>Filters:</strong> {safeText(message.metadata.filters)}
-                                    </Typography>
-                                  )}
+                                      </TableHead>
+                                      <TableBody>
+                                        {message.results.map((row: any, index: number) => (
+                                          <TableRow
+                                            key={index}
+                                            sx={{
+                                              '&:nth-of-type(odd)': { bgcolor: 'rgba(0,0,0,0.02)' },
+                                              '&:hover': { bgcolor: 'rgba(21, 101, 192, 0.04)' }
+                                            }}
+                                          >
+                                            {Object.entries(row).map(([key, value]: [string, any], cellIndex: number) => (
+                                              <TableCell
+                                                key={cellIndex}
+                                                sx={{ fontSize: '0.85rem' }}
+                                              >
+                                                {formatCellValue(key, value)}
+                                              </TableCell>
+                                            ))}
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
                                 </Box>
-                              )
-                            )}
+                              )}
 
-                            {/* 5. Recommendations Section */}
-                            {message.recommendations && message.recommendations.length > 0 && (
-                              <Box sx={{ width: '100%', mt: 2 }}>
-                                <Typography
-                                  variant="h6"
-                                  sx={{
-                                    fontWeight: 600,
-                                    fontSize: '0.95rem',
-                                    color: 'text.primary',
-                                    mb: 1
-                                  }}
-                                >
-                                  Recommendations:
-                                </Typography>
-                                <Box component="ol" sx={{ pl: 3, mb: 0, mt: 0.5 }}>
-                                  {message.recommendations.map((rec: any, idx: number) => (
-                                    <Box
-                                      key={idx}
-                                      component="li"
-                                      sx={{
-                                        fontSize: '0.95rem',
-                                        mb: 1,
-                                        color: 'text.primary',
-                                        lineHeight: 1.6
-                                      }}
-                                    >
-                                      <strong>{safeText(rec.action, 'Recommendation')}:</strong> {safeText(rec.description)}
-                                    </Box>
-                                  ))}
+                              {/* 4. Scope/Time Period Section */}
+                              {message.metadata && (
+                                (message.metadata.time_period || message.metadata.scope || message.metadata.filters || message.metadata.scope_info) && (
+                                  <Box sx={{ width: '100%', mt: 2, p: 1.5, bgcolor: 'rgba(21, 101, 192, 0.06)', borderRadius: 1, border: '1px solid rgba(21, 101, 192, 0.2)' }}>
+                                    {/* Multi-tenant scope info */}
+                                    {message.metadata.scope_info && (
+                                      <Box sx={{ mb: 1, pb: 1, borderBottom: message.metadata.time_period || message.metadata.scope ? '1px solid rgba(21, 101, 192, 0.2)' : 'none' }}>
+                                        {message.metadata.scope_info.organization_name && (
+                                          <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                            <strong>Organization:</strong> {message.metadata.scope_info.organization_name}
+                                          </Typography>
+                                        )}
+                                        {message.metadata.scope_info.active_view?.name && (
+                                          <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                            <strong>View:</strong> {message.metadata.scope_info.active_view.name}
+                                          </Typography>
+                                        )}
+                                        {message.metadata.scope_info.account_count !== undefined && (
+                                          <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                            <strong>Accounts:</strong> {message.metadata.scope_info.account_count} account{message.metadata.scope_info.account_count !== 1 ? 's' : ''}
+                                          </Typography>
+                                        )}
+                                      </Box>
+                                    )}
+                                    {message.metadata.time_period && (
+                                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                        <strong>Period:</strong> {safeText(message.metadata.time_period)}
+                                      </Typography>
+                                    )}
+                                    {message.metadata.scope && (
+                                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                                        <strong>Scope:</strong> {formatScopeText(message.metadata.scope, message.metadata.scope_info)}
+                                      </Typography>
+                                    )}
+                                    {message.metadata.filters && (
+                                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
+                                        <strong>Filters:</strong> {safeText(message.metadata.filters)}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                )
+                              )}
+
+                              {/* 5. Recommendations Section */}
+                              {message.recommendations && message.recommendations.length > 0 && (
+                                <Box sx={{ width: '100%', mt: 2 }}>
+                                  <Typography
+                                    variant="h6"
+                                    sx={{
+                                      fontWeight: 600,
+                                      fontSize: '0.95rem',
+                                      color: 'text.primary',
+                                      mb: 1
+                                    }}
+                                  >
+                                    Recommendations:
+                                  </Typography>
+                                  <Box component="ol" sx={{ pl: 3, mb: 0, mt: 0.5 }}>
+                                    {message.recommendations.map((rec: any, idx: number) => (
+                                      <Box
+                                        key={idx}
+                                        component="li"
+                                        sx={{
+                                          fontSize: '0.95rem',
+                                          mb: 1,
+                                          color: 'text.primary',
+                                          lineHeight: 1.6
+                                        }}
+                                      >
+                                        <strong>{safeText(rec.action, 'Recommendation')}:</strong> {safeText(rec.description)}
+                                      </Box>
+                                    ))}
+                                  </Box>
                                 </Box>
-                              </Box>
-                            )}
+                              )}
+                            </Grid>
                           </Grid>
-                        </Grid>
-                      </Paper>
-                      <Typography
-                        variant="caption"
+                        </Paper>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: 'text.secondary',
+                            px: 1,
+                            fontSize: '0.75rem',
+                            alignSelf: 'flex-start'
+                          }}
+                        >
+                          {formatMessageTime(message.timestamp)}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Box
                         sx={{
-                          color: 'text.secondary',
-                          px: 1,
-                          fontSize: '0.75rem',
-                          alignSelf: 'flex-start'
+                          maxWidth: message.role === 'user' ? '75%' : '90%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 1
                         }}
                       >
-                        {formatMessageTime(message.timestamp)}
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Box
-                      sx={{
-                        maxWidth: message.role === 'user' ? '75%' : '90%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 1
-                      }}
-                    >
-                      <Paper
-                        elevation={0}
-                        sx={{
-                          p: 2.5,
-                          bgcolor: message.role === 'user'
-                            ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
-                            : '#ffffff',
-                          background: message.role === 'user'
-                            ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
-                            : '#ffffff',
-                          color: message.role === 'user' ? 'white' : 'text.primary',
-                          borderRadius: message.role === 'user'
-                            ? '18px 18px 4px 18px'
-                            : '18px 18px 18px 4px',
-                          boxShadow: message.role === 'user'
-                            ? '0 4px 12px rgba(21, 101, 192, 0.25)'
-                            : '0 2px 12px rgba(0,0,0,0.08)',
-                          border: message.role === 'user'
-                            ? 'none'
-                            : '1px solid rgba(0,0,0,0.06)',
-                          transition: 'all 0.2s ease-in-out',
-                          '&:hover': {
+                        <Paper
+                          elevation={0}
+                          sx={{
+                            p: 2.5,
+                            bgcolor: message.role === 'user'
+                              ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
+                              : '#ffffff',
+                            background: message.role === 'user'
+                              ? 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
+                              : '#ffffff',
+                            color: message.role === 'user' ? 'white' : 'text.primary',
+                            borderRadius: message.role === 'user'
+                              ? '18px 18px 4px 18px'
+                              : '18px 18px 18px 4px',
                             boxShadow: message.role === 'user'
-                              ? '0 6px 16px rgba(21, 101, 192, 0.3)'
-                              : '0 4px 16px rgba(0,0,0,0.12)',
-                          }
-                        }}
-                      >
-                        {message.role === 'user' ? (
-                          <Typography
-                            variant="body1"
-                            sx={{
-                              whiteSpace: 'pre-wrap',
-                              lineHeight: 1.6,
-                              fontSize: '0.95rem'
-                            }}
-                          >
-                            {message.content}
-                          </Typography>
-                        ) : (
-                          <MarkdownRenderer content={safeText(message.content)} />
-                        )}
-                      </Paper>
-                      {/* Timestamp */}
-                      <Typography
-                        variant="caption"
+                              ? '0 4px 12px rgba(21, 101, 192, 0.25)'
+                              : '0 2px 12px rgba(0,0,0,0.08)',
+                            border: message.role === 'user'
+                              ? 'none'
+                              : '1px solid rgba(0,0,0,0.06)',
+                            transition: 'all 0.2s ease-in-out',
+                            '&:hover': {
+                              boxShadow: message.role === 'user'
+                                ? '0 6px 16px rgba(21, 101, 192, 0.3)'
+                                : '0 4px 16px rgba(0,0,0,0.12)',
+                            }
+                          }}
+                        >
+                          {message.role === 'user' ? (
+                            <Typography
+                              variant="body1"
+                              sx={{
+                                whiteSpace: 'pre-wrap',
+                                lineHeight: 1.6,
+                                fontSize: '0.95rem'
+                              }}
+                            >
+                              {message.content}
+                            </Typography>
+                          ) : (
+                            <MarkdownRenderer content={safeText(message.content)} />
+                          )}
+                        </Paper>
+                        {/* Timestamp */}
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: 'text.secondary',
+                            px: 1,
+                            fontSize: '0.75rem',
+                            alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start'
+                          }}
+                        >
+                          {formatMessageTime(message.timestamp)}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+
+                  {/* Athena SQL Query Display */}
+                  {message.athenaQuery && message.role === 'assistant' && (
+                    <Box sx={{ mt: 2, ml: 6, maxWidth: '90%' }}>
+                      <Accordion
                         sx={{
-                          color: 'text.secondary',
-                          px: 1,
-                          fontSize: '0.75rem',
-                          alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start'
+                          borderRadius: 2,
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                          border: '1px solid rgba(0,0,0,0.08)',
+                          '&:before': {
+                            display: 'none',
+                          },
+                          overflow: 'hidden'
                         }}
                       >
-                        {formatMessageTime(message.timestamp)}
-                      </Typography>
+                        <AccordionSummary
+                          expandIcon={<ExpandMoreIcon />}
+                          sx={{
+                            bgcolor: 'rgba(21, 101, 192, 0.04)',
+                            '&:hover': {
+                              bgcolor: 'rgba(21, 101, 192, 0.08)',
+                            },
+                            borderRadius: 2,
+                            px: 2.5,
+                            py: 1
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                            <CodeIcon sx={{ color: '#1565C0', fontSize: 20 }} />
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 600,
+                                color: '#1565C0',
+                                fontSize: '0.875rem'
+                              }}
+                            >
+                              View Athena SQL Query
+                            </Typography>
+                          </Box>
+                        </AccordionSummary>
+                        <AccordionDetails
+                          sx={{
+                            p: 0,
+                            bgcolor: '#1e1e1e',
+                            '& pre': {
+                              margin: 0,
+                              borderRadius: 0
+                            }
+                          }}
+                        >
+                          <SyntaxHighlighter
+                            language="sql"
+                            style={vscDarkPlus}
+                            customStyle={{
+                              margin: 0,
+                              borderRadius: 0,
+                              fontSize: '0.85rem',
+                              padding: '16px'
+                            }}
+                            showLineNumbers
+                          >
+                            {message.athenaQuery}
+                          </SyntaxHighlighter>
+                        </AccordionDetails>
+                      </Accordion>
                     </Box>
                   )}
-                </Box>
 
-                {/* Athena SQL Query Display */}
-                {message.athenaQuery && message.role === 'assistant' && (
-                  <Box sx={{ mt: 2, ml: 6, maxWidth: '90%' }}>
-                    <Accordion
-                      sx={{
-                        borderRadius: 2,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                        border: '1px solid rgba(0,0,0,0.08)',
-                        '&:before': {
-                          display: 'none',
-                        },
-                        overflow: 'hidden'
-                      }}
-                    >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
-                        sx={{
-                          bgcolor: 'rgba(21, 101, 192, 0.04)',
-                          '&:hover': {
-                            bgcolor: 'rgba(21, 101, 192, 0.08)',
-                          },
-                          borderRadius: 2,
-                          px: 2.5,
-                          py: 1
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                          <CodeIcon sx={{ color: '#1565C0', fontSize: 20 }} />
-                          <Typography
-                            variant="body2"
-                            sx={{
-                              fontWeight: 600,
-                              color: '#1565C0',
-                              fontSize: '0.875rem'
-                            }}
-                          >
-                            View Athena SQL Query
-                          </Typography>
-                        </Box>
-                      </AccordionSummary>
-                      <AccordionDetails
-                        sx={{
-                          p: 0,
-                          bgcolor: '#1e1e1e',
-                          '& pre': {
-                            margin: 0,
-                            borderRadius: 0
-                          }
-                        }}
-                      >
-                        <SyntaxHighlighter
-                          language="sql"
-                          style={vscDarkPlus}
-                          customStyle={{
-                            margin: 0,
-                            borderRadius: 0,
-                            fontSize: '0.85rem',
-                            padding: '16px'
-                          }}
-                          showLineNumbers
-                        >
-                          {message.athenaQuery}
-                        </SyntaxHighlighter>
-                      </AccordionDetails>
-                    </Accordion>
-                  </Box>
-                )}
-
-                {/* Insights */}
-                {message.insights && message.insights.length > 0 && (
-                  <Box sx={{ mt: 2, ml: message.role === 'user' ? 0 : 6 }}>
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1.5,
-                        mb: 1.5
-                      }}
-                    >
+                  {/* Insights */}
+                  {message.insights && message.insights.length > 0 && (
+                    <Box sx={{ mt: 2, ml: message.role === 'user' ? 0 : 6 }}>
                       <Box
                         sx={{
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'center',
-                          width: 32,
-                          height: 32,
-                          borderRadius: '8px',
-                          bgcolor: 'rgba(255, 193, 7, 0.15)',
+                          gap: 1.5,
+                          mb: 1.5
                         }}
                       >
-                        <LightbulbIcon sx={{ color: '#f59e0b', fontSize: 20 }} />
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 32,
+                            height: 32,
+                            borderRadius: '8px',
+                            bgcolor: 'rgba(255, 193, 7, 0.15)',
+                          }}
+                        >
+                          <LightbulbIcon sx={{ color: '#f59e0b', fontSize: 20 }} />
+                        </Box>
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontWeight: 600,
+                            fontSize: '0.95rem',
+                            color: 'text.primary'
+                          }}
+                        >
+                          Key Insights
+                        </Typography>
                       </Box>
+                      <Grid container spacing={1.5}>
+                        {message.insights.map((insight: any, index: number) => (
+                          <Grid item xs={12} md={6} key={index}>
+                            <Alert
+                              severity={insight.type === 'alert' ? 'warning' : insight.type === 'saving' ? 'success' : 'info'}
+                              sx={{
+                                borderRadius: 2.5,
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                                border: '1px solid',
+                                borderColor: insight.type === 'alert'
+                                  ? 'rgba(237, 108, 2, 0.2)'
+                                  : insight.type === 'saving'
+                                    ? 'rgba(46, 125, 50, 0.2)'
+                                    : 'rgba(2, 136, 209, 0.2)',
+                                '& .MuiAlert-icon': {
+                                  fontSize: 24
+                                }
+                              }}
+                            >
+                              <Typography
+                                variant="subtitle2"
+                                sx={{
+                                  fontWeight: 600,
+                                  mb: 0.5,
+                                  fontSize: '0.95rem'
+                                }}
+                              >
+                                {insight.title}
+                              </Typography>
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  fontSize: '0.875rem',
+                                  lineHeight: 1.5
+                                }}
+                              >
+                                {insight.description}
+                              </Typography>
+                            </Alert>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    </Box>
+                  )}
+
+                  {/* Action Items */}
+                  {message.actionItems && message.actionItems.length > 0 && (
+                    <Box sx={{ mt: 2, ml: message.role === 'user' ? 0 : 6 }}>
                       <Typography
                         variant="h6"
                         sx={{
+                          mb: 1.5,
                           fontWeight: 600,
                           fontSize: '0.95rem',
                           color: 'text.primary'
                         }}
                       >
-                        Key Insights
+                        💡 Recommended Actions
                       </Typography>
-                    </Box>
-                    <Grid container spacing={1.5}>
-                      {message.insights.map((insight: any, index: number) => (
-                        <Grid item xs={12} md={6} key={index}>
-                          <Alert
-                            severity={insight.type === 'alert' ? 'warning' : insight.type === 'saving' ? 'success' : 'info'}
-                            sx={{
-                              borderRadius: 2.5,
-                              boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                              border: '1px solid',
-                              borderColor: insight.type === 'alert'
-                                ? 'rgba(237, 108, 2, 0.2)'
-                                : insight.type === 'saving'
-                                  ? 'rgba(46, 125, 50, 0.2)'
-                                  : 'rgba(2, 136, 209, 0.2)',
-                              '& .MuiAlert-icon': {
-                                fontSize: 24
-                              }
-                            }}
-                          >
-                            <Typography
-                              variant="subtitle2"
+                      <Grid container spacing={1.5}>
+                        {message.actionItems.map((item: any, index: number) => (
+                          <Grid item xs={12} key={index}>
+                            <Card
+                              elevation={0}
                               sx={{
-                                fontWeight: 600,
-                                mb: 0.5,
-                                fontSize: '0.95rem'
+                                borderRadius: 2,
+                                border: '2px solid',
+                                borderColor: normalizePriority(item?.priority) === 'high'
+                                  ? 'rgba(211, 47, 47, 0.3)'
+                                  : normalizePriority(item?.priority) === 'medium'
+                                    ? 'rgba(237, 108, 2, 0.3)'
+                                    : 'rgba(46, 125, 50, 0.3)',
+                                bgcolor: 'background.paper',
+                                transition: 'all 0.3s ease-in-out',
+                                '&:hover': {
+                                  boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                                  transform: 'translateX(2px)'
+                                }
                               }}
                             >
-                              {insight.title}
-                            </Typography>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontSize: '0.875rem',
-                                lineHeight: 1.5
-                              }}
-                            >
-                              {insight.description}
-                            </Typography>
-                          </Alert>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Box>
-                )}
-
-                {/* Action Items */}
-                {message.actionItems && message.actionItems.length > 0 && (
-                  <Box sx={{ mt: 2, ml: message.role === 'user' ? 0 : 6 }}>
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        mb: 1.5,
-                        fontWeight: 600,
-                        fontSize: '0.95rem',
-                        color: 'text.primary'
-                      }}
-                    >
-                      💡 Recommended Actions
-                    </Typography>
-                    <Grid container spacing={1.5}>
-                      {message.actionItems.map((item: any, index: number) => (
-                        <Grid item xs={12} key={index}>
-                          <Card
-                            elevation={0}
-                            sx={{
-                              borderRadius: 2,
-                              border: '2px solid',
-                              borderColor: normalizePriority(item?.priority) === 'high'
-                                ? 'rgba(211, 47, 47, 0.3)'
-                                : normalizePriority(item?.priority) === 'medium'
-                                  ? 'rgba(237, 108, 2, 0.3)'
-                                  : 'rgba(46, 125, 50, 0.3)',
-                              bgcolor: 'background.paper',
-                              transition: 'all 0.3s ease-in-out',
-                              '&:hover': {
-                                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                                transform: 'translateX(2px)'
-                              }
-                            }}
-                          >
-                            <CardContent sx={{ p: 2 }}>
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 2 }}>
-                                <Box sx={{ flexGrow: 1 }}>
-                                  <Typography
-                                    variant="subtitle1"
-                                    sx={{
-                                      fontWeight: 600,
-                                      mb: 1,
-                                      fontSize: '0.95rem',
-                                      color: 'text.primary'
-                                    }}
-                                  >
-                                    {item.title}
-                                  </Typography>
-                                  <Typography
-                                    variant="body2"
-                                    color="text.secondary"
-                                    sx={{
-                                      mb: 1.5,
-                                      lineHeight: 1.5,
-                                      fontSize: '0.85rem'
-                                    }}
-                                  >
-                                    {item.description}
-                                  </Typography>
-                                  <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                                    <Chip
-                                      label={`${toTitleCase(item?.priority, 'Medium')} Priority`}
-                                      color={normalizePriority(item?.priority) === 'high' ? 'error' : normalizePriority(item?.priority) === 'medium' ? 'warning' : 'success'}
-                                      size="small"
+                              <CardContent sx={{ p: 2 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 2 }}>
+                                  <Box sx={{ flexGrow: 1 }}>
+                                    <Typography
+                                      variant="subtitle1"
                                       sx={{
                                         fontWeight: 600,
-                                        fontSize: '0.75rem'
+                                        mb: 1,
+                                        fontSize: '0.95rem',
+                                        color: 'text.primary'
                                       }}
-                                    />
-                                    {item.estimated_savings && (
-                                      <Chip
-                                        icon={<MoneyIcon sx={{ fontSize: 16 }} />}
-                                        label={`${formatCellValue('estimated_savings_usd', item.estimated_savings)} savings`}
-                                        sx={{
-                                          bgcolor: 'rgba(46, 125, 50, 0.15)',
-                                          color: '#2e7d32',
-                                          fontWeight: 600,
-                                          fontSize: '0.75rem',
-                                          '& .MuiChip-icon': {
-                                            color: '#2e7d32'
-                                          }
-                                        }}
-                                        size="small"
-                                      />
-                                    )}
-                                    <Chip
-                                      label={`${toTitleCase(item?.effort_level, 'Medium')} effort`}
-                                      variant="outlined"
-                                      size="small"
+                                    >
+                                      {item.title}
+                                    </Typography>
+                                    <Typography
+                                      variant="body2"
+                                      color="text.secondary"
                                       sx={{
-                                        fontWeight: 500,
-                                        fontSize: '0.75rem'
+                                        mb: 1.5,
+                                        lineHeight: 1.5,
+                                        fontSize: '0.85rem'
                                       }}
-                                    />
+                                    >
+                                      {item.description}
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                                      <Chip
+                                        label={`${toTitleCase(item?.priority, 'Medium')} Priority`}
+                                        color={normalizePriority(item?.priority) === 'high' ? 'error' : normalizePriority(item?.priority) === 'medium' ? 'warning' : 'success'}
+                                        size="small"
+                                        sx={{
+                                          fontWeight: 600,
+                                          fontSize: '0.75rem'
+                                        }}
+                                      />
+                                      {item.estimated_savings && (
+                                        <Chip
+                                          icon={<MoneyIcon sx={{ fontSize: 16 }} />}
+                                          label={`${formatCellValue('estimated_savings_usd', item.estimated_savings)} savings`}
+                                          sx={{
+                                            bgcolor: 'rgba(46, 125, 50, 0.15)',
+                                            color: '#2e7d32',
+                                            fontWeight: 600,
+                                            fontSize: '0.75rem',
+                                            '& .MuiChip-icon': {
+                                              color: '#2e7d32'
+                                            }
+                                          }}
+                                          size="small"
+                                        />
+                                      )}
+                                      <Chip
+                                        label={`${toTitleCase(item?.effort_level, 'Medium')} effort`}
+                                        variant="outlined"
+                                        size="small"
+                                        sx={{
+                                          fontWeight: 500,
+                                          fontSize: '0.75rem'
+                                        }}
+                                      />
+                                    </Box>
                                   </Box>
+                                  <Button
+                                    variant="outlined"
+                                    size="small"
+                                    sx={{
+                                      textTransform: 'none',
+                                      fontWeight: 600,
+                                      borderRadius: 2,
+                                      minWidth: '100px',
+                                      borderColor: '#1565C0',
+                                      color: '#1565C0',
+                                      '&:hover': {
+                                        bgcolor: 'rgba(21, 101, 192, 0.08)',
+                                        borderColor: '#1565C0'
+                                      }
+                                    }}
+                                  >
+                                    Learn More
+                                  </Button>
                                 </Box>
-                                <Button
-                                  variant="outlined"
-                                  size="small"
-                                  sx={{
-                                    textTransform: 'none',
-                                    fontWeight: 600,
-                                    borderRadius: 2,
-                                    minWidth: '100px',
-                                    borderColor: '#1565C0',
-                                    color: '#1565C0',
-                                    '&:hover': {
-                                      bgcolor: 'rgba(21, 101, 192, 0.08)',
-                                      borderColor: '#1565C0'
-                                    }
-                                  }}
-                                >
-                                  Learn More
-                                </Button>
-                              </Box>
-                            </CardContent>
-                          </Card>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Box>
-                )}
+                              </CardContent>
+                            </Card>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    </Box>
+                  )}
 
-                {/* Suggestions */}
-                {sanitizeSuggestions(message.suggestions || []).length > 0 && (
-                  <Box sx={{ mt: 2.5, ml: message.role === 'user' ? 0 : 6 }}>
+                  {/* Suggestions */}
+                  {sanitizeSuggestions(message.suggestions || []).length > 0 && (
+                    <Box sx={{ mt: 2.5, ml: message.role === 'user' ? 0 : 6 }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          mb: 1.5,
+                          fontWeight: 500,
+                          color: 'text.secondary',
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        💬 Suggested follow-up questions:
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                        {sanitizeSuggestions(message.suggestions || []).map((suggestion: string, index: number) => (
+                          <Chip
+                            key={index}
+                            label={suggestion}
+                            onClick={() => handleSuggestionClick(suggestion)}
+                            clickable
+                            variant="outlined"
+                            size="medium"
+                            sx={{
+                              borderRadius: 2.5,
+                              borderColor: 'rgba(21, 101, 192, 0.3)',
+                              color: '#1565C0',
+                              fontWeight: 500,
+                              fontSize: '0.85rem',
+                              py: 2.5,
+                              transition: 'all 0.2s ease-in-out',
+                              '&:hover': {
+                                bgcolor: 'rgba(21, 101, 192, 0.08)',
+                                borderColor: '#1565C0',
+                                transform: 'translateY(-2px)',
+                                boxShadow: '0 4px 12px rgba(21, 101, 192, 0.2)'
+                              }
+                            }}
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                </Box>
+              </Fade>
+            );
+          })}
+
+          {isLoading && (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 2, px: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+                <Avatar
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    bgcolor: '#f3f4f6',
+                    color: '#1565C0',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                  }}
+                >
+                  <BotIcon sx={{ fontSize: 20 }} />
+                </Avatar>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 2.5,
+                    bgcolor: '#ffffff',
+                    borderRadius: '18px 18px 18px 4px',
+                    boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+                    border: '1px solid rgba(0,0,0,0.06)'
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <CircularProgress size={20} sx={{ color: '#1565C0' }} />
                     <Typography
                       variant="body2"
                       sx={{
-                        mb: 1.5,
-                        fontWeight: 500,
                         color: 'text.secondary',
-                        fontSize: '0.85rem'
+                        fontWeight: 500
                       }}
                     >
-                      💬 Suggested follow-up questions:
+                      Analyzing your request...
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                      {sanitizeSuggestions(message.suggestions || []).map((suggestion: string, index: number) => (
-                        <Chip
-                          key={index}
-                          label={suggestion}
-                          onClick={() => handleSuggestionClick(suggestion)}
-                          clickable
-                          variant="outlined"
-                          size="medium"
-                          sx={{
-                            borderRadius: 2.5,
-                            borderColor: 'rgba(21, 101, 192, 0.3)',
-                            color: '#1565C0',
-                            fontWeight: 500,
-                            fontSize: '0.85rem',
-                            py: 2.5,
-                            transition: 'all 0.2s ease-in-out',
-                            '&:hover': {
-                              bgcolor: 'rgba(21, 101, 192, 0.08)',
-                              borderColor: '#1565C0',
-                              transform: 'translateY(-2px)',
-                              boxShadow: '0 4px 12px rgba(21, 101, 192, 0.2)'
-                            }
-                          }}
-                        />
-                      ))}
-                    </Box>
                   </Box>
-                )}
+                </Paper>
               </Box>
-            </Fade>
-          );
-        })}
-
-        {isLoading && (
-          <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 2, px: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-              <Avatar
-                sx={{
-                  width: 36,
-                  height: 36,
-                  bgcolor: '#f3f4f6',
-                  color: '#1565C0',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                }}
-              >
-                <BotIcon sx={{ fontSize: 20 }} />
-              </Avatar>
-              <Paper
-                elevation={0}
-                sx={{
-                  p: 2.5,
-                  bgcolor: '#ffffff',
-                  borderRadius: '18px 18px 18px 4px',
-                  boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-                  border: '1px solid rgba(0,0,0,0.06)'
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <CircularProgress size={20} sx={{ color: '#1565C0' }} />
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      color: 'text.secondary',
-                      fontWeight: 500
-                    }}
-                  >
-                    Analyzing your request...
-                  </Typography>
-                </Box>
-              </Paper>
             </Box>
-          </Box>
-        )}
+          )}
 
-        <div ref={messagesEndRef} />
-      </Box>
+          <div ref={messagesEndRef} />
+        </Box>
+      ) : (
+        <Box
+          sx={{
+            flexGrow: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            px: 2,
+            py: 3,
+          }}
+        >
+          <Paper
+            elevation={0}
+            sx={{
+              width: '100%',
+              maxWidth: 840,
+              borderRadius: 3,
+              border: '1px solid rgba(15, 23, 42, 0.08)',
+              p: { xs: 2, md: 3 },
+              background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+            }}
+          >
+            <Box sx={{ textAlign: 'center', mb: 2.2 }}>
+              <Typography
+                variant="h5"
+                sx={{
+                  fontWeight: 700,
+                  color: '#0f172a',
+                  mb: 0.7,
+                  fontSize: { xs: '1.2rem', md: '1.45rem' }
+                }}
+              >
+                Ask one question. Leave with a savings action.
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#64748b' }}>
+                Start with a prompt or type your own FinOps question.
+              </Typography>
+            </Box>
 
-      {/* Fixed Footer with Input and Buttons */}
-      <Paper
-        elevation={3}
-        sx={{
-          position: 'sticky',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          p: 2.5,
-          borderRadius: 0,
-          borderTop: '1px solid rgba(0,0,0,0.08)',
-          boxShadow: '0 -4px 20px rgba(0,0,0,0.1)',
-          bgcolor: 'background.paper',
-          zIndex: 1000,
-          mt: 'auto'
-        }}
-      >
-        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
-          <Tooltip title="Attach file">
-            <IconButton
-              size="medium"
+            <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
+              <Tooltip title="Attach file">
+                <IconButton
+                  size="medium"
+                  sx={{
+                    color: '#64748b',
+                    border: '1px solid rgba(0,0,0,0.14)',
+                    borderRadius: 2,
+                    width: 48,
+                    height: 48,
+                    '&:hover': {
+                      bgcolor: 'rgba(21, 101, 192, 0.08)',
+                      color: '#1565C0',
+                      borderColor: 'rgba(21, 101, 192, 0.42)'
+                    }
+                  }}
+                >
+                  <AddIcon />
+                </IconButton>
+              </Tooltip>
+              <TextField
+                ref={inputRef}
+                fullWidth
+                multiline
+                minRows={1}
+                maxRows={7}
+                placeholder="Ask me about your AWS costs... (e.g., 'Show me my top 5 cost drivers this month')"
+                value={inputMessage}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setInputMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
+                disabled={isLoading}
+                variant="outlined"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 2,
+                    bgcolor: 'rgba(0,0,0,0.02)',
+                    fontSize: '0.9rem',
+                    transition: 'all 0.2s ease-in-out',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.03)' },
+                    '&.Mui-focused': {
+                      bgcolor: 'white',
+                      boxShadow: '0 0 0 3px rgba(21, 101, 192, 0.1)',
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#1565C0',
+                        borderWidth: '2px'
+                      }
+                    },
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(0,0,0,0.12)',
+                    }
+                  },
+                  '& .MuiInputBase-input': {
+                    py: 0.875,
+                    px: 1.5,
+                    lineHeight: 1.5,
+                  }
+                }}
+              />
+              <IconButton
+                onClick={handleSendMessage}
+                disabled={!inputMessage.trim() || isLoading}
+                sx={{
+                  bgcolor: '#1565C0',
+                  background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
+                  color: 'white',
+                  width: 48,
+                  height: 48,
+                  boxShadow: '0 4px 14px rgba(21, 101, 192, 0.4)',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    bgcolor: '#0D47A1',
+                    background: 'linear-gradient(135deg, #0D47A1 0%, #0A3880 100%)',
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 6px 20px rgba(21, 101, 192, 0.5)',
+                  },
+                  '&:disabled': {
+                    bgcolor: 'rgba(0,0,0,0.12)',
+                    background: 'rgba(0,0,0,0.12)',
+                    color: 'rgba(0,0,0,0.26)',
+                    boxShadow: 'none'
+                  }
+                }}
+              >
+                <SendIcon />
+              </IconButton>
+            </Box>
+
+            <Box sx={{ mt: 2.25 }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  mb: 1.2,
+                  fontWeight: 500,
+                  color: 'text.secondary',
+                  fontSize: '0.85rem'
+                }}
+              >
+                Suggested prompts:
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1.2, flexWrap: 'wrap', justifyContent: 'center' }}>
+                {STARTER_PROMPTS.map((suggestion, index) => (
+                  <Chip
+                    key={index}
+                    label={suggestion}
+                    onClick={() => handleSuggestionClick(suggestion)}
+                    clickable
+                    variant="outlined"
+                    size="medium"
+                    sx={{
+                      borderRadius: 2.5,
+                      borderColor: 'rgba(21, 101, 192, 0.3)',
+                      color: '#1565C0',
+                      fontWeight: 500,
+                      fontSize: '0.83rem',
+                      py: 2.35,
+                      transition: 'all 0.2s ease-in-out',
+                      '&:hover': {
+                        bgcolor: 'rgba(21, 101, 192, 0.08)',
+                        borderColor: '#1565C0',
+                        transform: 'translateY(-2px)',
+                      }
+                    }}
+                  />
+                ))}
+              </Box>
+            </Box>
+          </Paper>
+        </Box>
+      )}
+
+      {hasConversationStarted && (
+        <Paper
+          elevation={3}
+          sx={{
+            position: 'sticky',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            p: 2.5,
+            borderRadius: 0,
+            borderTop: '1px solid rgba(0,0,0,0.08)',
+            boxShadow: '0 -4px 20px rgba(0,0,0,0.1)',
+            bgcolor: 'background.paper',
+            zIndex: 1000,
+            mt: 'auto'
+          }}
+        >
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
+            <Tooltip title="Attach file">
+              <IconButton
+                size="medium"
+                sx={{
+                  color: '#64748b',
+                  border: '1px solid rgba(0,0,0,0.14)',
+                  borderRadius: 2,
+                  width: 48,
+                  height: 48,
+                  '&:hover': {
+                    bgcolor: 'rgba(21, 101, 192, 0.08)',
+                    color: '#1565C0',
+                    borderColor: 'rgba(21, 101, 192, 0.42)'
+                  }
+                }}
+              >
+                <AddIcon />
+              </IconButton>
+            </Tooltip>
+            <TextField
+              ref={inputRef}
+              fullWidth
+              multiline
+              minRows={1}
+              maxRows={7}
+              placeholder="Ask me about your AWS costs... (e.g., 'Show me my top 5 cost drivers this month')"
+              value={inputMessage}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setInputMessage(e.target.value)}
+              onKeyPress={handleKeyPress}
+              disabled={isLoading}
+              variant="outlined"
               sx={{
-                color: '#64748b',
-                border: '1px solid rgba(0,0,0,0.14)',
-                borderRadius: 2,
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  bgcolor: 'rgba(0,0,0,0.02)',
+                  fontSize: '0.9rem',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,0.03)' },
+                  '&.Mui-focused': {
+                    bgcolor: 'white',
+                    boxShadow: '0 0 0 3px rgba(21, 101, 192, 0.1)',
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#1565C0',
+                      borderWidth: '2px'
+                    }
+                  },
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(0,0,0,0.12)',
+                  }
+                },
+                '& .MuiInputBase-input': {
+                  py: 0.875,
+                  px: 1.5,
+                  lineHeight: 1.5,
+                }
+              }}
+            />
+            <IconButton
+              onClick={handleSendMessage}
+              disabled={!inputMessage.trim() || isLoading}
+              sx={{
+                bgcolor: '#1565C0',
+                background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
+                color: 'white',
                 width: 48,
                 height: 48,
+                boxShadow: '0 4px 14px rgba(21, 101, 192, 0.4)',
+                transition: 'all 0.2s ease-in-out',
                 '&:hover': {
-                  bgcolor: 'rgba(21, 101, 192, 0.08)',
-                  color: '#1565C0',
-                  borderColor: 'rgba(21, 101, 192, 0.42)'
+                  bgcolor: '#0D47A1',
+                  background: 'linear-gradient(135deg, #0D47A1 0%, #0A3880 100%)',
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 6px 20px rgba(21, 101, 192, 0.5)',
+                },
+                '&:disabled': {
+                  bgcolor: 'rgba(0,0,0,0.12)',
+                  background: 'rgba(0,0,0,0.12)',
+                  color: 'rgba(0,0,0,0.26)',
+                  boxShadow: 'none'
                 }
               }}
             >
-              <AddIcon />
+              <SendIcon />
             </IconButton>
-          </Tooltip>
-          <TextField
-            ref={inputRef}
-            fullWidth
-            multiline
-            maxRows={4}
-            placeholder="Ask me about your AWS costs... (e.g., 'Show me my top 5 cost drivers this month')"
-            value={inputMessage}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setInputMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
-            disabled={isLoading}
-            variant="outlined"
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                borderRadius: 2,
-                bgcolor: 'rgba(0,0,0,0.02)',
-                fontSize: '0.95rem',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  bgcolor: 'rgba(0,0,0,0.03)',
-                },
-                '&.Mui-focused': {
-                  bgcolor: 'white',
-                  boxShadow: '0 0 0 3px rgba(21, 101, 192, 0.1)',
-                  '& .MuiOutlinedInput-notchedOutline': {
-                    borderColor: '#1565C0',
-                    borderWidth: '2px'
-                  }
-                },
-                '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: 'rgba(0,0,0,0.12)',
-                }
-              },
-              '& .MuiInputBase-input': {
-                py: 1.5,
-                px: 2
-              }
-            }}
-          />
-          <IconButton
-            onClick={handleSendMessage}
-            disabled={!inputMessage.trim() || isLoading}
-            sx={{
-              bgcolor: '#1565C0',
-              background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
-              color: 'white',
-              width: 48,
-              height: 48,
-              boxShadow: '0 4px 14px rgba(21, 101, 192, 0.4)',
-              transition: 'all 0.2s ease-in-out',
-              '&:hover': {
-                bgcolor: '#0D47A1',
-                background: 'linear-gradient(135deg, #0D47A1 0%, #0A3880 100%)',
-                transform: 'translateY(-2px)',
-                boxShadow: '0 6px 20px rgba(21, 101, 192, 0.5)',
-              },
-              '&:disabled': {
-                bgcolor: 'rgba(0,0,0,0.12)',
-                background: 'rgba(0,0,0,0.12)',
-                color: 'rgba(0,0,0,0.26)',
-                boxShadow: 'none'
-              }
-            }}
-          >
-            <SendIcon />
-          </IconButton>
-        </Box>
-      </Paper>
+          </Box>
+        </Paper>
+      )}
     </Box>
   );
 };

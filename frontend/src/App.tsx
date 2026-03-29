@@ -2,9 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import {
   Box,
-  Chip,
   Button,
-  IconButton,
   List,
   ListItem,
   ListItemButton,
@@ -13,11 +11,9 @@ import {
   Tooltip,
 } from '@mui/material';
 import {
-  TrendingUp as TrendingUpIcon,
   Logout as LogoutIcon,
   Add as AddIcon,
-  MenuOpen as MenuOpenIcon,
-  Menu as MenuIcon,
+  HomeOutlined as HomeOutlinedIcon,
   ForumOutlined as ForumOutlinedIcon,
   InsightsOutlined as InsightsOutlinedIcon,
   AutoFixHighOutlined as AutoFixHighOutlinedIcon,
@@ -27,6 +23,7 @@ import {
 
 import ChatInterface from './components/Chat/ChatInterface';
 import LoginPage from './pages/LoginPage';
+import LandingPage from './pages/LandingPage';
 import IacWorkbenchPage from './pages/IacWorkbenchPage';
 import GenerateBlueprintPage from './pages/GenerateBlueprintPage';
 import SettingsPage from './pages/SettingsPage';
@@ -40,6 +37,11 @@ const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+
+  // Collapse sidebar whenever the route changes (so navigating always starts collapsed)
+  useEffect(() => {
+    setIsSidebarCollapsed(true);
+  }, [location.pathname]);
 
   // Check authentication on component mount.
   // In demo mode we keep auth state client-side to avoid forced re-login loops.
@@ -87,6 +89,7 @@ const App: React.FC = () => {
   }
 
   const activeRoute = (() => {
+    if (location.pathname === '/' || location.pathname.startsWith('/home')) return '/';
     if (location.pathname.startsWith('/generate')) return '/generate';
     if (location.pathname.startsWith('/iac') || location.pathname.startsWith('/analyze')) return '/analyze';
     if (location.pathname.startsWith('/settings')) return '/settings';
@@ -94,7 +97,10 @@ const App: React.FC = () => {
     return '/chat';
   })();
 
+  const hideSidebar = location.pathname === '/' || location.pathname.startsWith('/home');
+
   const navItems = [
+    { key: '/', label: 'Home', icon: <HomeOutlinedIcon sx={{ fontSize: 20 }} /> },
     { key: '/chat', label: 'Cost Chat', icon: <ForumOutlinedIcon sx={{ fontSize: 20 }} /> },
     { key: '/analyze', label: 'Analyze', icon: <InsightsOutlinedIcon sx={{ fontSize: 20 }} /> },
     { key: '/generate', label: 'Generate', icon: <AutoFixHighOutlinedIcon sx={{ fontSize: 20 }} /> },
@@ -102,260 +108,215 @@ const App: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc' }}>
-      <Box
-        sx={{
-          width: isSidebarCollapsed ? 76 : 248,
-          transition: 'width 0.22s ease',
-          bgcolor: '#ffffff',
-          borderRight: '1px solid rgba(15, 23, 42, 0.08)',
-          display: 'flex',
-          flexDirection: 'column',
-          flexShrink: 0,
-        }}
-      >
+      {!hideSidebar && (
         <Box
+          onMouseEnter={() => setIsSidebarCollapsed(false)}
+          onMouseLeave={() => setIsSidebarCollapsed(true)}
           sx={{
+            width: isSidebarCollapsed ? 76 : 248,
+            transition: 'width 0.22s ease',
+            bgcolor: '#ffffff',
+            borderRight: '1px solid rgba(15, 23, 42, 0.08)',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
-            px: isSidebarCollapsed ? 0.5 : 1.5,
-            py: 1.25,
-            borderBottom: '1px solid rgba(15, 23, 42, 0.06)',
+            flexDirection: 'column',
+            flexShrink: 0,
           }}
         >
           <Box
             sx={{
               display: 'flex',
               alignItems: 'center',
-              gap: 1,
-              minWidth: 0,
+              justifyContent: 'center',
+              px: isSidebarCollapsed ? 0.75 : 1.5,
+              py: 1.25,
+              borderBottom: '1px solid rgba(15, 23, 42, 0.06)',
             }}
           >
-            {isSidebarCollapsed ? (
-              <Box
-                sx={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: '50%',
-                  bgcolor: '#1565C0',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <img src="/aasmaa-icon.png" alt="aasmaa" style={{ width: 22, height: 22 }} />
-              </Box>
-            ) : (
-              <img src="/aasmaa-logo.png" alt="aasmaa.ai" style={{ height: 32, maxWidth: 180 }} />
-            )}
-          </Box>
-
-          <Tooltip title={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'} placement="right">
-            <IconButton
-              onClick={() => setIsSidebarCollapsed((prev) => !prev)}
-              size="small"
-              sx={{ color: '#475569', display: isSidebarCollapsed ? 'none' : 'inline-flex' }}
-            >
-              <MenuOpenIcon />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Expand Sidebar" placement="right">
-            <IconButton
-              onClick={() => setIsSidebarCollapsed(false)}
-              size="small"
-              sx={{ color: '#475569', display: isSidebarCollapsed ? 'inline-flex' : 'none' }}
-            >
-              <MenuIcon />
-            </IconButton>
-          </Tooltip>
-        </Box>
-
-        {!isSidebarCollapsed && (
-          <Box sx={{ px: 1.25, pt: 0.5, pb: 0.25 }}>
-            <ScopeIndicator onScopeChange={handleScopeChange} />
-          </Box>
-        )}
-
-        <Box sx={{ px: isSidebarCollapsed ? 1 : 1.25, pt: 1.25 }}>
-          <Tooltip title={isSidebarCollapsed ? 'New Chat' : ''} placement="right">
-            <Button
-              component={Link}
-              to="/chat"
-              onClick={() => setScopeVersion((v) => v + 1)}
-              fullWidth
-              variant="contained"
-              startIcon={<AddIcon />}
+            <Box
               sx={{
-                minWidth: 0,
-                justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                textTransform: 'none',
-                fontWeight: 700,
-                borderRadius: 2,
-                px: isSidebarCollapsed ? 0 : 1.4,
-                py: 1,
-                bgcolor: '#1565C0',
-                '&:hover': { bgcolor: '#0D47A1' },
-                '& .MuiButton-startIcon': {
-                  mr: isSidebarCollapsed ? 0 : 1,
-                  ml: 0,
-                },
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: isSidebarCollapsed ? 38 : '100%',
+                height: 38,
+                borderRadius: 1.4,
+                bgcolor: isSidebarCollapsed ? '#1565C0' : 'transparent',
               }}
             >
-              {!isSidebarCollapsed && 'New Chat'}
-            </Button>
-          </Tooltip>
-        </Box>
+              {isSidebarCollapsed ? (
+                <img src="/aasmaa-icon.png" alt="aasmaa" style={{ width: 22, height: 22, filter: 'brightness(0) invert(1)' }} />
+              ) : (
+                <img src="/aasmaa-logo.png" alt="aasmaa.ai" style={{ height: 32, maxWidth: 180 }} />
+              )}
+            </Box>
+          </Box>
 
-        <List sx={{ pt: 1.2, px: isSidebarCollapsed ? 0.9 : 1.2 }}>
-          {navItems.map((item) => (
-            <ListItem key={item.key} disablePadding sx={{ mb: 0.5 }}>
-              <Tooltip title={isSidebarCollapsed ? item.label : ''} placement="right">
-                <ListItemButton
-                  component={Link}
-                  to={item.key}
-                  selected={activeRoute === item.key}
-                  sx={{
-                    borderRadius: 2,
-                    minHeight: 44,
-                    justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                    px: isSidebarCollapsed ? 1 : 1.3,
-                    color: activeRoute === item.key ? '#0D47A1' : '#334155',
-                    bgcolor: activeRoute === item.key ? 'rgba(21,101,192,0.12)' : 'transparent',
-                    '&:hover': {
-                      bgcolor: activeRoute === item.key ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)',
-                    },
-                  }}
-                >
-                  <ListItemIcon
+          {!isSidebarCollapsed && (
+            <Box sx={{ px: 1.25, pt: 0.5, pb: 0.25 }}>
+              <ScopeIndicator onScopeChange={handleScopeChange} />
+            </Box>
+          )}
+
+          <Box sx={{ px: isSidebarCollapsed ? 1 : 1.25, pt: 1.25 }}>
+            <Tooltip title={isSidebarCollapsed ? 'New Chat' : ''} placement="right">
+              <Button
+                component={Link}
+                to="/chat"
+                onClick={() => setScopeVersion((v) => v + 1)}
+                fullWidth
+                variant="text"
+                startIcon={<AddIcon />}
+                sx={{
+                  minWidth: 0,
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  fontSize: '0.92rem',
+                  borderRadius: 2,
+                  px: isSidebarCollapsed ? 1 : 1.3,
+                  py: 0.75,
+                  minHeight: 44,
+                  color: '#334155',
+                  bgcolor: 'transparent',
+                  '&:hover': { bgcolor: 'rgba(15,23,42,0.06)' },
+                  '& .MuiButton-startIcon': {
+                    mr: isSidebarCollapsed ? 0 : 1,
+                    ml: 0,
+                  },
+                }}
+              >
+                {!isSidebarCollapsed && 'New Chat'}
+              </Button>
+            </Tooltip>
+          </Box>
+
+          <List sx={{ pt: 1.2, px: isSidebarCollapsed ? 0.9 : 1.2 }}>
+            {navItems.map((item) => (
+              <ListItem key={item.key} disablePadding sx={{ mb: 0.5 }}>
+                <Tooltip title={isSidebarCollapsed ? item.label : ''} placement="right">
+                  <ListItemButton
+                    component={Link}
+                    to={item.key}
+                    selected={activeRoute === item.key}
                     sx={{
-                      minWidth: isSidebarCollapsed ? 0 : 34,
-                      color: 'inherit',
+                      borderRadius: 2,
+                      minHeight: 44,
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      px: isSidebarCollapsed ? 1 : 1.3,
+                      color: activeRoute === item.key ? '#0D47A1' : '#334155',
+                      bgcolor: activeRoute === item.key ? 'rgba(21,101,192,0.12)' : 'transparent',
+                      '&:hover': {
+                        bgcolor: activeRoute === item.key ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)',
+                      },
                     }}
                   >
-                    {item.icon}
+                    <ListItemIcon
+                      sx={{
+                        minWidth: isSidebarCollapsed ? 0 : 34,
+                        color: 'inherit',
+                      }}
+                    >
+                      {item.icon}
+                    </ListItemIcon>
+                    {!isSidebarCollapsed && (
+                      <ListItemText
+                        primary={item.label}
+                        primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 600 }}
+                      />
+                    )}
+                  </ListItemButton>
+                </Tooltip>
+              </ListItem>
+            ))}
+          </List>
+
+          <Box sx={{ flexGrow: 1 }} />
+
+          <List sx={{ px: isSidebarCollapsed ? 0.9 : 1.2, pb: 1.2 }}>
+            <ListItem disablePadding sx={{ mb: 0.5 }}>
+              <Tooltip title={isSidebarCollapsed ? 'Settings' : ''} placement="right">
+                <ListItemButton
+                  component={Link}
+                  to="/settings"
+                  selected={activeRoute === '/settings'}
+                  sx={{
+                    borderRadius: 2,
+                    minHeight: 42,
+                    justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                    px: isSidebarCollapsed ? 1 : 1.3,
+                    color: activeRoute === '/settings' ? '#0D47A1' : '#334155',
+                    bgcolor: activeRoute === '/settings' ? 'rgba(21,101,192,0.12)' : 'transparent',
+                    '&:hover': { bgcolor: activeRoute === '/settings' ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)' },
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: '#334155' }}>
+                    <SettingsOutlinedIcon sx={{ fontSize: 20 }} />
                   </ListItemIcon>
-                  {!isSidebarCollapsed && (
-                    <ListItemText
-                      primary={item.label}
-                      primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 600 }}
-                    />
-                  )}
+                  {!isSidebarCollapsed && <ListItemText primary="Settings" primaryTypographyProps={{ fontSize: '0.9rem' }} />}
                 </ListItemButton>
               </Tooltip>
             </ListItem>
-          ))}
-        </List>
 
-        <Box sx={{ flexGrow: 1 }} />
-
-        <List sx={{ px: isSidebarCollapsed ? 0.9 : 1.2, pb: 1.2 }}>
-          {isSidebarCollapsed ? (
             <ListItem disablePadding sx={{ mb: 0.5 }}>
-              <Tooltip title="Live" placement="right">
-                <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%', py: 0.5 }}>
-                  <TrendingUpIcon sx={{ fontSize: 18, color: '#22c55e' }} />
-                </Box>
+              <Tooltip title={isSidebarCollapsed ? 'Profile' : ''} placement="right">
+                <ListItemButton
+                  component={Link}
+                  to="/profile"
+                  selected={activeRoute === '/profile'}
+                  sx={{
+                    borderRadius: 2,
+                    minHeight: 42,
+                    justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                    px: isSidebarCollapsed ? 1 : 1.3,
+                    color: activeRoute === '/profile' ? '#0D47A1' : '#334155',
+                    bgcolor: activeRoute === '/profile' ? 'rgba(21,101,192,0.12)' : 'transparent',
+                    '&:hover': { bgcolor: activeRoute === '/profile' ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)' },
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: '#334155' }}>
+                    <PersonOutlineIcon sx={{ fontSize: 20 }} />
+                  </ListItemIcon>
+                  {!isSidebarCollapsed && <ListItemText primary="Profile" primaryTypographyProps={{ fontSize: '0.9rem' }} />}
+                </ListItemButton>
               </Tooltip>
             </ListItem>
-          ) : (
-            <ListItem disablePadding sx={{ mb: 0.5, px: 0.3 }}>
-              <Chip
-                icon={<TrendingUpIcon sx={{ fontSize: 16, color: '#22c55e !important' }} />}
-                label="Live"
-                size="small"
-                sx={{
-                  width: '100%',
-                  bgcolor: 'rgba(34, 197, 94, 0.12)',
-                  color: '#166534',
-                  fontWeight: 600,
-                  border: '1px solid rgba(34, 197, 94, 0.45)',
-                  justifyContent: 'flex-start',
-                }}
-              />
+
+            <ListItem disablePadding>
+              <Tooltip title={isSidebarCollapsed ? 'Logout' : ''} placement="right">
+                <ListItemButton
+                  onClick={handleLogout}
+                  sx={{
+                    borderRadius: 2,
+                    minHeight: 42,
+                    justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                    px: isSidebarCollapsed ? 1 : 1.3,
+                    color: '#334155',
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: 'inherit' }}>
+                    <LogoutIcon sx={{ fontSize: 20 }} />
+                  </ListItemIcon>
+                  {!isSidebarCollapsed && <ListItemText primary="Logout" primaryTypographyProps={{ fontSize: '0.9rem' }} />}
+                </ListItemButton>
+              </Tooltip>
             </ListItem>
-          )}
-
-          <ListItem disablePadding sx={{ mb: 0.5 }}>
-            <Tooltip title={isSidebarCollapsed ? 'Settings' : ''} placement="right">
-              <ListItemButton
-                component={Link}
-                to="/settings"
-                selected={activeRoute === '/settings'}
-                sx={{
-                  borderRadius: 2,
-                  minHeight: 42,
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  px: isSidebarCollapsed ? 1 : 1.3,
-                  color: activeRoute === '/settings' ? '#0D47A1' : '#334155',
-                  bgcolor: activeRoute === '/settings' ? 'rgba(21,101,192,0.12)' : 'transparent',
-                  '&:hover': { bgcolor: activeRoute === '/settings' ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)' },
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: '#334155' }}>
-                  <SettingsOutlinedIcon sx={{ fontSize: 20 }} />
-                </ListItemIcon>
-                {!isSidebarCollapsed && <ListItemText primary="Settings" primaryTypographyProps={{ fontSize: '0.9rem' }} />}
-              </ListItemButton>
-            </Tooltip>
-          </ListItem>
-
-          <ListItem disablePadding sx={{ mb: 0.5 }}>
-            <Tooltip title={isSidebarCollapsed ? 'Profile' : ''} placement="right">
-              <ListItemButton
-                component={Link}
-                to="/profile"
-                selected={activeRoute === '/profile'}
-                sx={{
-                  borderRadius: 2,
-                  minHeight: 42,
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  px: isSidebarCollapsed ? 1 : 1.3,
-                  color: activeRoute === '/profile' ? '#0D47A1' : '#334155',
-                  bgcolor: activeRoute === '/profile' ? 'rgba(21,101,192,0.12)' : 'transparent',
-                  '&:hover': { bgcolor: activeRoute === '/profile' ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)' },
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: '#334155' }}>
-                  <PersonOutlineIcon sx={{ fontSize: 20 }} />
-                </ListItemIcon>
-                {!isSidebarCollapsed && <ListItemText primary="Profile" primaryTypographyProps={{ fontSize: '0.9rem' }} />}
-              </ListItemButton>
-            </Tooltip>
-          </ListItem>
-
-          <ListItem disablePadding>
-            <Tooltip title={isSidebarCollapsed ? 'Logout' : ''} placement="right">
-              <ListItemButton
-                onClick={handleLogout}
-                sx={{
-                  borderRadius: 2,
-                  minHeight: 42,
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  px: isSidebarCollapsed ? 1 : 1.3,
-                  color: '#334155',
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: 'inherit' }}>
-                  <LogoutIcon sx={{ fontSize: 20 }} />
-                </ListItemIcon>
-                {!isSidebarCollapsed && <ListItemText primary="Logout" primaryTypographyProps={{ fontSize: '0.9rem' }} />}
-              </ListItemButton>
-            </Tooltip>
-          </ListItem>
-        </List>
-      </Box>
+          </List>
+        </Box>
+      )}
 
       <Box
         sx={{
           flexGrow: 1,
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          overflow: hideSidebar ? 'auto' : 'hidden',
         }}
       >
         <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
           <Routes>
-            <Route path="/" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
+            <Route path="/" element={<ErrorBoundary><LandingPage /></ErrorBoundary>} />
+            <Route path="/home" element={<Navigate to="/" replace />} />
+            <Route path="/home/*" element={<Navigate to="/" replace />} />
             <Route path="/chat" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
             <Route path="/chat/*" element={<Navigate to="/chat" replace />} />
             <Route path="/analyze" element={<ErrorBoundary><IacWorkbenchPage /></ErrorBoundary>} />
@@ -366,7 +327,7 @@ const App: React.FC = () => {
             <Route path="/iac/*" element={<Navigate to="/analyze" replace />} />
             <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
             <Route path="/profile" element={<ErrorBoundary><ProfilePage /></ErrorBoundary>} />
-            <Route path="*" element={<Navigate to="/chat" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Box>
       </Box>
