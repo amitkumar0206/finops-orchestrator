@@ -2,30 +2,35 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import {
   Box,
-  AppBar,
-  Toolbar,
   Chip,
   Button,
   IconButton,
-  Menu,
-  MenuItem,
-  Divider,
+  List,
+  ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
+  Tooltip,
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
   Logout as LogoutIcon,
+  Add as AddIcon,
+  MenuOpen as MenuOpenIcon,
   Menu as MenuIcon,
   ForumOutlined as ForumOutlinedIcon,
   InsightsOutlined as InsightsOutlinedIcon,
   AutoFixHighOutlined as AutoFixHighOutlinedIcon,
+  SettingsOutlined as SettingsOutlinedIcon,
+  PersonOutline as PersonOutlineIcon,
 } from '@mui/icons-material';
 
 import ChatInterface from './components/Chat/ChatInterface';
 import LoginPage from './pages/LoginPage';
 import IacWorkbenchPage from './pages/IacWorkbenchPage';
 import GenerateBlueprintPage from './pages/GenerateBlueprintPage';
+import SettingsPage from './pages/SettingsPage';
+import ProfilePage from './pages/ProfilePage';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ScopeIndicator } from './components/Scope';
 
@@ -34,7 +39,7 @@ const App: React.FC = () => {
   const [scopeVersion, setScopeVersion] = useState(0);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [navMenuAnchor, setNavMenuAnchor] = useState<null | HTMLElement>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   // Check authentication on component mount.
   // In demo mode we keep auth state client-side to avoid forced re-login loops.
@@ -57,14 +62,6 @@ const App: React.FC = () => {
     localStorage.removeItem('aasmaa_authenticated');
     localStorage.removeItem('aasmaa_username');
     setIsAuthenticated(false);
-  };
-
-  const handleOpenNavMenu = (event: React.MouseEvent<HTMLElement>) => {
-    setNavMenuAnchor(event.currentTarget);
-  };
-
-  const handleCloseNavMenu = () => {
-    setNavMenuAnchor(null);
   };
 
   if (isCheckingAuth) {
@@ -92,264 +89,286 @@ const App: React.FC = () => {
   const activeRoute = (() => {
     if (location.pathname.startsWith('/generate')) return '/generate';
     if (location.pathname.startsWith('/iac') || location.pathname.startsWith('/analyze')) return '/analyze';
+    if (location.pathname.startsWith('/settings')) return '/settings';
+    if (location.pathname.startsWith('/profile')) return '/profile';
     return '/chat';
   })();
 
+  const navItems = [
+    { key: '/chat', label: 'Cost Chat', icon: <ForumOutlinedIcon sx={{ fontSize: 20 }} /> },
+    { key: '/analyze', label: 'Analyze', icon: <InsightsOutlinedIcon sx={{ fontSize: 20 }} /> },
+    { key: '/generate', label: 'Generate', icon: <AutoFixHighOutlinedIcon sx={{ fontSize: 20 }} /> },
+  ] as const;
+
   return (
-    <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc', flexDirection: 'column' }}>
-      <AppBar
-        position="static"
-        elevation={0}
+    <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc' }}>
+      <Box
         sx={{
-          background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+          width: isSidebarCollapsed ? 76 : 248,
+          transition: 'width 0.22s ease',
+          bgcolor: '#ffffff',
+          borderRight: '1px solid rgba(15, 23, 42, 0.08)',
+          display: 'flex',
+          flexDirection: 'column',
+          flexShrink: 0,
         }}
       >
-        <Toolbar sx={{ py: 1 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
+            px: isSidebarCollapsed ? 0.5 : 1.5,
+            py: 1.25,
+            borderBottom: '1px solid rgba(15, 23, 42, 0.06)',
+          }}
+        >
           <Box
             sx={{
               display: 'flex',
               alignItems: 'center',
-              backgroundColor: 'rgba(255, 255, 255, 0.96)',
-              borderRadius: 1.5,
-              px: 1.25,
-              py: 0.75,
-              mr: 3,
-              boxShadow: '0 2px 10px rgba(0, 0, 0, 0.12)'
+              gap: 1,
+              minWidth: 0,
             }}
           >
-            <Box
-              component="img"
-              src="/aasmaa-logo.png?v=20260327b"
-              alt="aasmaa"
-              sx={{
-                width: 170,
-                maxWidth: '100%',
-                height: 'auto',
-                objectFit: 'contain',
-                display: 'block'
-              }}
-            />
+            {isSidebarCollapsed ? (
+              <Box
+                sx={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: '50%',
+                  bgcolor: '#1565C0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <img src="/aasmaa-icon.png" alt="aasmaa" style={{ width: 22, height: 22 }} />
+              </Box>
+            ) : (
+              <img src="/aasmaa-logo.png" alt="aasmaa.ai" style={{ height: 32, maxWidth: 180 }} />
+            )}
           </Box>
-          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+
+          <Tooltip title={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'} placement="right">
+            <IconButton
+              onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+              size="small"
+              sx={{ color: '#475569', display: isSidebarCollapsed ? 'none' : 'inline-flex' }}
+            >
+              <MenuOpenIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Expand Sidebar" placement="right">
+            <IconButton
+              onClick={() => setIsSidebarCollapsed(false)}
+              size="small"
+              sx={{ color: '#475569', display: isSidebarCollapsed ? 'inline-flex' : 'none' }}
+            >
+              <MenuIcon />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        {!isSidebarCollapsed && (
+          <Box sx={{ px: 1.25, pt: 0.5, pb: 0.25 }}>
             <ScopeIndicator onScopeChange={handleScopeChange} />
           </Box>
+        )}
 
-          <Box
-            sx={{
-              display: { xs: 'none', md: 'flex' },
-              alignItems: 'center',
-              gap: 1,
-              mr: 1.5,
-            }}
-          >
+        <Box sx={{ px: isSidebarCollapsed ? 1 : 1.25, pt: 1.25 }}>
+          <Tooltip title={isSidebarCollapsed ? 'New Chat' : ''} placement="right">
             <Button
               component={Link}
               to="/chat"
-              color="inherit"
-              size="small"
-              startIcon={<ForumOutlinedIcon sx={{ fontSize: 16 }} />}
+              onClick={() => setScopeVersion((v) => v + 1)}
+              fullWidth
+              variant="contained"
+              startIcon={<AddIcon />}
               sx={{
-                px: 1.2,
+                minWidth: 0,
+                justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
                 textTransform: 'none',
                 fontWeight: 700,
-                letterSpacing: 0.2,
-                color: activeRoute === '/chat' ? '#ffffff' : 'rgba(255, 255, 255, 0.74)',
-                borderBottom: activeRoute === '/chat' ? '2px solid #ffffff' : '2px solid transparent',
-                borderRadius: 0,
-                minHeight: 34,
-                '& .MuiButton-startIcon': {
-                  mr: 0.6,
-                  ml: 0,
-                },
-                '&:hover': {
-                  backgroundColor: 'transparent',
-                  color: '#ffffff'
-                }
-              }}
-            >
-              Cost Chat
-            </Button>
-            <Button
-              component={Link}
-              to="/analyze"
-              color="inherit"
-              size="small"
-              startIcon={<InsightsOutlinedIcon sx={{ fontSize: 16 }} />}
-              sx={{
-                px: 1.2,
-                textTransform: 'none',
-                fontWeight: 700,
-                letterSpacing: 0.2,
-                color: activeRoute === '/analyze' ? '#ffffff' : 'rgba(255, 255, 255, 0.74)',
-                borderBottom: activeRoute === '/analyze' ? '2px solid #ffffff' : '2px solid transparent',
-                borderRadius: 0,
-                minHeight: 34,
-                '& .MuiButton-startIcon': {
-                  mr: 0.6,
-                  ml: 0,
-                },
-                '&:hover': {
-                  backgroundColor: 'transparent',
-                  color: '#ffffff'
-                }
-              }}
-            >
-              Analyze
-            </Button>
-            <Button
-              component={Link}
-              to="/generate"
-              color="inherit"
-              size="small"
-              startIcon={<AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />}
-              sx={{
-                px: 1.2,
-                textTransform: 'none',
-                fontWeight: 700,
-                letterSpacing: 0.2,
-                color: activeRoute === '/generate' ? '#ffffff' : 'rgba(255, 255, 255, 0.74)',
-                borderBottom: activeRoute === '/generate' ? '2px solid #ffffff' : '2px solid transparent',
-                borderRadius: 0,
-                minHeight: 34,
-                '& .MuiButton-startIcon': {
-                  mr: 0.6,
-                  ml: 0,
-                },
-                '&:hover': {
-                  backgroundColor: 'transparent',
-                  color: '#ffffff'
-                }
-              }}
-            >
-              Generate
-            </Button>
-          </Box>
-
-          <Chip
-            icon={<TrendingUpIcon sx={{ fontSize: 18, color: '#22c55e !important' }} />}
-            label="Live"
-            size="small"
-            sx={{
-              bgcolor: 'rgba(16, 185, 129, 0.18)',
-              backdropFilter: 'blur(10px)',
-              color: 'white',
-              fontWeight: 600,
-              border: '1px solid rgba(34, 197, 94, 0.55)',
-              mr: { xs: 1, md: 2 }
-            }}
-          />
-
-          <IconButton
-            color="inherit"
-            onClick={handleOpenNavMenu}
-            sx={{
-              display: { xs: 'inline-flex', md: 'none' },
-              mr: 0.5,
-              border: '1px solid rgba(255, 255, 255, 0.25)',
-              backgroundColor: 'rgba(255, 255, 255, 0.08)'
-            }}
-          >
-            <MenuIcon />
-          </IconButton>
-
-          <Menu
-            anchorEl={navMenuAnchor}
-            open={Boolean(navMenuAnchor)}
-            onClose={handleCloseNavMenu}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-            PaperProps={{
-              sx: {
-                mt: 1,
-                minWidth: 220,
                 borderRadius: 2,
-                border: '1px solid rgba(15, 23, 42, 0.08)'
-              }
-            }}
-          >
-            <MenuItem
-              component={Link}
-              to="/chat"
-              onClick={handleCloseNavMenu}
-              selected={activeRoute === '/chat'}
-            >
-              <ListItemIcon sx={{ minWidth: 30 }}>
-                <ForumOutlinedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="Cost Chat" />
-            </MenuItem>
-            <MenuItem
-              component={Link}
-              to="/analyze"
-              onClick={handleCloseNavMenu}
-              selected={activeRoute === '/analyze'}
-            >
-              <ListItemIcon sx={{ minWidth: 30 }}>
-                <InsightsOutlinedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="Analyze" />
-            </MenuItem>
-            <MenuItem
-              component={Link}
-              to="/generate"
-              onClick={handleCloseNavMenu}
-              selected={activeRoute === '/generate'}
-            >
-              <ListItemIcon sx={{ minWidth: 30 }}>
-                <AutoFixHighOutlinedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="Generate" />
-            </MenuItem>
-            <Divider />
-            <MenuItem
-              onClick={() => {
-                handleCloseNavMenu();
-                handleLogout();
+                px: isSidebarCollapsed ? 0 : 1.4,
+                py: 1,
+                bgcolor: '#1565C0',
+                '&:hover': { bgcolor: '#0D47A1' },
+                '& .MuiButton-startIcon': {
+                  mr: isSidebarCollapsed ? 0 : 1,
+                  ml: 0,
+                },
               }}
             >
-              Logout
-            </MenuItem>
-          </Menu>
+              {!isSidebarCollapsed && 'New Chat'}
+            </Button>
+          </Tooltip>
+        </Box>
 
-          <Button
-            color="inherit"
-            size="small"
-            startIcon={<LogoutIcon />}
-            onClick={handleLogout}
-            sx={{
-              display: { xs: 'none', md: 'inline-flex' },
-              textTransform: 'none',
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.1)'
-              }
-            }}
-          >
-            Logout
-          </Button>
-        </Toolbar>
-      </AppBar>
+        <List sx={{ pt: 1.2, px: isSidebarCollapsed ? 0.9 : 1.2 }}>
+          {navItems.map((item) => (
+            <ListItem key={item.key} disablePadding sx={{ mb: 0.5 }}>
+              <Tooltip title={isSidebarCollapsed ? item.label : ''} placement="right">
+                <ListItemButton
+                  component={Link}
+                  to={item.key}
+                  selected={activeRoute === item.key}
+                  sx={{
+                    borderRadius: 2,
+                    minHeight: 44,
+                    justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                    px: isSidebarCollapsed ? 1 : 1.3,
+                    color: activeRoute === item.key ? '#0D47A1' : '#334155',
+                    bgcolor: activeRoute === item.key ? 'rgba(21,101,192,0.12)' : 'transparent',
+                    '&:hover': {
+                      bgcolor: activeRoute === item.key ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)',
+                    },
+                  }}
+                >
+                  <ListItemIcon
+                    sx={{
+                      minWidth: isSidebarCollapsed ? 0 : 34,
+                      color: 'inherit',
+                    }}
+                  >
+                    {item.icon}
+                  </ListItemIcon>
+                  {!isSidebarCollapsed && (
+                    <ListItemText
+                      primary={item.label}
+                      primaryTypographyProps={{ fontSize: '0.92rem', fontWeight: 600 }}
+                    />
+                  )}
+                </ListItemButton>
+              </Tooltip>
+            </ListItem>
+          ))}
+        </List>
+
+        <Box sx={{ flexGrow: 1 }} />
+
+        <List sx={{ px: isSidebarCollapsed ? 0.9 : 1.2, pb: 1.2 }}>
+          {isSidebarCollapsed ? (
+            <ListItem disablePadding sx={{ mb: 0.5 }}>
+              <Tooltip title="Live" placement="right">
+                <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%', py: 0.5 }}>
+                  <TrendingUpIcon sx={{ fontSize: 18, color: '#22c55e' }} />
+                </Box>
+              </Tooltip>
+            </ListItem>
+          ) : (
+            <ListItem disablePadding sx={{ mb: 0.5, px: 0.3 }}>
+              <Chip
+                icon={<TrendingUpIcon sx={{ fontSize: 16, color: '#22c55e !important' }} />}
+                label="Live"
+                size="small"
+                sx={{
+                  width: '100%',
+                  bgcolor: 'rgba(34, 197, 94, 0.12)',
+                  color: '#166534',
+                  fontWeight: 600,
+                  border: '1px solid rgba(34, 197, 94, 0.45)',
+                  justifyContent: 'flex-start',
+                }}
+              />
+            </ListItem>
+          )}
+
+          <ListItem disablePadding sx={{ mb: 0.5 }}>
+            <Tooltip title={isSidebarCollapsed ? 'Settings' : ''} placement="right">
+              <ListItemButton
+                component={Link}
+                to="/settings"
+                selected={activeRoute === '/settings'}
+                sx={{
+                  borderRadius: 2,
+                  minHeight: 42,
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  px: isSidebarCollapsed ? 1 : 1.3,
+                  color: activeRoute === '/settings' ? '#0D47A1' : '#334155',
+                  bgcolor: activeRoute === '/settings' ? 'rgba(21,101,192,0.12)' : 'transparent',
+                  '&:hover': { bgcolor: activeRoute === '/settings' ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)' },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: '#334155' }}>
+                  <SettingsOutlinedIcon sx={{ fontSize: 20 }} />
+                </ListItemIcon>
+                {!isSidebarCollapsed && <ListItemText primary="Settings" primaryTypographyProps={{ fontSize: '0.9rem' }} />}
+              </ListItemButton>
+            </Tooltip>
+          </ListItem>
+
+          <ListItem disablePadding sx={{ mb: 0.5 }}>
+            <Tooltip title={isSidebarCollapsed ? 'Profile' : ''} placement="right">
+              <ListItemButton
+                component={Link}
+                to="/profile"
+                selected={activeRoute === '/profile'}
+                sx={{
+                  borderRadius: 2,
+                  minHeight: 42,
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  px: isSidebarCollapsed ? 1 : 1.3,
+                  color: activeRoute === '/profile' ? '#0D47A1' : '#334155',
+                  bgcolor: activeRoute === '/profile' ? 'rgba(21,101,192,0.12)' : 'transparent',
+                  '&:hover': { bgcolor: activeRoute === '/profile' ? 'rgba(21,101,192,0.16)' : 'rgba(15,23,42,0.05)' },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: '#334155' }}>
+                  <PersonOutlineIcon sx={{ fontSize: 20 }} />
+                </ListItemIcon>
+                {!isSidebarCollapsed && <ListItemText primary="Profile" primaryTypographyProps={{ fontSize: '0.9rem' }} />}
+              </ListItemButton>
+            </Tooltip>
+          </ListItem>
+
+          <ListItem disablePadding>
+            <Tooltip title={isSidebarCollapsed ? 'Logout' : ''} placement="right">
+              <ListItemButton
+                onClick={handleLogout}
+                sx={{
+                  borderRadius: 2,
+                  minHeight: 42,
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  px: isSidebarCollapsed ? 1 : 1.3,
+                  color: '#334155',
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: 'inherit' }}>
+                  <LogoutIcon sx={{ fontSize: 20 }} />
+                </ListItemIcon>
+                {!isSidebarCollapsed && <ListItemText primary="Logout" primaryTypographyProps={{ fontSize: '0.9rem' }} />}
+              </ListItemButton>
+            </Tooltip>
+          </ListItem>
+        </List>
+      </Box>
 
       <Box
         sx={{
           flexGrow: 1,
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden'
+          overflow: 'hidden',
         }}
       >
-        <Routes>
-          <Route path="/" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
-          <Route path="/chat" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
-          <Route path="/chat/*" element={<Navigate to="/chat" replace />} />
-          <Route path="/analyze" element={<ErrorBoundary><IacWorkbenchPage /></ErrorBoundary>} />
-          <Route path="/analyze/*" element={<Navigate to="/analyze" replace />} />
-          <Route path="/generate" element={<ErrorBoundary><GenerateBlueprintPage /></ErrorBoundary>} />
-          <Route path="/generate/*" element={<Navigate to="/generate" replace />} />
-          <Route path="/iac" element={<Navigate to="/analyze" replace />} />
-          <Route path="/iac/*" element={<Navigate to="/analyze" replace />} />
-          <Route path="*" element={<Navigate to="/chat" replace />} />
-        </Routes>
+        <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+          <Routes>
+            <Route path="/" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
+            <Route path="/chat" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
+            <Route path="/chat/*" element={<Navigate to="/chat" replace />} />
+            <Route path="/analyze" element={<ErrorBoundary><IacWorkbenchPage /></ErrorBoundary>} />
+            <Route path="/analyze/*" element={<Navigate to="/analyze" replace />} />
+            <Route path="/generate" element={<ErrorBoundary><GenerateBlueprintPage /></ErrorBoundary>} />
+            <Route path="/generate/*" element={<Navigate to="/generate" replace />} />
+            <Route path="/iac" element={<Navigate to="/analyze" replace />} />
+            <Route path="/iac/*" element={<Navigate to="/analyze" replace />} />
+            <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+            <Route path="/profile" element={<ErrorBoundary><ProfilePage /></ErrorBoundary>} />
+            <Route path="*" element={<Navigate to="/chat" replace />} />
+          </Routes>
+        </Box>
       </Box>
     </Box>
   );

@@ -23,7 +23,8 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableRow
+  TableRow,
+  Tooltip,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -45,7 +46,7 @@ import {
   LineElement,
   BarElement,
   Title,
-  Tooltip,
+  Tooltip as ChartTooltip,
   Legend,
   ArcElement,
 } from 'chart.js';
@@ -62,7 +63,7 @@ ChartJS.register(
   LineElement,
   BarElement,
   Title,
-  Tooltip,
+  ChartTooltip,
   Legend,
   ArcElement,
   ChartDataLabels
@@ -637,30 +638,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
   const handleSuggestionClick = (suggestion: string) => {
     setInputMessage(suggestion);
     inputRef.current?.focus();
-  };
-
-  const handleClearChat = () => {
-    setMessages([{
-      id: '1',
-      role: 'assistant',
-      content: 'Hello! I\'m your AI-powered aasmaa assistant. I can help you analyze AWS costs, identify optimization opportunities, and answer questions about your cloud spending. What would you like to know?',
-      timestamp: new Date(),
-      suggestions: [
-        'Show me my AWS costs for the last 30 days',
-        'What are my top 5 most expensive services?',
-        'How can I optimize my EC2 costs?'
-      ]
-    }]);
-    setInputMessage('');
-    setConversationId(null); // Reset conversation ID
-    setConversationContext({}); // Reset conversation context
-    // Optionally, you could also reset any other state related to the chat session here
-    // Focus input after clearing chat - use requestAnimationFrame to ensure DOM updates
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
-    });
   };
 
   const handleExportChart = (chart: any, chartIndex: number, messageId: string) => {
@@ -2053,28 +2030,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
         }}
       >
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
-          <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={handleClearChat}
-            size="medium"
-            sx={{
-              textTransform: 'none',
-              fontWeight: 600,
-              borderRadius: 2,
-              borderColor: 'rgba(0,0,0,0.2)',
-              color: '#1565C0',
-              whiteSpace: 'nowrap',
-              minWidth: '140px',
-              height: '48px',
-              '&:hover': {
-                bgcolor: 'rgba(21, 101, 192, 0.08)',
-                borderColor: '#1565C0'
-              }
-            }}
-          >
-            New Chat
-          </Button>
+          <Tooltip title="Attach file">
+            <IconButton
+              size="medium"
+              sx={{
+                color: '#64748b',
+                border: '1px solid rgba(0,0,0,0.14)',
+                borderRadius: 2,
+                width: 48,
+                height: 48,
+                '&:hover': {
+                  bgcolor: 'rgba(21, 101, 192, 0.08)',
+                  color: '#1565C0',
+                  borderColor: 'rgba(21, 101, 192, 0.42)'
+                }
+              }}
+            >
+              <AddIcon />
+            </IconButton>
+          </Tooltip>
           <TextField
             ref={inputRef}
             fullWidth
