@@ -98,6 +98,11 @@ Parameters:
     Default: ''
     Description: ARN of ACM certificate for HTTPS (optional, leave empty for HTTP only)
 
+  ExistingHttpsListenerArn:
+    Type: String
+    Default: ''
+    Description: Optional existing HTTPS listener ARN to reuse (prevents listener create conflicts on updates)
+
   DemoUserEmail:
     Type: String
     Default: demo@aasmaa.ai
@@ -115,6 +120,8 @@ Parameters:
 
 Conditions:
   HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
+  HasExistingHttpsListener: !Not [!Equals [!Ref ExistingHttpsListenerArn, '']]
+  CreateHttpsListener: !And [!Condition HasCertificate, !Not [!Condition HasExistingHttpsListener]]
   IsDemoMode: !Equals [!Ref DeploymentMode, demo]
 
 Resources:
@@ -346,7 +353,7 @@ Resources:
 
   ALBListenerHTTPS:
     Type: AWS::ElasticLoadBalancingV2::Listener
-    Condition: HasCertificate
+    Condition: CreateHttpsListener
     Properties:
       LoadBalancerArn:
         Fn::ImportValue: !Sub '${ParentStackName}-alb-arn'
@@ -362,12 +369,18 @@ Resources:
   BackendListenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
-      ListenerArn: !If [HasCertificate, !Ref ALBListenerHTTPS, !Ref ALBListenerHTTP]
+      ListenerArn: !If
+        - HasCertificate
+        - !If [HasExistingHttpsListener, !Ref ExistingHttpsListenerArn, !Ref ALBListenerHTTPS]
+        - !Ref ALBListenerHTTP
       Priority: 1
       Conditions:
         - Field: path-pattern
           Values:
             - /api/*
+            - /docs*
+            - /redoc*
+            - /openapi.json
       Actions:
         - Type: forward
           TargetGroupArn: !Ref BackendTargetGroup

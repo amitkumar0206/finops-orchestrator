@@ -9,6 +9,15 @@ set -euo pipefail
 # NOTE: Default stack name is 'aasmaa-demo-barebones' — the old 'aasmaa-demo'
 #       name may be stuck in a CloudFormation ghost/terminal state.
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../setup/load_deploy_config.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/../setup/load_deploy_config.sh"
+  # Force demo profile unless explicitly overridden by DEPLOY_CONFIG/DEPLOY_CONFIG_FILE
+  export DEPLOY_CONFIG="${DEPLOY_CONFIG:-demo}"
+  load_deploy_config
+fi
+
 STACK_NAME="${STACK_NAME:-aasmaa-demo-barebones}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 ENVIRONMENT="${ENVIRONMENT:-development}"
@@ -19,6 +28,8 @@ DEMO_ORGANIZATION_NAME="${DEMO_ORGANIZATION_NAME:-Demo Organization}"
 CLEANUP_EXISTING_RDS="${CLEANUP_EXISTING_RDS:-true}"
 BUILD_IMAGES="${BUILD_IMAGES:-true}"
 DISABLE_ROLLBACK="${DISABLE_ROLLBACK:-true}"
+DEMO_DOMAIN_NAME="${DEMO_DOMAIN_NAME:-demo.aasmaa.ai}"
+DEMO_HOSTED_ZONE_ID="${DEMO_HOSTED_ZONE_ID:-}"
 
 log() {
   echo "[demo-barebones] $1"
@@ -229,6 +240,25 @@ aws cloudformation deploy \
 APP_URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text 2>/dev/null || true)"
 ALB_DNS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDNS`].OutputValue' --output text 2>/dev/null || true)"
 
+if [[ -n "$DEMO_HOSTED_ZONE_ID" && -n "$DEMO_DOMAIN_NAME" && -n "$ALB_DNS" ]]; then
+  ALB_ZONE_ID="$(aws elbv2 describe-load-balancers --region "$AWS_REGION" --query "LoadBalancers[?DNSName=='${ALB_DNS}'].CanonicalHostedZoneId | [0]" --output text 2>/dev/null || true)"
+
+  if [[ -n "$ALB_ZONE_ID" && "$ALB_ZONE_ID" != "None" ]]; then
+    log "Upserting DNS alias ${DEMO_DOMAIN_NAME} -> ${ALB_DNS}"
+    CHANGE_BATCH=$(cat <<JSON
+{"Comment":"Auto-update demo domain alias","Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"${DEMO_DOMAIN_NAME}.","Type":"A","AliasTarget":{"HostedZoneId":"${ALB_ZONE_ID}","DNSName":"${ALB_DNS}.","EvaluateTargetHealth":false}}}]}
+JSON
+)
+
+    aws route53 change-resource-record-sets \
+      --hosted-zone-id "$DEMO_HOSTED_ZONE_ID" \
+      --change-batch "$CHANGE_BATCH" >/dev/null 2>&1 || log "WARNING: failed to upsert demo domain alias"
+  else
+    log "WARNING: could not resolve ALB hosted zone id for DNS alias update"
+  fi
+fi
+
 log "Demo deployment complete"
 log "Application URL: $APP_URL"
 log "ALB DNS: $ALB_DNS"
+log "Demo URL: https://${DEMO_DOMAIN_NAME}"

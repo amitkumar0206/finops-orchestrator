@@ -14,7 +14,13 @@ set -euo pipefail
 #    ./scripts/deployment/aws_run_migrations.sh exec \
 #      --region us-east-1 \
 #      --cluster my-ecs-cluster \
-#      --service aasmaa-backend-svc \
+#      --service aasmaa-backend \
+#      --container backend
+#
+# Or use stack-name auto resolution:
+#    ./scripts/deployment/aws_run_migrations.sh exec \
+#      --region us-east-1 \
+#      --stack-name aasmaa \
 #      --container backend
 #
 # 2) Run a one-off task (if no tasks are running yet):
@@ -40,6 +46,7 @@ TASK_DEF=""
 CONTAINER="backend"
 SUBNETS=""
 SGS=""
+STACK_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,12 +58,18 @@ while [[ $# -gt 0 ]]; do
     --container) CONTAINER="$2"; shift 2;;
     --subnets) SUBNETS="$2"; shift 2;;
     --security-groups) SGS="$2"; shift 2;;
+    --stack-name) STACK_NAME="$2"; shift 2;;
     *) echo "Unknown arg: $1"; exit 2;;
   esac
 done
 
+if [[ -n "$STACK_NAME" ]]; then
+  CLUSTER="${CLUSTER:-${STACK_NAME}-cluster}"
+  SERVICE="${SERVICE:-${STACK_NAME}-backend}"
+fi
+
 if [[ -z "$REGION" || -z "$CLUSTER" ]]; then
-  echo "Usage: $0 <exec|run> --region REGION --cluster CLUSTER [--service SERVICE|--task-id TASK_ID|--task-def TASK_DEF]" >&2
+  echo "Usage: $0 <exec|run> --region REGION --cluster CLUSTER [--service SERVICE|--task-id TASK_ID|--task-def TASK_DEF] [--stack-name STACK_NAME]" >&2
   exit 2
 fi
 

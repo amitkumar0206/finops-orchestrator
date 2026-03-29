@@ -6,6 +6,14 @@
 
 set -euo pipefail
 
+# Load shared deployment defaults (branch-aware: DemoOnly -> demo, otherwise prod)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/scripts/setup/load_deploy_config.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/scripts/setup/load_deploy_config.sh"
+    load_deploy_config
+fi
+
 # Additional safety flags / traps
 # Ensure ERR traps are inherited by functions/subshells (portable to macOS Bash 3.2)
 set -E
@@ -220,6 +228,52 @@ validate_aws_credentials() {
     return 0
 }
 
+get_current_branch() {
+    git rev-parse --abbrev-ref HEAD 2>/dev/null || echo ""
+}
+
+stack_exists() {
+    local stack_name="$1"
+    aws cloudformation describe-stacks --stack-name "$stack_name" --region "$AWS_REGION" >/dev/null 2>&1
+}
+
+resolve_stack_name_for_branch() {
+    local current_branch
+    current_branch=$(get_current_branch)
+
+    if [ "$current_branch" = "DemoOnly" ]; then
+        # On DemoOnly, always prefer demo-prefixed stacks.
+        if [[ "$STACK_NAME" == *"-demo"* ]] || [[ "$STACK_NAME" == *"-demo-"* ]] || [[ "$STACK_NAME" == *"demo"* ]]; then
+            if stack_exists "$STACK_NAME"; then
+                return 0
+            fi
+        fi
+
+        local candidate
+        for candidate in "aasmaa-demo-barebones" "aasmaa-demo"; do
+            if stack_exists "$candidate"; then
+                log_info "Resolved STACK_NAME for DemoOnly branch: $candidate"
+                STACK_NAME="$candidate"
+                return 0
+            fi
+        done
+
+        local discovered
+        discovered=$(aws cloudformation list-stacks \
+            --region "$AWS_REGION" \
+            --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE IMPORT_COMPLETE \
+            --query "reverse(sort_by(StackSummaries[?starts_with(StackName, 'aasmaa-demo') && !contains(StackName, '-services')], &CreationTime))[0].StackName" \
+            --output text 2>/dev/null || echo "")
+
+        if [ -n "$discovered" ] && [ "$discovered" != "None" ] && [ "$discovered" != "null" ]; then
+            log_info "Auto-detected demo stack for DemoOnly branch: $discovered"
+            STACK_NAME="$discovered"
+        else
+            log_warning "DemoOnly branch detected, but no existing demo stack was found. Keeping STACK_NAME=$STACK_NAME"
+        fi
+    fi
+}
+
 # Simple retry helper with exponential backoff (5s, 10s, 20s)
 run_with_retry() {
     local attempts="${1:-3}"; shift
@@ -289,6 +343,7 @@ check_prerequisites() {
     
     local validation_failed=false
     local warnings_found=false
+    resolve_stack_name_for_branch
     
     # 1. Check required tools
     log_info "[1/7] Validating required tools..."
@@ -345,7 +400,7 @@ check_prerequisites() {
     local permission_errors=0
     
     # Check CloudFormation permissions
-    if ! aws cloudformation list-stacks --region "$AWS_REGION" --max-results 1 &>/dev/null; then
+    if ! aws cloudformation list-stacks --region "$AWS_REGION" &>/dev/null; then
         log_error "Missing CloudFormation permissions"
         permission_errors=$((permission_errors + 1))
     fi
@@ -357,7 +412,7 @@ check_prerequisites() {
     fi
     
     # Check Bedrock permissions
-    if ! aws bedrock list-foundation-models --region "us-east-1" --max-results 1 &>/dev/null; then
+    if ! aws bedrock list-foundation-models --region "us-east-1" &>/dev/null; then
         log_warning "Missing Bedrock permissions (verify model access enabled)"
         warnings_found=true
     fi
@@ -391,10 +446,11 @@ check_prerequisites() {
     # 6. Check disk space for Docker builds
     log_info "[6/7] Validating disk space..."
     if command -v df &> /dev/null; then
-        local available_gb=$(df -h . | awk 'NR==2 {print $4}' | sed 's/Gi\?//')
+        local available_kb=$(df -Pk . | awk 'NR==2 {print $4}')
+        local available_gb=$((available_kb / 1024 / 1024))
         if [ -n "$available_gb" ]; then
             log_success "Available disk space: ${available_gb}GB"
-            if [ "${available_gb%%.*}" -lt 10 ]; then
+            if [ "$available_gb" -lt 10 ]; then
                 log_warning "Low disk space (< 10GB). Docker builds may fail."
                 warnings_found=true
             fi
@@ -630,6 +686,8 @@ setup_one_time_components() {
 
 # Deploy CloudFormation stack
 deploy_infrastructure() {
+    resolve_stack_name_for_branch
+
     if [ "$FRESH_INSTALL" = true ]; then
         log_info "Deploying fresh infrastructure stack..."
     else
@@ -641,7 +699,21 @@ deploy_infrastructure() {
 
     # Load previously used bucket if available
     PREVIOUS_S3_BUCKET=""
-    if [ -f "$ENV_FILE" ]; then
+    STACK_OUTPUT_S3_BUCKET=""
+
+    if stack_exists "$STACK_NAME"; then
+        STACK_OUTPUT_S3_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
+            --output text 2>/dev/null || echo "")
+        if [ -n "$STACK_OUTPUT_S3_BUCKET" ] && [ "$STACK_OUTPUT_S3_BUCKET" != "None" ]; then
+            PREVIOUS_S3_BUCKET="$STACK_OUTPUT_S3_BUCKET"
+            log_info "Using S3 bucket from stack outputs: $PREVIOUS_S3_BUCKET"
+        fi
+    fi
+
+    if [ -f "$ENV_FILE" ] && [ -z "$STACK_OUTPUT_S3_BUCKET" ]; then
         PREVIOUS_S3_BUCKET=$(awk -F'=' '$1=="S3_BUCKET"{print $2}' "$ENV_FILE")
         if [ -n "$PREVIOUS_S3_BUCKET" ]; then
             log_info "Found existing S3 bucket in $ENV_FILE: $PREVIOUS_S3_BUCKET"
@@ -650,8 +722,8 @@ deploy_infrastructure() {
     
     # Generate random password for database (RDS doesn't allow /, @, ", or spaces)
     # Use alphanumeric + allowed special characters: !#$%&*+-<=>?^_`{|}~
-    if [ -f "$ENV_FILE" ] && grep -q "DB_PASSWORD" deployment.env; then
-        DB_PASSWORD=$(grep "DB_PASSWORD" deployment.env | cut -d'=' -f2-)
+    if [ -f "$ENV_FILE" ] && grep -q "^DB_PASSWORD=" "$ENV_FILE"; then
+        DB_PASSWORD=$(grep "^DB_PASSWORD=" "$ENV_FILE" | tail -n1 | cut -d'=' -f2-)
         log_info "Reusing existing database password from deployment.env"
     else
         DB_PASSWORD=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9!#$%&*+<=>?^_~' | head -c 32)
@@ -763,10 +835,12 @@ deploy_infrastructure() {
         EXISTING_RECORD=$(aws route53 list-resource-record-sets \
             --hosted-zone-id "$HOSTED_ZONE_ID" \
             --query "ResourceRecordSets[?Name=='${DOMAIN_NAME}.']" \
-            --output json 2>/dev/null)
+            --output json 2>/dev/null || echo "[]")
         
         if [ -n "$EXISTING_RECORD" ] && [ "$EXISTING_RECORD" != "[]" ]; then
             log_warning "Found existing DNS record for $DOMAIN_NAME - it will be updated automatically"
+        elif [ "$EXISTING_RECORD" = "[]" ]; then
+            log_info "No existing DNS record found or Route53 listing is not permitted; deployment will continue."
         fi
         
         # Set certificate creation flag (default to true when custom domain is enabled)
@@ -871,8 +945,11 @@ LIFECYCLE_EOF
     log_info "=== CUR Configuration ==="
     
     # Load CUR configuration from deployment.env if exists
+    local runtime_s3_bucket="$S3_BUCKET"
     if [ -f "$ENV_FILE" ]; then
         source "$ENV_FILE"
+        S3_BUCKET="$runtime_s3_bucket"
+        resolve_stack_name_for_branch
     fi
     
     # Set CUR configuration with defaults (used by CloudFormation and application)
@@ -883,6 +960,13 @@ LIFECYCLE_EOF
     ATHENA_RESULTS_BUCKET="${ATHENA_RESULTS_BUCKET:-aasmaa-athena-results-${AWS_ACCOUNT_ID}}"
     ATHENA_OUTPUT_LOCATION="${ATHENA_OUTPUT_LOCATION:-s3://${ATHENA_RESULTS_BUCKET}/}"
     ATHENA_WORKGROUP="${ATHENA_WORKGROUP:-aasmaa-workgroup}"
+
+    if [ "$(get_current_branch)" = "DemoOnly" ]; then
+        if ! aws s3api head-bucket --bucket "$CUR_S3_BUCKET" --region "$AWS_REGION" >/dev/null 2>&1; then
+            log_warning "Configured CUR bucket '$CUR_S3_BUCKET' is not accessible in DemoOnly; falling back to '$S3_BUCKET'"
+            CUR_S3_BUCKET="$S3_BUCKET"
+        fi
+    fi
     
     log_info "CUR S3 Location: s3://$CUR_S3_BUCKET/$CUR_S3_PREFIX"
     log_info "Athena Database: $AWS_CUR_DATABASE"
@@ -1183,9 +1267,9 @@ build_and_push_images() {
         BACKEND_IMAGE_URI="${ECR_REGISTRY}/aasmaa-backend:latest"
         FRONTEND_IMAGE_URI="${ECR_REGISTRY}/aasmaa-frontend:latest"
         
-        # Save to deployment.env
-        echo "BACKEND_IMAGE_URI=$BACKEND_IMAGE_URI" >> "$ENV_FILE"
-        echo "FRONTEND_IMAGE_URI=$FRONTEND_IMAGE_URI" >> "$ENV_FILE"
+        # Save to deployment.env (idempotent update in deployment state section)
+        update_deployment_state "BACKEND_IMAGE_URI" "$BACKEND_IMAGE_URI"
+        update_deployment_state "FRONTEND_IMAGE_URI" "$FRONTEND_IMAGE_URI"
         
         log_warning "⚠️  IMPORTANT: You must manually build and push Docker images with ECR permissions."
         log_warning "   Run: ./deploy.sh update (with proper AWS credentials)"
@@ -1268,9 +1352,9 @@ build_and_push_images() {
     
     log_success "Docker images built and pushed successfully."
     
-    # Save image URIs
-    echo "BACKEND_IMAGE_URI=${ECR_REGISTRY}/aasmaa-backend:latest" >> "$ENV_FILE"
-    echo "FRONTEND_IMAGE_URI=${ECR_REGISTRY}/aasmaa-frontend:latest" >> "$ENV_FILE"
+    # Save image URIs (idempotent update in deployment state section)
+    update_deployment_state "BACKEND_IMAGE_URI" "${ECR_REGISTRY}/aasmaa-backend:latest"
+    update_deployment_state "FRONTEND_IMAGE_URI" "${ECR_REGISTRY}/aasmaa-frontend:latest"
     
     # Force ECS services to pull new images
     force_ecs_deployment
@@ -1342,6 +1426,7 @@ deploy_services() {
     fi
     
     source "$ENV_FILE"
+    resolve_stack_name_for_branch
     
     # Verify critical variables
     if [ -z "${DB_PASSWORD:-}" ]; then
@@ -1355,21 +1440,25 @@ deploy_services() {
     # Get stack outputs
     VPC_ID=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
         --query 'Stacks[0].Outputs[?OutputKey==`VPCId`].OutputValue' \
         --output text)
     
     DB_ENDPOINT=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
         --query 'Stacks[0].Outputs[?OutputKey==`DatabaseEndpoint`].OutputValue' \
         --output text)
     
     VALKEY_ENDPOINT=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
         --query 'Stacks[0].Outputs[?OutputKey==`ValkeyEndpoint`].OutputValue' \
         --output text)
     
     ECS_CLUSTER=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
         --query 'Stacks[0].Outputs[?OutputKey==`ECSClusterName`].OutputValue' \
         --output text)
 
@@ -1417,26 +1506,69 @@ deploy_services() {
     fi
     
     # Add CertificateArn if available
-    CERT_ARN=$(aws cloudformation describe-stacks \
-        --stack-name "$STACK_NAME" \
-        --region "$AWS_REGION" \
-        --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' \
-        --output text 2>/dev/null || echo "")
-    
+    # Priority: 1) CERTIFICATE_ARN env var (set in config/deploy/*.env)
+    #           2) CertificateArn output from the main CloudFormation stack
+    CERT_ARN="${CERTIFICATE_ARN:-}"
+    if [ -z "$CERT_ARN" ] || [ "$CERT_ARN" = "None" ]; then
+        CERT_ARN=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' \
+            --output text 2>/dev/null || echo "")
+    fi
+
     if [ -n "$CERT_ARN" ] && [ "$CERT_ARN" != "None" ]; then
         log_info "Using HTTPS with certificate: $CERT_ARN"
         ECS_SERVICE_PARAMS+=(
             CertificateArn="$CERT_ARN"
         )
+
+        # If a 443 listener already exists (manually created or pre-existing),
+        # pass it to CloudFormation to avoid "Listener already exists" rollbacks.
+        ALB_ARN=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`ALBArn`].OutputValue' \
+            --output text 2>/dev/null || echo "")
+
+        if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
+            EXISTING_HTTPS_LISTENER_ARN=$(aws elbv2 describe-listeners \
+                --load-balancer-arn "$ALB_ARN" \
+                --region "$AWS_REGION" \
+                --query 'Listeners[?Port==`443`].ListenerArn | [0]' \
+                --output text 2>/dev/null || echo "")
+
+            if [ -n "$EXISTING_HTTPS_LISTENER_ARN" ] && [ "$EXISTING_HTTPS_LISTENER_ARN" != "None" ]; then
+                log_info "Reusing existing HTTPS listener: $EXISTING_HTTPS_LISTENER_ARN"
+                ECS_SERVICE_PARAMS+=(
+                    ExistingHttpsListenerArn="$EXISTING_HTTPS_LISTENER_ARN"
+                )
+            fi
+        fi
     else
         log_info "No certificate found - using HTTP only"
     fi
     
     log_info "[DEBUG] Services stack BedrockModelId: $BEDROCK_MODEL"
+
+        local services_stack_name="${STACK_NAME}-services"
+        local services_stack_status
+        services_stack_status=$(aws cloudformation describe-stacks \
+            --stack-name "$services_stack_name" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].StackStatus' \
+            --output text 2>/dev/null || echo "")
+
+        if [ "$services_stack_status" = "ROLLBACK_COMPLETE" ] || [ "$services_stack_status" = "CREATE_FAILED" ] || [ "$services_stack_status" = "ROLLBACK_FAILED" ]; then
+            log_warning "Services stack $services_stack_name is in $services_stack_status. Deleting it before redeploy."
+            aws cloudformation delete-stack --stack-name "$services_stack_name" --region "$AWS_REGION"
+            aws cloudformation wait stack-delete-complete --stack-name "$services_stack_name" --region "$AWS_REGION"
+            log_success "Deleted failed services stack $services_stack_name"
+        fi
     
     run_with_retry 3 aws cloudformation deploy \
         --template-file infrastructure/cloudformation/ecs-services.yaml \
-        --stack-name "${STACK_NAME}-services" \
+            --stack-name "$services_stack_name" \
         --parameter-overrides "${ECS_SERVICE_PARAMS[@]}" \
         --capabilities CAPABILITY_IAM \
         --region "$AWS_REGION"
@@ -1651,8 +1783,11 @@ get_deployment_info() {
     fi
     
     if [ -n "$CUSTOM_DOMAIN" ]; then
-        # Check if certificate exists for HTTPS
-        CERT_ARN=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text 2>/dev/null || echo "")
+        # Check if certificate exists for HTTPS (env var takes priority)
+        CERT_ARN="${CERTIFICATE_ARN:-}"
+        if [ -z "$CERT_ARN" ] || [ "$CERT_ARN" = "None" ]; then
+            CERT_ARN=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text 2>/dev/null || echo "")
+        fi
         if [ -n "$CERT_ARN" ] && [ "$CERT_ARN" != "None" ]; then
             APP_URL="https://$CUSTOM_DOMAIN"
         else
@@ -1931,8 +2066,11 @@ print_deployment_summary() {
                 ROUTE53_STATUS="CONFIGURED"
                 log_success "Route 53 DNS Record: $CUSTOM_DOMAIN → ALB"
                 
-                # Check for ACM certificate
-                CERT_ARN=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text 2>/dev/null || echo "")
+                # Check for ACM certificate (env var takes priority)
+                CERT_ARN="${CERTIFICATE_ARN:-}"
+                if [ -z "$CERT_ARN" ] || [ "$CERT_ARN" = "None" ]; then
+                    CERT_ARN=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text 2>/dev/null || echo "")
+                fi
                 if [ -n "$CERT_ARN" ] && [ "$CERT_ARN" != "None" ]; then
                     CERT_STATUS="CONFIGURED"
                     log_success "ACM Certificate: Configured (HTTPS enabled)"
