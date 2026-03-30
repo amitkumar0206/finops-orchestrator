@@ -17,6 +17,7 @@ import json
 import os
 
 import boto3
+from botocore.exceptions import ClientError
 
 # ── config ────────────────────────────────────────────────────────────────────
 CLUSTER       = os.environ.get("ECS_CLUSTER", "aasmaa-cluster")
@@ -117,6 +118,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .log .ok  { color: #4ade80; }
     .log .err { color: #f87171; }
     .log .info { color: #38bdf8; }
+    .log .warn { color: #fbbf24; }
 
     /* ── demo link ── */
     .demo-link {
@@ -227,12 +229,21 @@ HTML_PAGE = """<!DOCTYPE html>
         + '</div>';
     }).join('');
   }
+  function renderUnknownCards() {
+    renderCards([
+      { name: 'aasmaa-backend', desired: 0, running: 0, pending: 0, rolloutState: 'UNKNOWN' },
+      { name: 'aasmaa-frontend', desired: 0, running: 0, pending: 0, rolloutState: 'UNKNOWN' }
+    ]);
+  }
   function updateButtons(services) {
     if (!TOKEN) return;
-    var allUp   = services.every(function(s){ return s.desired >= 1 && s.running >= 1 && s.rolloutState === 'COMPLETED'; });
     var allDown = services.every(function(s){ return s.desired === 0 && s.running === 0; });
-    document.getElementById('btn-start').disabled = allUp;
+    document.getElementById('btn-start').disabled = !allDown;
     document.getElementById('btn-stop').disabled  = allDown;
+  }
+  function disableActions() {
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled = true;
   }
 
   /* ── status fetch ── */
@@ -242,10 +253,15 @@ HTML_PAGE = """<!DOCTYPE html>
       var r = await fetch(BASE + '?action=status&token=' + encodeURIComponent(TOKEN));
       if (r.status === 403) { log('Access denied — invalid token.', 'err'); return; }
       var d = await r.json();
-      if (d.error)    { log(d.error, 'err'); return; }
+      if (d.error)    { log(d.error, 'warn'); renderUnknownCards(); disableActions(); return; }
+      if (d.warning)  { log(d.warning, 'warn'); }
       if (d.services) {
         renderCards(d.services);
-        updateButtons(d.services);
+        if (d.unavailable) {
+          disableActions();
+        } else {
+          updateButtons(d.services);
+        }
         document.getElementById('ts').textContent = new Date().toLocaleTimeString();
       }
     } catch(e) { log('Status fetch failed: ' + e.message, 'err'); }
@@ -297,6 +313,35 @@ def _auth(event: dict) -> bool:
         return True  # no token configured — open (useful during initial deploy test)
     token = (event.get("queryStringParameters") or {}).get("token", "")
     return hmac.compare_digest(token, CONTROL_TOKEN)
+
+
+def _placeholder_services() -> list[dict]:
+    return [
+        {
+            "name": service,
+            "desired": 0,
+            "running": 0,
+            "pending": 0,
+            "rolloutState": "UNKNOWN",
+        }
+        for service in SERVICES
+    ]
+
+
+def _friendly_client_error(exc: Exception, action: str) -> str:
+    if not isinstance(exc, ClientError):
+        if action == "status":
+            return "Status is temporarily unavailable. Refresh in a few moments."
+        return "The request could not be completed right now. Please try again."
+
+    code = exc.response.get("Error", {}).get("Code", "")
+    if code in {"ClusterNotFoundException", "ServiceNotFoundException"}:
+        if action == "status":
+            return "Status is temporarily unavailable. The control panel cannot read the demo services right now."
+        return "The demo services are not reachable from the control plane right now. Please refresh and try again."
+    if code in {"AccessDeniedException", "UnauthorizedOperation"}:
+        return "The control panel does not currently have permission to manage the demo services."
+    return "Status is temporarily unavailable. Refresh in a few moments." if action == "status" else "The request could not be completed right now. Please try again."
 
 
 def _status() -> dict:
@@ -352,25 +397,31 @@ def lambda_handler(event, _context):
 
     # ── GET ?action=status ──────────────────────────────────────────────────
     if action == "status" and method == "GET":
-        try:
-            return _resp(200, _status())
-        except Exception as exc:
-            return _resp(500, {"error": str(exc)})
+      try:
+        return _resp(200, _status())
+      except Exception as exc:
+        return _resp(200, {
+          "services": _placeholder_services(),
+          "cluster": CLUSTER,
+          "region": ECS_REGION,
+          "unavailable": True,
+          "warning": _friendly_client_error(exc, "status"),
+        })
 
     # ── POST ?action=start ──────────────────────────────────────────────────
     if action == "start" and method == "POST":
-        try:
-            _set_count(1)
-            return _resp(200, {"ok": True, "message": "Services starting — check status in ~2 min."})
-        except Exception as exc:
-            return _resp(500, {"ok": False, "error": str(exc)})
+      try:
+        _set_count(1)
+        return _resp(200, {"ok": True, "message": "Services starting — check status in ~2 min."})
+      except Exception as exc:
+        return _resp(500, {"ok": False, "error": _friendly_client_error(exc, "start")})
 
     # ── POST ?action=stop ───────────────────────────────────────────────────
     if action == "stop" and method == "POST":
-        try:
-            _set_count(0)
-            return _resp(200, {"ok": True, "message": "Services stopping — tasks draining now."})
-        except Exception as exc:
-            return _resp(500, {"ok": False, "error": str(exc)})
+      try:
+        _set_count(0)
+        return _resp(200, {"ok": True, "message": "Services stopping — tasks draining now."})
+      except Exception as exc:
+        return _resp(500, {"ok": False, "error": _friendly_client_error(exc, "stop")})
 
     return _resp(400, {"error": f"Unknown action: {action!r}"})
