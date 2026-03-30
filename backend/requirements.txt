@@ -96,6 +96,6 @@ aiocache==0.12.2
 rapidfuzz==3.9.6
 
 # Security: Minimum versions for transitive dependencies
-# Keep Starlette in FastAPI 0.115.x compatible range to avoid resolver failure during image builds.
-starlette>=0.40.0,<0.42.0
+# Starlette version must match fastapi==0.135.2 requirement (>=0.46.0)
+starlette>=0.46.0
 urllib3>=2.6.3  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441
