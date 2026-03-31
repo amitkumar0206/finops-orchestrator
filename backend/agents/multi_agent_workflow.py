@@ -16,6 +16,82 @@ logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 
+def _is_explicit_comparison_cost_query(query: str, time_range_result: TimeRangeResult) -> bool:
+    """Return True when query is clearly comparative cost analysis (not optimization)."""
+    q = (query or "").lower()
+
+    comparison_markers = [" vs ", " versus ", "compare", "comparison", "difference between"]
+    has_comparison_text = any(marker in q for marker in comparison_markers)
+
+    optimization_markers = [
+        "optimiz", "quick win", "low-effort", "rightsiz", "savings plan",
+        "reserved", "idle", "underutil", "opportunit"
+    ]
+    has_optimization_text = any(marker in q for marker in optimization_markers)
+
+    # Time-range parser is the strongest signal for period-over-period comparison.
+    if time_range_result and time_range_result.is_comparison_request and not has_optimization_text:
+        return True
+
+    return has_comparison_text and not has_optimization_text
+
+
+def _is_explicit_cost_analysis_query(
+    query: str,
+    time_range_result: TimeRangeResult,
+    previous_context: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Return True when query is clearly cost analytics/drill-down, not optimization."""
+    q = (query or "").lower().strip()
+    if not q:
+        return False
+
+    optimization_markers = [
+        "optimiz", "quick win", "low-effort", "rightsiz", "savings plan",
+        "reserved", "idle", "underutil", "opportunit", "recommendation",
+        "reduce cost", "cut cost", "save money", "how can i save", "how do i save",
+    ]
+    has_optimization_text = any(marker in q for marker in optimization_markers)
+    if has_optimization_text:
+        return False
+
+    # Existing explicit comparison logic remains a strong cost-analysis signal.
+    if _is_explicit_comparison_cost_query(query, time_range_result):
+        return True
+
+    cost_terms = ["cost", "costs", "spend", "billing", "bill", "charge", "usage"]
+    drilldown_terms = [
+        "break down", "breakdown", "by region", "by service", "by account",
+        "by usage", "by resource", "top ", "trend", "over time", "daily",
+        "weekly", "monthly", "last 30 days", "last month", "this month",
+    ]
+    chart_terms = ["chart", "charts", "graph", "graphs", "plot", "visual"]
+    continuation_terms = [
+        "by region", "by service", "by account", "by usage", "by resource",
+        "over time", "trend", "break down", "breakdown", "drill down",
+    ]
+
+    has_cost_terms = any(term in q for term in cost_terms)
+    has_drilldown_terms = any(term in q for term in drilldown_terms)
+    has_chart_terms = any(term in q for term in chart_terms)
+
+    # Follow-up shorthand queries like "break down by region" should inherit prior cost intent.
+    last_intent = str((previous_context or {}).get("last_intent", "")).lower()
+    has_prior_cost_intent = any(
+        token in last_intent
+        for token in ("cost", "breakdown", "trend", "comparative", "top_n", "top")
+    )
+    has_continuation = any(term in q for term in continuation_terms)
+
+    if has_cost_terms and (has_drilldown_terms or has_chart_terms):
+        return True
+
+    if has_prior_cost_intent and has_continuation:
+        return True
+
+    return False
+
+
 async def execute_multi_agent_query(
     query: str,
     conversation_id: str,
@@ -67,9 +143,15 @@ async def execute_multi_agent_query(
         is_comparison=time_range_result.is_comparison_request
     )
 
-    # Step 2: Check if this is an optimization-related query
+    # Step 2: Check if this is an optimization-related query.
+    # Use async classifier so LLM intent detection is applied (with keyword fallback).
     optimization_agent = get_optimization_agent(organization_id)
-    is_optimization = optimization_agent.is_optimization_query(query)
+    is_optimization = await optimization_agent.is_optimization_query_async(query)
+
+    # Deterministic override: explicit cost-analysis drill-downs should stay on text-to-sql.
+    if is_optimization and _is_explicit_cost_analysis_query(query, time_range_result, previous_context):
+        logger.info("Routing override applied: cost-analysis query forced to text-to-sql")
+        is_optimization = False
 
     try:
         if is_optimization:

@@ -1626,7 +1626,73 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                               {message.content}
                             </Typography>
                           ) : (
-                            <MarkdownRenderer content={safeText(message.content)} />
+                            <>
+                              <MarkdownRenderer content={safeText(message.content)} />
+
+                              {message.results && message.results.length > 0 && (
+                                <Box sx={{ width: '100%', mt: 2 }}>
+                                  <Typography
+                                    variant="h6"
+                                    sx={{
+                                      fontWeight: 600,
+                                      fontSize: '0.95rem',
+                                      color: 'text.primary',
+                                      mb: 1
+                                    }}
+                                  >
+                                    Data Table
+                                  </Typography>
+                                  <TableContainer
+                                    component={Paper}
+                                    sx={{
+                                      borderRadius: 2,
+                                      border: '1px solid rgba(0,0,0,0.08)',
+                                      boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                                      maxHeight: 360,
+                                      overflow: 'auto'
+                                    }}
+                                  >
+                                    <Table stickyHeader size="small" sx={{ minWidth: 300 }}>
+                                      <TableHead>
+                                        <TableRow>
+                                          {Object.keys(message.results[0] || {}).map((key) => (
+                                            <TableCell
+                                              key={key}
+                                              sx={{
+                                                fontWeight: 600,
+                                                bgcolor: 'rgba(21, 101, 192, 0.08)',
+                                                color: '#1565C0',
+                                                textTransform: 'capitalize',
+                                                fontSize: '0.85rem'
+                                              }}
+                                            >
+                                              {key.replace(/_/g, ' ')}
+                                            </TableCell>
+                                          ))}
+                                        </TableRow>
+                                      </TableHead>
+                                      <TableBody>
+                                        {message.results.map((row: any, index: number) => (
+                                          <TableRow
+                                            key={index}
+                                            sx={{
+                                              '&:nth-of-type(odd)': { bgcolor: 'rgba(0,0,0,0.02)' },
+                                              '&:hover': { bgcolor: 'rgba(21, 101, 192, 0.04)' }
+                                            }}
+                                          >
+                                            {Object.entries(row).map(([key, value]: [string, any], cellIndex: number) => (
+                                              <TableCell key={cellIndex} sx={{ fontSize: '0.85rem' }}>
+                                                {formatCellValue(key, value)}
+                                              </TableCell>
+                                            ))}
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
+                                </Box>
+                              )}
+                            </>
                           )}
                         </Paper>
                         {/* Timestamp */}
