@@ -20,6 +20,7 @@ import asyncio
 from backend.services.text_to_sql_service import text_to_sql_service
 from backend.services.chart_recommendation import chart_engine
 from backend.services.chart_data_builder import chart_data_builder
+from backend.utils.followup_query import build_contextual_followup_query
 from backend.config.settings import get_settings
 from backend.utils.aws_session import create_aws_session
 from backend.utils.aws_constants import AwsService
@@ -32,6 +33,27 @@ from backend.utils.sql_validation import (
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
+
+
+def _fallback_chart_intent(results: List[Dict[str, Any]]) -> str:
+    """Infer chart intent when LLM query_type is weak/unknown."""
+    if not results:
+        return "unknown"
+
+    first = results[0]
+    keys = {str(k).lower() for k in first.keys()}
+
+    has_cost = any(k in keys for k in ["cost_usd", "cost", "total_cost_usd"])
+    if not has_cost:
+        return "unknown"
+
+    if any(k in keys for k in ["usage_date", "date", "month", "day"]):
+        return "time_series"
+    if "region" in keys or "product_region_code" in keys:
+        return "regional"
+    if "service" in keys or "service_name" in keys or "line_item_product_code" in keys:
+        return "top_services"
+    return "breakdown"
 
 
 class AthenaExecutor:
@@ -166,10 +188,23 @@ async def execute_query_simple(
     """
     try:
         logger.info("Executing query with text-to-SQL approach", query=query[:100])
+
+        # Preserve prior drill-down scope for terse time-only follow-ups.
+        rewrite_context: Dict[str, Any] = dict(previous_context or {})
+        if conversation_history and "conversation_history" not in rewrite_context:
+            rewrite_context["conversation_history"] = conversation_history
+
+        effective_query = build_contextual_followup_query(query, rewrite_context)
+        if effective_query != query:
+            logger.info(
+                "Rewrote follow-up query with prior context",
+                original_query=query[:120],
+                effective_query=effective_query[:160],
+            )
         
         # Step 1: Generate SQL from natural language
         sql_query, metadata = await text_to_sql_service.generate_sql(
-            user_query=query,
+            user_query=effective_query,
             conversation_history=conversation_history,
             previous_context=previous_context
         )
@@ -366,11 +401,28 @@ LIMIT 20
             }
         
         # Step 3: Generate charts from results
+        # Force comparison chart intent for dual-period result sets so UI renders side-by-side bars.
+        chart_intent = metadata.get("query_type", "unknown")
+        if results and all(
+            col in results[0] for col in ["current_period_cost", "previous_period_cost"]
+        ):
+            chart_intent = "comparison"
+
+        if chart_intent in ["unknown", None, ""]:
+            chart_intent = _fallback_chart_intent(results)
+
         chart_specs = chart_engine.recommend_charts(
-            intent=metadata.get("query_type", "unknown"),
+            intent=chart_intent,
             data_results=results,
             extracted_params={}
         )
+
+        if not chart_specs and results:
+            chart_specs = chart_engine.recommend_charts(
+                intent=_fallback_chart_intent(results),
+                data_results=results,
+                extracted_params={}
+            )
         
         charts_with_data = chart_data_builder.build_chart_data(
             chart_specs=chart_specs,
@@ -456,6 +508,11 @@ LIMIT 20
                     'Item1': top_items[0][0] if len(top_items) > 0 else "N/A",
                     'Item2': top_items[1][0] if len(top_items) > 1 else "N/A",
                     'Item3': top_items[2][0] if len(top_items) > 2 else "N/A",
+                    'Item1Cost': f"${top_items[0][1]:,.2f}" if len(top_items) > 0 else "$0.00",
+                    'Item2Cost': f"${top_items[1][1]:,.2f}" if len(top_items) > 1 else "$0.00",
+                    'Item3Cost': f"${top_items[2][1]:,.2f}" if len(top_items) > 2 else "$0.00",
+                    'Item4Cost': f"${top_items[3][1]:,.2f}" if len(top_items) > 3 else "$0.00",
+                    'Item5Cost': f"${top_items[4][1]:,.2f}" if len(top_items) > 4 else "$0.00",
                 }
                 
                 # Month-over-month comparison placeholders (2 data points with date/month field)
@@ -516,7 +573,7 @@ LIMIT 20
         
         # Extract context for next query
         updated_context = {
-            "last_query": query,
+            "last_query": effective_query,
             "last_sql": sql_query,
             "last_query_type": metadata.get("query_type"),
             "result_columns": metadata.get("result_columns", []),
