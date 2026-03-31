@@ -17,6 +17,7 @@ import structlog
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import asyncio
+import re
 from backend.services.text_to_sql_service import text_to_sql_service
 from backend.services.chart_recommendation import chart_engine
 from backend.services.chart_data_builder import chart_data_builder
@@ -54,6 +55,101 @@ def _fallback_chart_intent(results: List[Dict[str, Any]]) -> str:
     if "service" in keys or "service_name" in keys or "line_item_product_code" in keys:
         return "top_services"
     return "breakdown"
+
+
+def _is_period_comparison_query(query: str, previous_context: Optional[Dict[str, Any]]) -> bool:
+    """Return True for explicit comparison asks with period context available."""
+    if not query:
+        return False
+    q = query.lower()
+    has_compare_text = any(token in q for token in ["compare", " vs ", "versus", "month over month", "mom"]) 
+    has_compare_context = bool((previous_context or {}).get("comparison_time_range"))
+    return has_compare_text and has_compare_context
+
+
+def _build_period_comparison_sql_and_metadata(
+    query: str,
+    previous_context: Optional[Dict[str, Any]],
+) -> Optional[tuple[str, Dict[str, Any]]]:
+    """Build deterministic service-level period comparison query from resolved time ranges."""
+    ctx = previous_context or {}
+    current_tr = ctx.get("time_range") or {}
+    previous_tr = ctx.get("comparison_time_range") or {}
+
+    current_start = current_tr.get("start_date")
+    current_end = current_tr.get("end_date")
+    previous_start = previous_tr.get("start_date")
+    previous_end = previous_tr.get("end_date")
+
+    date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    if not all([current_start, current_end, previous_start, previous_end]):
+        return None
+    if not all(date_re.match(str(d)) for d in [current_start, current_end, previous_start, previous_end]):
+        return None
+
+    sql = f"""
+SELECT
+    line_item_product_code AS service,
+    ROUND(SUM(
+        CASE
+            WHEN CAST(line_item_usage_start_date AS DATE) >= DATE '{current_start}'
+             AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_end}'
+            THEN line_item_unblended_cost
+            ELSE 0
+        END
+    ), 2) AS current_period_cost,
+    ROUND(SUM(
+        CASE
+            WHEN CAST(line_item_usage_start_date AS DATE) >= DATE '{previous_start}'
+             AND CAST(line_item_usage_start_date AS DATE) <= DATE '{previous_end}'
+            THEN line_item_unblended_cost
+            ELSE 0
+        END
+    ), 2) AS previous_period_cost
+FROM cost_usage_db.cur_data
+WHERE (
+    CAST(line_item_usage_start_date AS DATE) >= DATE '{previous_start}'
+    AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_end}'
+)
+AND line_item_product_code IS NOT NULL
+AND line_item_product_code != ''
+GROUP BY 1
+HAVING
+    ROUND(SUM(
+        CASE
+            WHEN CAST(line_item_usage_start_date AS DATE) >= DATE '{current_start}'
+             AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_end}'
+            THEN line_item_unblended_cost
+            ELSE 0
+        END
+    ), 2) > 0
+    OR
+    ROUND(SUM(
+        CASE
+            WHEN CAST(line_item_usage_start_date AS DATE) >= DATE '{previous_start}'
+             AND CAST(line_item_usage_start_date AS DATE) <= DATE '{previous_end}'
+            THEN line_item_unblended_cost
+            ELSE 0
+        END
+    ), 2) > 0
+ORDER BY current_period_cost DESC
+LIMIT 20
+""".strip()
+
+    metadata = {
+        "explanation": (
+            "**Summary:** Service-wise month comparison between the selected current and previous periods.\n\n"
+            "**Insights:**\n\n"
+            "- **Service Movement**: Each row shows current vs previous period cost for the same service\n"
+            "- **Largest Drivers**: Top rows are sorted by current period cost to highlight major contributors\n"
+            "- **Comparison Ready**: Data is shaped for side-by-side comparison charts"
+        ),
+        "result_columns": ["service", "current_period_cost", "previous_period_cost"],
+        "query_type": "comparison",
+        "generated_via": "deterministic_period_comparison",
+        "status": "ok",
+    }
+    return sql, metadata
 
 
 class AthenaExecutor:
@@ -202,12 +298,19 @@ async def execute_query_simple(
                 effective_query=effective_query[:160],
             )
         
-        # Step 1: Generate SQL from natural language
-        sql_query, metadata = await text_to_sql_service.generate_sql(
-            user_query=effective_query,
-            conversation_history=conversation_history,
-            previous_context=previous_context
-        )
+        # Step 1: Generate SQL from natural language (or deterministic comparison path)
+        deterministic = None
+        if _is_period_comparison_query(effective_query, previous_context):
+            deterministic = _build_period_comparison_sql_and_metadata(effective_query, previous_context)
+
+        if deterministic:
+            sql_query, metadata = deterministic
+        else:
+            sql_query, metadata = await text_to_sql_service.generate_sql(
+                user_query=effective_query,
+                conversation_history=conversation_history,
+                previous_context=previous_context
+            )
         
         logger.info(
             "SQL generated",
