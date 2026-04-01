@@ -26,6 +26,7 @@ import {
     RestartAlt as RestartAltIcon,
     AutoFixHigh as AutoFixHighIcon,
 } from '@mui/icons-material';
+import { apiFetch } from '../lib/api';
 
 interface GenerateResponse {
     mode: 'text' | 'services' | 'diagram';
@@ -116,7 +117,7 @@ const GenerateBlueprintPage: React.FC = () => {
             let response: Response;
 
             if (mode === 'text') {
-                response = await fetch('/api/v1/iac-generate/start-from-text', {
+                response = await apiFetch('/api/v1/iac-generate/start-from-text', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -127,7 +128,7 @@ const GenerateBlueprintPage: React.FC = () => {
                     }),
                 });
             } else if (mode === 'services') {
-                response = await fetch('/api/v1/iac-generate/start-from-services', {
+                response = await apiFetch('/api/v1/iac-generate/start-from-services', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -145,7 +146,7 @@ const GenerateBlueprintPage: React.FC = () => {
                 formData.append('region', region);
                 formData.append('environment', environment);
 
-                response = await fetch('/api/v1/iac-generate/start-from-diagram', {
+                response = await apiFetch('/api/v1/iac-generate/start-from-diagram', {
                     method: 'POST',
                     body: formData,
                 });

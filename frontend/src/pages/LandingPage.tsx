@@ -9,7 +9,9 @@ import {
     LogoutOutlined as LogoutOutlinedIcon,
     SettingsOutlined as SettingsOutlinedIcon,
     PersonOutlineOutlined as PersonOutlineOutlinedIcon,
+    AdminPanelSettingsOutlined as AdminPanelSettingsOutlinedIcon,
 } from '@mui/icons-material';
+import { useAuth } from '../context/AuthContext';
 
 const BRAND_BLUE = '#1565C0';
 const BRAND_BLUE_DARK = '#0D47A1';
@@ -43,6 +45,20 @@ const flowCards = [
 ] as const;
 
 const LandingPage: React.FC<LandingPageProps> = ({ onLogout }) => {
+    const { user, canAccess } = useAuth();
+    const initials = (user?.full_name || user?.email || 'A')
+        .split(' ')
+        .map((part) => part.charAt(0).toUpperCase())
+        .join('')
+        .slice(0, 2);
+
+    const visibleCards = flowCards.filter((card) => {
+        if (card.key === '/chat') return canAccess('chat');
+        if (card.key === '/analyze') return canAccess('analyze');
+        if (card.key === '/generate') return canAccess('generate');
+        return false;
+    });
+
     return (
         <Box
             sx={{
@@ -109,6 +125,23 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogout }) => {
                             >
                                 Settings
                             </Button>
+                            {canAccess('admin_console') && (
+                                <Button
+                                    component={RouterLink}
+                                    to="/admin"
+                                    startIcon={<AdminPanelSettingsOutlinedIcon sx={{ fontSize: 18 }} />}
+                                    sx={{
+                                        color: '#334155',
+                                        textTransform: 'none',
+                                        fontWeight: 600,
+                                        borderRadius: 2,
+                                        px: 1.5,
+                                        '&:hover': { bgcolor: 'rgba(15,23,42,0.05)' },
+                                    }}
+                                >
+                                    Admin
+                                </Button>
+                            )}
                             <Button
                                 onClick={onLogout}
                                 startIcon={<LogoutOutlinedIcon sx={{ fontSize: 18 }} />}
@@ -124,7 +157,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogout }) => {
                             >
                                 Logout
                             </Button>
-                            <Avatar sx={{ width: 34, height: 34, fontSize: '0.82rem', fontWeight: 700, bgcolor: BRAND_BLUE }}>AA</Avatar>
+                            <Avatar sx={{ width: 34, height: 34, fontSize: '0.82rem', fontWeight: 700, bgcolor: BRAND_BLUE }}>{initials}</Avatar>
                         </Stack>
                     </Stack>
                 </Paper>
@@ -170,41 +203,64 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogout }) => {
                                 Aasmaa combines conversational analysis, architecture insights, and AI blueprint generation into one professional FinOps workspace built for decisive teams.
                             </Typography>
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ mt: 2.25 }}>
-                                <Button
-                                    component={RouterLink}
-                                    to="/chat"
-                                    variant="contained"
-                                    disableElevation
-                                    endIcon={<ArrowForwardIcon sx={{ fontSize: '1rem !important' }} />}
-                                    sx={{
-                                        bgcolor: BRAND_BLUE,
-                                        textTransform: 'none',
-                                        fontWeight: 700,
-                                        borderRadius: 2,
-                                        px: 2.1,
-                                        py: 1,
-                                        '&:hover': { bgcolor: BRAND_BLUE_DARK },
-                                    }}
-                                >
-                                    Open Cost Chat
-                                </Button>
-                                <Button
-                                    component={RouterLink}
-                                    to="/analyze"
-                                    variant="outlined"
-                                    sx={{
-                                        textTransform: 'none',
-                                        fontWeight: 700,
-                                        borderRadius: 2,
-                                        px: 2.1,
-                                        py: 1,
-                                        color: BRAND_BLUE,
-                                        borderColor: 'rgba(21,101,192,0.34)',
-                                        '&:hover': { borderColor: BRAND_BLUE, bgcolor: 'rgba(21,101,192,0.06)' },
-                                    }}
-                                >
-                                    Start Analysis
-                                </Button>
+                                {canAccess('chat') && (
+                                    <Button
+                                        component={RouterLink}
+                                        to="/chat"
+                                        variant="contained"
+                                        disableElevation
+                                        endIcon={<ArrowForwardIcon sx={{ fontSize: '1rem !important' }} />}
+                                        sx={{
+                                            bgcolor: BRAND_BLUE,
+                                            textTransform: 'none',
+                                            fontWeight: 700,
+                                            borderRadius: 2,
+                                            px: 2.1,
+                                            py: 1,
+                                            '&:hover': { bgcolor: BRAND_BLUE_DARK },
+                                        }}
+                                    >
+                                        Open Cost Chat
+                                    </Button>
+                                )}
+                                {canAccess('analyze') && (
+                                    <Button
+                                        component={RouterLink}
+                                        to="/analyze"
+                                        variant="outlined"
+                                        sx={{
+                                            textTransform: 'none',
+                                            fontWeight: 700,
+                                            borderRadius: 2,
+                                            px: 2.1,
+                                            py: 1,
+                                            color: BRAND_BLUE,
+                                            borderColor: 'rgba(21,101,192,0.34)',
+                                            '&:hover': { borderColor: BRAND_BLUE, bgcolor: 'rgba(21,101,192,0.06)' },
+                                        }}
+                                    >
+                                        Start Analysis
+                                    </Button>
+                                )}
+                                {canAccess('admin_console') && (
+                                    <Button
+                                        component={RouterLink}
+                                        to="/admin"
+                                        variant="outlined"
+                                        sx={{
+                                            textTransform: 'none',
+                                            fontWeight: 700,
+                                            borderRadius: 2,
+                                            px: 2.1,
+                                            py: 1,
+                                            color: '#0f172a',
+                                            borderColor: 'rgba(15,23,42,0.16)',
+                                            '&:hover': { borderColor: '#0f172a', bgcolor: 'rgba(15,23,42,0.04)' },
+                                        }}
+                                    >
+                                        Open Admin Console
+                                    </Button>
+                                )}
                             </Stack>
                         </Grid>
 
@@ -248,7 +304,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogout }) => {
                 </Paper>
 
                 <Grid container spacing={2} alignItems="stretch">
-                    {flowCards.map((card) => (
+                    {visibleCards.map((card) => (
                         <Grid key={card.key} item xs={12} md={4} sx={{ display: 'flex' }}>
                             <Paper
                                 elevation={0}

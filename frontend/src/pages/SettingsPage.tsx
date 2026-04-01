@@ -25,6 +25,7 @@ import {
     LanguageOutlined,
     SaveOutlined,
 } from '@mui/icons-material';
+import { useAuth } from '../context/AuthContext';
 
 const sectionHeader = (icon: React.ReactNode, title: string) => (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
@@ -36,6 +37,7 @@ const sectionHeader = (icon: React.ReactNode, title: string) => (
 );
 
 const SettingsPage: React.FC = () => {
+    const { user } = useAuth();
     const [saved, setSaved] = useState(false);
     const [notifications, setNotifications] = useState({
         costAlerts: true,
@@ -223,6 +225,34 @@ const SettingsPage: React.FC = () => {
                         />
                     ))}
                 </Box>
+            </Paper>
+
+            <Paper elevation={0} sx={{ border: '1px solid rgba(15,23,42,0.08)', borderRadius: 3, p: 3, mb: 4 }}>
+                {sectionHeader(<SecurityOutlined />, 'Demo Access Snapshot')}
+                <Typography sx={{ color: '#64748b', fontSize: '0.9rem', mb: 1.5 }}>
+                    These controls are managed by the demo admin through the config-backed identity store.
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.2, mb: 1.5 }}>
+                    {Object.entries(user?.feature_access || {}).map(([feature, enabled]) => (
+                        <Chip
+                            key={feature}
+                            label={`${feature}: ${enabled ? 'enabled' : 'disabled'}`}
+                            size="small"
+                            sx={{
+                                bgcolor: enabled ? 'rgba(21,101,192,0.08)' : 'rgba(100,116,139,0.08)',
+                                color: enabled ? '#1565C0' : '#64748b',
+                                border: `1px solid ${enabled ? 'rgba(21,101,192,0.2)' : 'rgba(100,116,139,0.18)'}`,
+                                fontWeight: 700,
+                            }}
+                        />
+                    ))}
+                </Box>
+                <Typography sx={{ color: '#334155', fontSize: '0.88rem', fontWeight: 600 }}>
+                    Monthly token allotment: {(user?.usage_summary?.monthly_token_limit || 0).toLocaleString()}
+                </Typography>
+                <Typography sx={{ color: '#64748b', fontSize: '0.82rem', mt: 0.3 }}>
+                    Used this month: {(user?.usage_summary?.monthly_token_used || 0).toLocaleString()}
+                </Typography>
             </Paper>
 
             <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>

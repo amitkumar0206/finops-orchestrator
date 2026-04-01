@@ -92,6 +92,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         '/api/auth/login',
         '/api/auth/register',
         '/api/auth/refresh',
+        '/api/auth/demo/catalog',
     }
 
     # Path prefixes that don't require authentication
@@ -134,7 +135,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # Demo mode bypasses JWT to allow low-cost showcase deployments.
-        if settings.demo_mode and not self._is_public_path(path):
+        if settings.demo_mode and not settings.config_demo_auth_enabled and not self._is_public_path(path):
             request.state.auth_user = AuthenticatedUser(
                 user_id=settings.demo_user_id,
                 email=settings.demo_user_email,
@@ -177,12 +178,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 "invalid_token",
                 path=path,
                 error=error_str,
-                error_code=error_code,
-                client_ip=request.client.host if request.client else "unknown"
             )
             return self._unauthorized_response(
-                error_str if error_code == "TOKEN_REVOKED" else "Invalid authentication token",
-                error_code=error_code
+                "Invalid authentication token",
+                error_code=error_code,
             )
 
         except Exception as e:
@@ -190,16 +189,13 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 "authentication_error",
                 path=path,
                 error=str(e),
-                exc_info=True
+                exc_info=True,
             )
-            return self._error_response("Authentication error")
+            return self._error_response("Authentication service unavailable")
 
     async def _authenticate_jwt(self, request: Request) -> Optional[AuthenticatedUser]:
         """
-        Attempt JWT authentication from Authorization header.
-
-        Args:
-            request: The incoming request
+        Authenticate request using JWT token from Authorization header.
 
         Returns:
             AuthenticatedUser if valid token, None if no token present
@@ -218,34 +214,35 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         payload: TokenPayload = self.authenticator.validate_access_token(token)
 
         # Check if token has been revoked (blacklisted)
-        try:
-            cache = await get_cache_service()
-            if await cache.is_access_token_blacklisted(token):
-                logger.warning(
-                    "revoked_token_used",
+        if not settings.config_demo_auth_enabled:
+            try:
+                cache = await get_cache_service()
+                if await cache.is_access_token_blacklisted(token):
+                    logger.warning(
+                        "revoked_token_used",
+                        user_id=payload.user_id,
+                        email=payload.email,
+                    )
+                    raise TokenInvalidError("Token has been revoked")
+            except TokenInvalidError:
+                raise
+            except Exception as e:
+                # SECURITY (HIGH-8): Fail CLOSED. cache.is_access_token_blacklisted()
+                # already fails closed internally (returns True on Valkey errors —
+                # F-25), but if get_cache_service() itself raises, or any other
+                # exception escapes, we MUST NOT let the request through. A revoked
+                # token is known-compromised — rejecting valid tokens during a
+                # cache outage is the lesser harm vs accepting revoked ones.
+                #
+                # Contrast: login_throttle.py fails OPEN — that's a rate limit
+                # (degraded protection OK, PBKDF2 still slows brute force). This
+                # is a revocation check (degraded == bypassed entirely).
+                logger.error(
+                    "blacklist_check_unavailable_denied",
                     user_id=payload.user_id,
-                    email=payload.email,
+                    error=str(e),
                 )
-                raise TokenInvalidError("Token has been revoked")
-        except TokenInvalidError:
-            raise
-        except Exception as e:
-            # SECURITY (HIGH-8): Fail CLOSED. cache.is_access_token_blacklisted()
-            # already fails closed internally (returns True on Valkey errors —
-            # F-25), but if get_cache_service() itself raises, or any other
-            # exception escapes, we MUST NOT let the request through. A revoked
-            # token is known-compromised — rejecting valid tokens during a
-            # cache outage is the lesser harm vs accepting revoked ones.
-            #
-            # Contrast: login_throttle.py fails OPEN — that's a rate limit
-            # (degraded protection OK, PBKDF2 still slows brute force). This
-            # is a revocation check (degraded == bypassed entirely).
-            logger.error(
-                "blacklist_check_unavailable_denied",
-                user_id=payload.user_id,
-                error=str(e),
-            )
-            raise TokenInvalidError("Unable to verify token status") from e
+                raise TokenInvalidError("Unable to verify token status") from e
 
         return AuthenticatedUser(
             user_id=payload.user_id,
