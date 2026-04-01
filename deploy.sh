@@ -1351,10 +1351,13 @@ build_and_push_images() {
     log_success "Frontend image pushed successfully"
     
     log_success "Docker images built and pushed successfully."
+
+    BACKEND_IMAGE_URI="${ECR_REGISTRY}/aasmaa-backend:latest"
+    FRONTEND_IMAGE_URI="${ECR_REGISTRY}/aasmaa-frontend:latest"
     
     # Save image URIs (idempotent update in deployment state section)
-    update_deployment_state "BACKEND_IMAGE_URI" "${ECR_REGISTRY}/aasmaa-backend:latest"
-    update_deployment_state "FRONTEND_IMAGE_URI" "${ECR_REGISTRY}/aasmaa-frontend:latest"
+    update_deployment_state "BACKEND_IMAGE_URI" "$BACKEND_IMAGE_URI"
+    update_deployment_state "FRONTEND_IMAGE_URI" "$FRONTEND_IMAGE_URI"
     
     # Force ECS services to pull new images
     force_ecs_deployment
@@ -1367,6 +1370,16 @@ force_ecs_deployment() {
     local ecs_cluster="${STACK_NAME}-cluster"
     local backend_service="${STACK_NAME}-backend"
     local frontend_service="${STACK_NAME}-frontend"
+
+    # Guard against missing image URI variables in strict-shell mode (`set -u`).
+    if [ -z "${BACKEND_IMAGE_URI:-}" ] || [ -z "${FRONTEND_IMAGE_URI:-}" ]; then
+        local aws_account_id
+        local ecr_registry
+        aws_account_id=$(aws sts get-caller-identity --query Account --output text)
+        ecr_registry="${aws_account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        BACKEND_IMAGE_URI="${BACKEND_IMAGE_URI:-${ecr_registry}/aasmaa-backend:latest}"
+        FRONTEND_IMAGE_URI="${FRONTEND_IMAGE_URI:-${ecr_registry}/aasmaa-frontend:latest}"
+    fi
 
     # Register a new task definition revision with the given image, then update the service.
     # This ensures the running tasks always use the freshly-pushed ECR image regardless of

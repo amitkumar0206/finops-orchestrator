@@ -45,6 +45,10 @@ Parameters:
     Default: ''
     Description: Optional EC2 Key Pair name for SSH access (leave blank for no SSH)
 
+  AmiId:
+    Type: String
+    Description: EC2 AMI ID for the demo instance (pass a valid Amazon Linux 2 AMI ID)
+
   BackendImageUri:
     Type: String
     Description: URI of the backend Docker image in ECR
@@ -300,7 +304,7 @@ Resources:
   DemoEC2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      ImageId: !Ref AmiId
       InstanceType: t3.small
       KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref AWS::NoValue]
       SubnetId: !Ref PublicSubnet
