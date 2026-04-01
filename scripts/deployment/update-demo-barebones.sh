@@ -66,10 +66,10 @@ fi
 if $BUILD_IMAGES; then
   log "Building and pushing latest backend/frontend images"
   run_shell "aws ecr get-login-password --region \"$AWS_REGION\" | docker login --username AWS --password-stdin \"$ECR_REGISTRY\""
-  run_shell "DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f backend/Dockerfile -t aasmaa-backend:latest \"$ROOT_DIR\""
+  run_shell "DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f \"$ROOT_DIR/backend/Dockerfile\" -t aasmaa-backend:latest \"$ROOT_DIR\""
   run_cmd docker tag aasmaa-backend:latest "$BACKEND_IMAGE_URI"
   run_cmd docker push "$BACKEND_IMAGE_URI"
-  run_shell "DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f frontend/Dockerfile -t aasmaa-frontend:latest \"$ROOT_DIR\""
+  run_shell "DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f \"$ROOT_DIR/frontend/Dockerfile\" -t aasmaa-frontend:latest \"$ROOT_DIR\""
   run_cmd docker tag aasmaa-frontend:latest "$FRONTEND_IMAGE_URI"
   run_cmd docker push "$FRONTEND_IMAGE_URI"
 else
