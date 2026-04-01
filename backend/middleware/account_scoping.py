@@ -31,6 +31,7 @@ from backend.services.request_context import (
 )
 from backend.services.database import DatabaseService
 from backend.middleware.authentication import AnonymousUser
+from backend.services.demo_identity_store import get_demo_identity_store
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -74,6 +75,53 @@ class AccountScopingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         # Skip scoping for health/metrics/auth endpoints
         if request.url.path in self.SKIP_PATHS:
+            return await call_next(request)
+
+        if settings.config_demo_auth_enabled:
+            auth_user = getattr(request.state, 'auth_user', None)
+            if not auth_user or isinstance(auth_user, AnonymousUser) or not auth_user.is_authenticated:
+                request.state.context = create_empty_context()
+                return await call_next(request)
+
+            store = get_demo_identity_store()
+            demo_user = await store.get_user_record_by_email(auth_user.email)
+            organization = await store.get_organization()
+            if not demo_user or not organization:
+                request.state.context = create_empty_context(auth_user.email)
+                return await call_next(request)
+
+            try:
+                demo_user_id = UUID(str(demo_user.get("id") or settings.demo_user_id))
+            except ValueError:
+                demo_user_id = UUID(settings.demo_user_id)
+
+            try:
+                demo_org_id = UUID(str(organization.get("id") or settings.demo_org_id))
+            except ValueError:
+                demo_org_id = UUID(settings.demo_org_id)
+
+            allowed_accounts = demo_user.get("allowed_account_ids") or organization.get("allowed_account_ids") or settings.demo_allowed_account_ids
+            request.state.context = RequestContext(
+                user_id=demo_user_id,
+                user_email=str(demo_user.get("email") or auth_user.email),
+                is_admin=bool(demo_user.get("is_admin", False)),
+                organization_id=demo_org_id,
+                organization_name=str(organization.get("name") or settings.demo_org_name),
+                organization_info=OrganizationInfo(
+                    id=demo_org_id,
+                    name=str(organization.get("name") or settings.demo_org_name),
+                    slug=str(organization.get("slug") or "demo-org"),
+                    subscription_tier=str(organization.get("subscription_tier") or "enterprise"),
+                    settings=dict(organization.get("settings") or {}),
+                    saved_view_default_expiration_days=None,
+                ),
+                allowed_account_ids=list(allowed_accounts),
+                active_saved_view=None,
+                effective_time_range=None,
+                effective_filters=None,
+                org_role=str(demo_user.get("org_role") or "member"),
+                request_id=uuid4(),
+            )
             return await call_next(request)
 
         if settings.demo_mode:

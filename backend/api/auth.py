@@ -29,6 +29,7 @@ from backend.middleware.authentication import AuthenticatedUser, require_auth
 from backend.middleware.login_throttle import get_login_throttle
 from backend.config.settings import get_settings
 from backend.utils.pii_masking import mask_email
+from backend.services.demo_identity_store import get_demo_identity_store
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
@@ -83,6 +84,11 @@ class UserInfo(BaseModel):
     is_admin: bool = False
     organization_id: Optional[str] = None
     organization_name: Optional[str] = None
+    department: Optional[str] = None
+    title: Optional[str] = None
+    org_role: Optional[str] = None
+    feature_access: Optional[dict] = None
+    usage_summary: Optional[dict] = None
 
 
 class CurrentUserResponse(BaseModel):
@@ -176,6 +182,34 @@ def generate_salt() -> str:
     return secrets.token_hex(32)
 
 
+def _is_demo_identity_mode() -> bool:
+    return settings.config_demo_auth_enabled
+
+
+async def _build_demo_user_info(user_record: Dict[str, Any]) -> UserInfo:
+    organization = await get_demo_identity_store().get_organization()
+    usage = user_record.get("usage") or {}
+    return UserInfo(
+        id=str(user_record.get("id")),
+        email=str(user_record.get("email")),
+        full_name=user_record.get("full_name"),
+        is_admin=bool(user_record.get("is_admin", False)),
+        organization_id=str(organization.get("id")) if organization.get("id") else None,
+        organization_name=organization.get("name"),
+        department=user_record.get("department"),
+        title=user_record.get("title"),
+        org_role=user_record.get("org_role"),
+        feature_access=user_record.get("feature_access") or {},
+        usage_summary={
+            "monthly_token_limit": int(user_record.get("monthly_token_limit") or 0),
+            "monthly_token_used": int(usage.get("monthly_token_used") or 0),
+            "queries_run": int(usage.get("queries_run") or 0),
+            "analysis_runs": int(usage.get("analysis_runs") or 0),
+            "generate_runs": int(usage.get("generate_runs") or 0),
+        },
+    )
+
+
 # Endpoints
 
 
@@ -192,6 +226,28 @@ async def login(request: LoginRequest, http_request: Request):
     # Fails open if Valkey is down (password check still runs — PBKDF2 600k
     # iterations slows brute force regardless). See login_throttle.py docstring
     # for the full design + why fail-open here differs from token-blacklist.
+    if _is_demo_identity_mode():
+        store = get_demo_identity_store()
+        user_record = await store.authenticate_user(request.email, request.password)
+        if not user_record:
+            logger.warning("demo_login_failed", email=mask_email(request.email))
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        authenticator = get_authenticator()
+        token_pair = authenticator.create_token_pair(
+            user_id=str(user_record.get("id")),
+            email=str(user_record.get("email")),
+            is_admin=bool(user_record.get("is_admin", False)),
+            organization_id=settings.demo_org_id,
+        )
+        return LoginResponse(
+            access_token=token_pair.access_token,
+            refresh_token=token_pair.refresh_token,
+            token_type="Bearer",
+            expires_in=settings.jwt_access_token_expiry_minutes * 60,
+            user=await _build_demo_user_info(user_record),
+        )
+
     throttle = await get_login_throttle()
     await throttle.check(http_request, request.email)
 
@@ -365,6 +421,24 @@ async def refresh_token(request: RefreshRequest):
         # Validate the refresh token
         payload = authenticator.validate_refresh_token(request.refresh_token)
 
+        if _is_demo_identity_mode():
+            store = get_demo_identity_store()
+            user_record = await store.get_user_record_by_email(payload.email)
+            if not user_record or not user_record.get("is_active", True):
+                raise HTTPException(status_code=401, detail="User account is no longer active")
+
+            new_access_token = authenticator.create_access_token(
+                user_id=str(user_record.get("id")),
+                email=str(user_record.get("email")),
+                is_admin=bool(user_record.get("is_admin", False)),
+                organization_id=settings.demo_org_id,
+            )
+            return RefreshResponse(
+                access_token=new_access_token,
+                token_type="Bearer",
+                expires_in=settings.jwt_access_token_expiry_minutes * 60,
+            )
+
         # Check if refresh token has been revoked
         # Extract jti from the token
         import jwt as pyjwt
@@ -446,6 +520,18 @@ async def get_current_user(request: Request, user: AuthenticatedUser = Depends(r
 
     Requires a valid access token.
     """
+    if _is_demo_identity_mode():
+        store = get_demo_identity_store()
+        user_record = await store.get_user_record_by_email(user.email)
+        if not user_record:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return CurrentUserResponse(
+            user=await _build_demo_user_info(user_record),
+            authenticated_at=datetime.now(timezone.utc),
+            token_type=user.token_type,
+        )
+
     db = await get_db()
 
     async with db.engine.begin() as conn:
@@ -494,6 +580,16 @@ async def logout(
     Args:
         logout_request: Optional request body containing refresh_token
     """
+    if _is_demo_identity_mode():
+        logger.info("demo_user_logout", user_id=user.user_id, email=user.email)
+        return {
+            "message": "Logged out successfully",
+            "tokens_revoked": {
+                "access_token": False,
+                "refresh_token": False,
+            }
+        }
+
     authenticator = get_authenticator()
     cache = await get_cache_service()
     blacklisted_access = False
@@ -552,6 +648,18 @@ async def logout(
             "access_token": blacklisted_access,
             "refresh_token": blacklisted_refresh,
         }
+    }
+
+
+@router.get("/demo/catalog")
+async def get_demo_login_catalog():
+    if not _is_demo_identity_mode():
+        raise HTTPException(status_code=404, detail="Demo identity catalog is unavailable")
+
+    store = get_demo_identity_store()
+    return {
+        "users": await store.get_demo_catalog(),
+        "organization": await store.get_organization(),
     }
 
 

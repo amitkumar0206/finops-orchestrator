@@ -7,10 +7,13 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from backend.config.settings import get_settings
+from backend.services.demo_identity_store import get_demo_identity_store, estimate_text_tokens
 from backend.services.request_context import RequestContext, get_context_from_request
 from backend.services.iac_blueprint_generator import iac_blueprint_generator_service
 
 router = APIRouter(prefix="/iac-generate", tags=["IaC Generate"])
+settings = get_settings()
 
 
 def get_request_context(request: Request) -> RequestContext:
@@ -52,7 +55,7 @@ class GenerateWorkflowResponse(BaseModel):
 @router.post("/start-from-text", response_model=GenerateWorkflowResponse)
 async def start_from_text(
     payload: GenerateFromTextRequest,
-    _: RequestContext = Depends(get_request_context),
+    context: RequestContext = Depends(get_request_context),
 ):
     try:
         result = iac_blueprint_generator_service.generate_from_text(
@@ -65,6 +68,17 @@ async def start_from_text(
         raise HTTPException(status_code=400, detail=str(err)) from err
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"Generation failed: {err}") from err
+
+    if settings.config_demo_auth_enabled:
+        await get_demo_identity_store().record_feature_usage(
+            str(context.user_id),
+            feature="generate",
+            tokens_used=estimate_text_tokens(payload.requirements) + estimate_text_tokens(result.generated_template),
+            details={
+                "mode": "text",
+                "output_format": payload.output_format,
+            },
+        )
 
     return GenerateWorkflowResponse(
         mode="text",
@@ -81,7 +95,7 @@ async def start_from_text(
 @router.post("/start-from-services", response_model=GenerateWorkflowResponse)
 async def start_from_services(
     payload: GenerateFromServicesRequest,
-    _: RequestContext = Depends(get_request_context),
+    context: RequestContext = Depends(get_request_context),
 ):
     try:
         result = iac_blueprint_generator_service.generate_from_services(
@@ -94,6 +108,18 @@ async def start_from_services(
         raise HTTPException(status_code=400, detail=str(err)) from err
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"Generation failed: {err}") from err
+
+    if settings.config_demo_auth_enabled:
+        await get_demo_identity_store().record_feature_usage(
+            str(context.user_id),
+            feature="generate",
+            tokens_used=estimate_text_tokens(" ".join(payload.services)) + estimate_text_tokens(result.generated_template),
+            details={
+                "mode": "services",
+                "output_format": payload.output_format,
+                "service_count": len(payload.services),
+            },
+        )
 
     return GenerateWorkflowResponse(
         mode="services",
@@ -114,7 +140,7 @@ async def start_from_diagram(
     region: str = Form("us-east-1"),
     environment: str = Form("development"),
     notes: str = Form(""),
-    _: RequestContext = Depends(get_request_context),
+    context: RequestContext = Depends(get_request_context),
 ):
     if not diagram.filename:
         raise HTTPException(status_code=400, detail="diagram filename is required")
@@ -143,6 +169,18 @@ async def start_from_diagram(
         raise HTTPException(status_code=400, detail=str(err)) from err
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"Generation failed: {err}") from err
+
+    if settings.config_demo_auth_enabled:
+        await get_demo_identity_store().record_feature_usage(
+            str(context.user_id),
+            feature="generate",
+            tokens_used=estimate_text_tokens(notes) + estimate_text_tokens(result.generated_template),
+            details={
+                "mode": "diagram",
+                "output_format": output_format,
+                "filename": diagram.filename,
+            },
+        )
 
     return GenerateWorkflowResponse(
         mode="diagram",

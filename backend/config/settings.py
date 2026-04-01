@@ -54,6 +54,21 @@ class Settings(BaseSettings):
         env="DEMO_ALLOWED_ACCOUNT_IDS",
         description="Comma-separated AWS account IDs allowed in demo mode"
     )
+    demo_identity_enabled: bool = Field(
+        default=True,
+        env="DEMO_IDENTITY_ENABLED",
+        description="Enable config-backed login, role, and feature management in demo mode"
+    )
+    demo_identity_store_backend: str = Field(
+        default="file",
+        env="DEMO_IDENTITY_STORE_BACKEND",
+        description="Backing store for demo identities: file today, extensible to ssm/secretsmanager later"
+    )
+    demo_identity_store_path: str = Field(
+        default="backend/data/demo_identity_store.json",
+        env="DEMO_IDENTITY_STORE_PATH",
+        description="Path to the JSON config file used for config-backed demo identities"
+    )
     
     # Security
     # SECURITY: No default value - must be set via SECRET_KEY environment variable
@@ -562,6 +577,11 @@ class Settings(BaseSettings):
                 valid_values.append(acc)
 
         return valid_values
+
+    @property
+    def config_demo_auth_enabled(self) -> bool:
+        """Return whether config-backed demo auth should be used."""
+        return self.demo_mode and not self.database_enabled and self.demo_identity_enabled
 
     @property
     def database_url(self) -> str:

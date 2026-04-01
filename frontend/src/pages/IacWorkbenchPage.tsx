@@ -30,6 +30,7 @@ import {
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { apiFetch } from '../lib/api';
 
 interface AnalysisResponse {
     analysis_id: string;
@@ -195,7 +196,7 @@ const IacWorkbenchPage: React.FC = () => {
                 formData.append('files', file);
             });
 
-            const response = await fetch('/api/v1/iac/analyze', {
+            const response = await apiFetch('/api/v1/iac/analyze', {
                 method: 'POST',
                 body: formData,
             });
@@ -237,7 +238,7 @@ const IacWorkbenchPage: React.FC = () => {
         setIsChatting(true);
 
         try {
-            const response = await fetch('/api/v1/iac/chat', {
+            const response = await apiFetch('/api/v1/iac/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -271,7 +272,7 @@ const IacWorkbenchPage: React.FC = () => {
         setIsGenerating(true);
 
         try {
-            const response = await fetch('/api/v1/iac/generate', {
+            const response = await apiFetch('/api/v1/iac/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -298,7 +299,7 @@ const IacWorkbenchPage: React.FC = () => {
         if (!activeAnalysis) return;
 
         try {
-            const response = await fetch(`/api/v1/iac/${activeAnalysis.analysis_id}/download?version=${version}`);
+            const response = await apiFetch(`/api/v1/iac/${activeAnalysis.analysis_id}/download?version=${version}`);
             if (!response.ok) {
                 const message = await parseApiError(response, `Download failed with status ${response.status}`);
                 throw new Error(message);

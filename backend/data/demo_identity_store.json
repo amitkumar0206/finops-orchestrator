@@ -1,0 +1,180 @@
+{
+    "version": 1,
+    "organization": {
+        "id": "22222222-2222-2222-2222-222222222222",
+        "name": "Aasmaa Demo Organization",
+        "slug": "aasmaa-demo-org",
+        "subscription_tier": "enterprise",
+        "settings": {
+            "mode": "demo"
+        },
+        "allowed_account_ids": [
+            "123456789012",
+            "210987654321",
+            "345678901234"
+        ]
+    },
+    "users": [
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "email": "admin@aasmaa.demo",
+            "full_name": "Priya Admin",
+            "department": "FinOps Leadership",
+            "title": "Platform Admin",
+            "org_role": "owner",
+            "is_admin": true,
+            "is_active": true,
+            "allowed_account_ids": [
+                "123456789012",
+                "210987654321",
+                "345678901234"
+            ],
+            "feature_access": {
+                "chat": true,
+                "analyze": true,
+                "generate": true,
+                "opportunities": true,
+                "admin_console": true
+            },
+            "monthly_token_limit": 750000,
+            "usage": {
+                "monthly_token_used": 284000,
+                "queries_run": 1247,
+                "analysis_runs": 34,
+                "generate_runs": 22,
+                "logins": 19,
+                "feature_usage": {
+                    "chat": 182,
+                    "analyze": 34,
+                    "generate": 22
+                },
+                "last_activity_at": "2026-03-31T10:30:00+00:00"
+            },
+            "preferences": {},
+            "demo_password_hint": "DemoAdmin!2026",
+            "password_salt": "b9ed23f58a48e6391e012b4e2ba0f63ee59cd5bec068597bdd6dbabb26b85fe0",
+            "password_hash": "06246fe86bd5b7d095330c84ddcddb9f13f03337cf83b6f76e69c77b20ad066b",
+            "password_hash_version": 2,
+            "created_at": "2026-03-20T09:00:00+00:00",
+            "updated_at": "2026-03-31T10:30:00+00:00"
+        },
+        {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "email": "developer@aasmaa.demo",
+            "full_name": "Devon Developer",
+            "department": "Application Engineering",
+            "title": "Senior Developer",
+            "org_role": "developer",
+            "is_admin": false,
+            "is_active": true,
+            "allowed_account_ids": [
+                "123456789012",
+                "345678901234"
+            ],
+            "feature_access": {
+                "chat": true,
+                "analyze": true,
+                "generate": false,
+                "opportunities": true,
+                "admin_console": false
+            },
+            "monthly_token_limit": 300000,
+            "usage": {
+                "monthly_token_used": 118400,
+                "queries_run": 412,
+                "analysis_runs": 21,
+                "generate_runs": 0,
+                "logins": 12,
+                "feature_usage": {
+                    "chat": 97,
+                    "analyze": 21
+                },
+                "last_activity_at": "2026-03-31T09:45:00+00:00"
+            },
+            "preferences": {},
+            "demo_password_hint": "DemoDev!2026",
+            "password_salt": "d52be3e91ecb55aa6a2c9fad5a6badedb5853a56deaabfc88b61406a3b2c0bc1",
+            "password_hash": "dabba4a431ea5d66c5aea2893111e27786609c7f8e621e6c3f0f543a80b69310",
+            "password_hash_version": 2,
+            "created_at": "2026-03-20T09:05:00+00:00",
+            "updated_at": "2026-03-31T09:45:00+00:00"
+        },
+        {
+            "id": "44444444-4444-4444-4444-444444444444",
+            "email": "devops@aasmaa.demo",
+            "full_name": "Olivia DevOps",
+            "department": "Cloud Platform",
+            "title": "DevOps Engineer",
+            "org_role": "devops",
+            "is_admin": false,
+            "is_active": true,
+            "allowed_account_ids": [
+                "210987654321",
+                "345678901234"
+            ],
+            "feature_access": {
+                "chat": true,
+                "analyze": false,
+                "generate": true,
+                "opportunities": true,
+                "admin_console": false
+            },
+            "monthly_token_limit": 350000,
+            "usage": {
+                "monthly_token_used": 164250,
+                "queries_run": 233,
+                "analysis_runs": 0,
+                "generate_runs": 18,
+                "logins": 14,
+                "feature_usage": {
+                    "chat": 64,
+                    "generate": 18
+                },
+                "last_activity_at": "2026-03-31T11:15:00+00:00"
+            },
+            "preferences": {},
+            "demo_password_hint": "DemoOps!2026",
+            "password_salt": "22e6819ae98119ba418989223bb99742f933dd07f5dbffd455e4ed8cb0947772",
+            "password_hash": "94d1536b74d0e039f636d600660bfa7d05bf46f2d40b1af07856b9c8a20e1229",
+            "password_hash_version": 2,
+            "created_at": "2026-03-20T09:10:00+00:00",
+            "updated_at": "2026-03-31T11:15:00+00:00"
+        }
+    ],
+    "activity_log": [
+        {
+            "timestamp": "2026-03-31T11:15:00+00:00",
+            "actor_user_id": "44444444-4444-4444-4444-444444444444",
+            "target_user_id": "44444444-4444-4444-4444-444444444444",
+            "action": "feature_usage:generate",
+            "details": {
+                "tokens_used": 9400,
+                "request_units": 1,
+                "template_type": "terraform"
+            }
+        },
+        {
+            "timestamp": "2026-03-31T10:42:00+00:00",
+            "actor_user_id": "11111111-1111-1111-1111-111111111111",
+            "target_user_id": "33333333-3333-3333-3333-333333333333",
+            "action": "user_updated",
+            "details": {
+                "updated_fields": [
+                    "feature_access",
+                    "monthly_token_limit"
+                ]
+            }
+        },
+        {
+            "timestamp": "2026-03-31T09:45:00+00:00",
+            "actor_user_id": "33333333-3333-3333-3333-333333333333",
+            "target_user_id": "33333333-3333-3333-3333-333333333333",
+            "action": "feature_usage:analyze",
+            "details": {
+                "tokens_used": 6200,
+                "request_units": 1,
+                "file_count": 2
+            }
+        }
+    ]
+}

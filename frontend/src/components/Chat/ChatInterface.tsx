@@ -54,6 +54,7 @@ import ChartDataLabels from 'chartjs-plugin-datalabels';
 import MarkdownRenderer from './MarkdownRenderer';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { apiFetch } from '../../lib/api';
 
 // Register Chart.js components
 ChartJS.register(
@@ -475,7 +476,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       // So we just use relative path /api/v1/chat and let ALB handle routing
       const endpoint = '/api/v1/chat';
 
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -519,7 +520,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       // Fallback path: if chat orchestration fails to parse SQL, try direct Athena generation.
       if (data?.metadata?.status === 'llm_error') {
         try {
-          const fallbackResp = await fetch('/api/v1/athena/generate', {
+          const fallbackResp = await apiFetch('/api/v1/athena/generate', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

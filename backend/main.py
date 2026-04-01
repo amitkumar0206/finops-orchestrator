@@ -20,10 +20,12 @@ from backend.api import chat, health, reports, analytics, athena_queries
 from backend.api import saved_views, organizations, scope, opportunities, auth
 from backend.api import iac_workbench, iac_generate_workflow
 from backend.api.admin import rate_limits as admin_rate_limits
+from backend.api import demo_admin
 from backend.services.vector_store import VectorStoreService
 from backend.services.database import DatabaseService, DatabaseDisabledError
 from backend.middleware.account_scoping import AccountScopingMiddleware
 from backend.middleware.authentication import AuthenticationMiddleware
+from backend.middleware.feature_access import FeatureAccessMiddleware
 from backend.middleware.security_headers import SecurityHeadersMiddleware, get_default_csp, get_default_permissions_policy
 from backend.utils.logging import setup_logging
 from backend.utils.auth import initialize_authenticator
@@ -189,6 +191,9 @@ if settings.security_headers_enabled:
 # (middleware is executed in reverse order of how they're added)
 app.add_middleware(AccountScopingMiddleware)
 
+# Enforce feature-level access in config-backed demo mode
+app.add_middleware(FeatureAccessMiddleware)
+
 # Add JWT authentication middleware
 # This validates tokens and attaches auth_user to request.state
 app.add_middleware(AuthenticationMiddleware)
@@ -285,6 +290,7 @@ app.include_router(iac_generate_workflow.router, prefix="/api/v1", tags=["IaC Ge
 
 # Authentication router (no prefix - already has /api/auth in router)
 app.include_router(auth.router, tags=["Authentication"])
+app.include_router(demo_admin.router, tags=["Demo Admin"])
 
 # Admin rate limits routers
 app.include_router(admin_rate_limits.admin_router, tags=["Admin", "Rate Limits"])

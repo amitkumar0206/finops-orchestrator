@@ -16,6 +16,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   Schedule as ScheduleIcon,
 } from '@mui/icons-material';
+import { apiFetch } from '../../lib/api';
 
 interface ActiveView {
   id: string | null;
@@ -57,8 +58,6 @@ const ScopeIndicator: React.FC<ScopeIndicatorProps> = ({ onScopeChange }) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [changingView, setChangingView] = useState(false);
 
-  const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
   useEffect(() => {
     fetchScope();
     fetchSavedViews();
@@ -66,7 +65,7 @@ const ScopeIndicator: React.FC<ScopeIndicatorProps> = ({ onScopeChange }) => {
 
   const fetchScope = async () => {
     try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/scope/current`);
+      const response = await apiFetch('/api/v1/scope/current');
       if (response.ok) {
         const data = await response.json();
         setScope(data);
@@ -80,7 +79,7 @@ const ScopeIndicator: React.FC<ScopeIndicatorProps> = ({ onScopeChange }) => {
 
   const fetchSavedViews = async () => {
     try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/views`);
+      const response = await apiFetch('/api/v1/views');
       if (response.ok) {
         const data = await response.json();
         setSavedViews(data);
@@ -104,11 +103,11 @@ const ScopeIndicator: React.FC<ScopeIndicatorProps> = ({ onScopeChange }) => {
 
     try {
       if (viewId) {
-        await fetch(`${apiBaseUrl}/api/v1/views/active/${viewId}`, {
+        await apiFetch(`/api/v1/views/active/${viewId}`, {
           method: 'PUT',
         });
       } else {
-        await fetch(`${apiBaseUrl}/api/v1/views/active`, {
+        await apiFetch('/api/v1/views/active', {
           method: 'DELETE',
         });
       }

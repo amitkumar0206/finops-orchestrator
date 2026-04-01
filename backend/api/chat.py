@@ -17,6 +17,7 @@ from backend.services.conversation_manager import conversation_manager
 from backend.agents.multi_agent_workflow import execute_multi_agent_query
 from backend.config.settings import get_settings
 from backend.services.request_context import require_context, RequestContext
+from backend.services.demo_identity_store import get_demo_identity_store, estimate_text_tokens
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -250,6 +251,17 @@ async def chat(
             execution_time=execution_time,
             timestamp=datetime.utcnow(),
         )
+
+        if settings.config_demo_auth_enabled:
+            await get_demo_identity_store().record_feature_usage(
+                caller_user_id,
+                feature="chat",
+                tokens_used=estimate_text_tokens(request.message) + estimate_text_tokens(message_text),
+                details={
+                    "conversation_id": conversation_id,
+                    "charts_count": len(charts),
+                },
+            )
 
         # Persist assistant message and execution logs in background
         def _persist_multi_agent_default():

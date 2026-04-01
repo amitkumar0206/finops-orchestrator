@@ -30,15 +30,16 @@ import IacWorkbenchPage from './pages/IacWorkbenchPage';
 import GenerateBlueprintPage from './pages/GenerateBlueprintPage';
 import SettingsPage from './pages/SettingsPage';
 import ProfilePage from './pages/ProfilePage';
+import AdminConsolePage from './pages/AdminConsolePage';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ScopeIndicator } from './components/Scope';
+import { AuthProvider, useAuth } from './context/AuthContext';
 
-const App: React.FC = () => {
+const AppShell: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, isAuthenticated, isCheckingAuth, logout, canAccess } = useAuth();
   const [scopeVersion, setScopeVersion] = useState(0);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   // Collapse sidebar whenever the route changes (so navigating always starts collapsed)
@@ -46,27 +47,12 @@ const App: React.FC = () => {
     setIsSidebarCollapsed(true);
   }, [location.pathname]);
 
-  // Check authentication on component mount.
-  // In demo mode we keep auth state client-side to avoid forced re-login loops.
-  useEffect(() => {
-    const isAuthed = localStorage.getItem('aasmaa_authenticated') === 'true';
-    setIsAuthenticated(isAuthed);
-    setIsCheckingAuth(false);
-  }, []);
-
   const handleScopeChange = () => {
     setScopeVersion((v) => v + 1);
   };
 
-  const handleLoginSuccess = () => {
-    localStorage.setItem('aasmaa_authenticated', 'true');
-    setIsAuthenticated(true);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('aasmaa_authenticated');
-    localStorage.removeItem('aasmaa_username');
-    setIsAuthenticated(false);
+  const handleLogout = async () => {
+    await logout();
     navigate('/');
   };
 
@@ -89,7 +75,7 @@ const App: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+    return <LoginPage />;
   }
 
   const activeRoute = (() => {
@@ -104,10 +90,22 @@ const App: React.FC = () => {
   const hideSidebar = location.pathname === '/' || location.pathname.startsWith('/home');
 
   const navItems = [
-    { key: '/chat', label: 'Cost Chat', icon: <ForumOutlinedIcon sx={{ fontSize: 20 }} /> },
-    { key: '/analyze', label: 'Analyze', icon: <InsightsOutlinedIcon sx={{ fontSize: 20 }} /> },
-    { key: '/generate', label: 'Generate', icon: <AutoFixHighOutlinedIcon sx={{ fontSize: 20 }} /> },
-  ] as const;
+    canAccess('chat') ? { key: '/chat', label: 'Cost Chat', icon: <ForumOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
+    canAccess('analyze') ? { key: '/analyze', label: 'Analyze', icon: <InsightsOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
+    canAccess('generate') ? { key: '/generate', label: 'Generate', icon: <AutoFixHighOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
+    canAccess('admin_console') ? { key: '/admin', label: 'Admin', icon: <SettingsOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string; icon: React.ReactNode }>;
+
+  const initials = (user?.full_name || user?.email || 'A')
+    .split(' ')
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('')
+    .slice(0, 2);
+
+  const chatRouteElement = canAccess('chat') ? <ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary> : <Navigate to="/" replace />;
+  const analyzeRouteElement = canAccess('analyze') ? <ErrorBoundary><IacWorkbenchPage /></ErrorBoundary> : <Navigate to="/" replace />;
+  const generateRouteElement = canAccess('generate') ? <ErrorBoundary><GenerateBlueprintPage /></ErrorBoundary> : <Navigate to="/" replace />;
+  const adminRouteElement = canAccess('admin_console') ? <ErrorBoundary><AdminConsolePage /></ErrorBoundary> : <Navigate to="/" replace />;
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#f8fafc' }}>
@@ -409,7 +407,7 @@ const App: React.FC = () => {
               >
                 Logout
               </Button>
-              <Avatar sx={{ width: 32, height: 32, fontSize: '0.8rem', fontWeight: 700, bgcolor: '#1565C0' }}>AA</Avatar>
+              <Avatar sx={{ width: 32, height: 32, fontSize: '0.8rem', fontWeight: 700, bgcolor: '#1565C0' }}>{initials}</Avatar>
             </Stack>
           </Box>
         )}
@@ -419,16 +417,17 @@ const App: React.FC = () => {
             <Route path="/" element={<ErrorBoundary><LandingPage onLogout={handleLogout} /></ErrorBoundary>} />
             <Route path="/home" element={<Navigate to="/" replace />} />
             <Route path="/home/*" element={<Navigate to="/" replace />} />
-            <Route path="/chat" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />
+            <Route path="/chat" element={chatRouteElement} />
             <Route path="/chat/*" element={<Navigate to="/chat" replace />} />
-            <Route path="/analyze" element={<ErrorBoundary><IacWorkbenchPage /></ErrorBoundary>} />
+            <Route path="/analyze" element={analyzeRouteElement} />
             <Route path="/analyze/*" element={<Navigate to="/analyze" replace />} />
-            <Route path="/generate" element={<ErrorBoundary><GenerateBlueprintPage /></ErrorBoundary>} />
+            <Route path="/generate" element={generateRouteElement} />
             <Route path="/generate/*" element={<Navigate to="/generate" replace />} />
             <Route path="/iac" element={<Navigate to="/analyze" replace />} />
             <Route path="/iac/*" element={<Navigate to="/analyze" replace />} />
             <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
             <Route path="/profile" element={<ErrorBoundary><ProfilePage /></ErrorBoundary>} />
+            <Route path="/admin" element={adminRouteElement} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Box>
@@ -436,5 +435,11 @@ const App: React.FC = () => {
     </Box>
   );
 };
+
+const App: React.FC = () => (
+  <AuthProvider>
+    <AppShell />
+  </AuthProvider>
+);
 
 export default App;

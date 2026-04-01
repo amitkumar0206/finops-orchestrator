@@ -8,10 +8,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
+from backend.config.settings import get_settings
+from backend.services.demo_identity_store import get_demo_identity_store, estimate_text_tokens
 from backend.services.iac_analysis_service import iac_analysis_service
 from backend.services.request_context import RequestContext, get_context_from_request
 
 router = APIRouter(prefix="/iac", tags=["IaC Workbench"])
+settings = get_settings()
 
 
 def get_request_context(request: Request) -> RequestContext:
@@ -101,6 +104,18 @@ async def analyze_iac_file(
     primary = result["primary"]
     records = result["records"]
 
+    if settings.config_demo_auth_enabled:
+        token_estimate = sum(estimate_text_tokens(content) for _, content in decoded_files)
+        await get_demo_identity_store().record_feature_usage(
+            str(context.user_id),
+            feature="analyze",
+            tokens_used=token_estimate,
+            details={
+                "file_count": len(decoded_files),
+                "filenames": [filename for filename, _ in decoded_files],
+            },
+        )
+
     return IacAnalyzeResponse(
         analysis_id=primary.analysis_id,
         filename=primary.filename,
@@ -145,6 +160,16 @@ async def chat_about_iac(
             user_id=str(context.user_id),
             org_id=str(context.organization_id) if context.organization_id else None,
         )
+        if settings.config_demo_auth_enabled:
+            await get_demo_identity_store().record_feature_usage(
+                str(context.user_id),
+                feature="analyze",
+                tokens_used=estimate_text_tokens(payload.message) + estimate_text_tokens(reply),
+                details={
+                    "analysis_id": payload.analysis_id,
+                    "mode": "follow_up_chat",
+                },
+            )
         return IacChatResponse(analysis_id=payload.analysis_id, message=reply)
     except ValueError as err:
         raise HTTPException(status_code=404, detail=str(err)) from err
@@ -173,6 +198,17 @@ async def generate_final_iac(
         raise HTTPException(status_code=403, detail=str(err)) from err
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"IaC generation failed: {err}") from err
+
+    if settings.config_demo_auth_enabled:
+        await get_demo_identity_store().record_feature_usage(
+            str(context.user_id),
+            feature="analyze",
+            tokens_used=estimate_text_tokens(payload.goals or "") + estimate_text_tokens(record.improved_content),
+            details={
+                "analysis_id": payload.analysis_id,
+                "mode": "optimized_revision",
+            },
+        )
 
     return IacGenerateResponse(
         analysis_id=record.analysis_id,
