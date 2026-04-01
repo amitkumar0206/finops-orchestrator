@@ -1,60 +1,78 @@
-import React, { ReactNode } from 'react';
-import { Box, Button, Typography } from '@mui/material';
+import React from 'react';
+import { Box, Button, Typography, Paper } from '@mui/material';
+import { Refresh as RefreshIcon } from '@mui/icons-material';
 
 interface Props {
-    children: ReactNode;
+    children: React.ReactNode;
 }
 
 interface State {
     hasError: boolean;
-    error?: Error;
+    error: Error | null;
 }
 
-export default class ErrorBoundary extends React.Component<Props, State> {
+class ErrorBoundary extends React.Component<Props, State> {
     constructor(props: Props) {
         super(props);
-        this.state = { hasError: false };
+        this.state = { hasError: false, error: null };
     }
 
     static getDerivedStateFromError(error: Error): State {
         return { hasError: true, error };
     }
 
-    componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-        console.error('Error caught by ErrorBoundary:', error, errorInfo);
+    componentDidCatch(error: Error, info: React.ErrorInfo) {
+        console.error('ErrorBoundary caught an error:', error, info);
     }
+
+    handleReset = () => {
+        this.setState({ hasError: false, error: null });
+    };
 
     render() {
         if (this.state.hasError) {
             return (
                 <Box
                     sx={{
-                        p: 3,
-                        textAlign: 'center',
-                        minHeight: '100vh',
                         display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'center',
                         alignItems: 'center',
-                        bgcolor: '#f8fafc',
+                        justifyContent: 'center',
+                        height: '100%',
+                        p: 4
                     }}
                 >
-                    <Typography variant="h5" sx={{ mb: 1, color: '#0f172a', fontWeight: 700 }}>
-                        Something went wrong
-                    </Typography>
-                    <Typography variant="body2" sx={{ mb: 3, color: '#64748b' }}>
-                        {this.state.error?.message || 'An unexpected error occurred'}
-                    </Typography>
-                    <Button
-                        onClick={() => {
-                            this.setState({ hasError: false });
-                            window.location.href = '/';
+                    <Paper
+                        elevation={0}
+                        sx={{
+                            p: 4,
+                            maxWidth: 480,
+                            textAlign: 'center',
+                            borderRadius: 3,
+                            border: '1px solid rgba(0,0,0,0.08)',
+                            boxShadow: '0 4px 24px rgba(0,0,0,0.08)'
                         }}
-                        variant="contained"
-                        sx={{ textTransform: 'none', fontWeight: 600 }}
                     >
-                        Go to Home
-                    </Button>
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 1, color: 'text.primary' }}>
+                            Something went wrong rendering this view
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
+                            An unexpected error occurred. You can try refreshing or start a new chat.
+                        </Typography>
+                        <Button
+                            variant="contained"
+                            startIcon={<RefreshIcon />}
+                            onClick={this.handleReset}
+                            sx={{
+                                textTransform: 'none',
+                                background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
+                                '&:hover': {
+                                    background: 'linear-gradient(135deg, #0D47A1 0%, #0A3880 100%)'
+                                }
+                            }}
+                        >
+                            Try again
+                        </Button>
+                    </Paper>
                 </Box>
             );
         }
@@ -62,3 +80,5 @@ export default class ErrorBoundary extends React.Component<Props, State> {
         return this.props.children;
     }
 }
+
+export default ErrorBoundary;

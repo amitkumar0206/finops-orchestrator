@@ -117,12 +117,16 @@ TIME_PATTERNS = [
     (r"\byesterday\b", "_parse_yesterday"),
     (r"last\s+(\d+)\s+days?", "_parse_last_n_days"),
     (r"past\s+(\d+)\s+days?", "_parse_last_n_days"),
+    (r"for\s+(\d+)\s+days?", "_parse_last_n_days"),
     (r"last\s+(\d+)\s+months?", "_parse_last_n_months"),
     (r"past\s+(\d+)\s+months?", "_parse_last_n_months"),
+    (r"for\s+(\d+)\s+months?", "_parse_last_n_months"),
     (r"last\s+(\d+)\s+weeks?", "_parse_last_n_weeks"),
     (r"past\s+(\d+)\s+weeks?", "_parse_last_n_weeks"),
+    (r"for\s+(\d+)\s+weeks?", "_parse_last_n_weeks"),
     (r"last\s+(\d+)\s+years?", "_parse_last_n_years"),
     (r"past\s+(\d+)\s+years?", "_parse_last_n_years"),
+    (r"for\s+(\d+)\s+years?", "_parse_last_n_years"),
 
     # Calendar periods
     (r"this\s+month", "_parse_this_month"),

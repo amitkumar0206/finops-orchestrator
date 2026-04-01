@@ -1,0 +1,15 @@
+{
+    "commands": [
+        "set -e",
+        "REGION=us-east-1",
+        "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)",
+        "ECR=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com",
+        "aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ECR}",
+        "docker pull ${ECR}/aasmaa-backend:demo",
+        "docker rm -f aasmaa-backend || true",
+        "docker run -d --name aasmaa-backend --restart unless-stopped -p 8000:8000 -e AWS_REGION=us-east-1 -e BEDROCK_MODEL_ID=us.amazon.nova-lite-v1:0 -e SECRET_KEY=temporary-demo-secret-key-change-in-production -e ENVIRONMENT=production -e DEMO_MODE=true -e DATABASE_ENABLED=false -e CHAT_HISTORY_ENABLED=false -e ENABLE_CUR_PARSING=false -e ATHENA_WORKGROUP=primary -e AWS_CUR_DATABASE=cost_and_usage_db -e AWS_CUR_TABLE=costandusagereport -e ATHENA_OUTPUT_LOCATION=s3://aasmaa-demo-data-152924644003/athena-results/ -e DEMO_ALLOWED_ACCOUNT_IDS=211125641885,773928629696 -e CORS_ORIGINS=https://demo.aasmaa.ai,http://demo.aasmaa.ai,http://localhost:3000 ${ECR}/aasmaa-backend:demo",
+        "sleep 8",
+        "docker ps --filter name=aasmaa-backend --format \"table {{.Names}}\\t{{.Image}}\\t{{.Status}}\"",
+        "docker logs --tail 80 aasmaa-backend"
+    ]
+}

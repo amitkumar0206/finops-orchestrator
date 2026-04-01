@@ -32,6 +32,7 @@ class OpportunitySource(str, Enum):
     TRUSTED_ADVISOR = "trusted_advisor"
     COMPUTE_OPTIMIZER = "compute_optimizer"
     CUR_ANALYSIS = "cur_analysis"
+    CLOUDWATCH_ANALYSIS = "cloudwatch_analysis"
     CUSTOM = "custom"
     MANUAL = "manual"
 

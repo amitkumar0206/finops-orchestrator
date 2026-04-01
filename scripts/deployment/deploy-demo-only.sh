@@ -1,0 +1,280 @@
+#!/bin/bash
+
+set -euo pipefail
+
+STACK_NAME="${STACK_NAME:-aasmaa-demo}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+ENVIRONMENT="${ENVIRONMENT:-production}"
+DOMAIN_NAME="${DOMAIN_NAME:-demo.aasmaa.ai}"
+HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
+CREATE_ACM_CERTIFICATE="${CREATE_ACM_CERTIFICATE:-true}"
+DEMO_ALLOWED_ACCOUNT_IDS="${DEMO_ALLOWED_ACCOUNT_IDS:-123456789012}"
+DEMO_USER_EMAIL="${DEMO_USER_EMAIL:-demo@aasmaa.ai}"
+DEMO_ORGANIZATION_NAME="${DEMO_ORGANIZATION_NAME:-Demo Organization}"
+BEDROCK_MODEL="${BEDROCK_MODEL:-us.amazon.nova-lite-v1:0}"
+DEPLOYMENT_BACKEND="${DEPLOYMENT_BACKEND:-ec2}"
+
+# Demo access protection (EC2 mode)
+BASIC_AUTH_USERNAME="${BASIC_AUTH_USERNAME:-demo}"
+BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-}"
+BASIC_AUTH_PARAM_NAME="${BASIC_AUTH_PARAM_NAME:-/aasmaa/demo/basic-auth/htpasswd}"
+
+log() {
+  echo "[demo-deploy] $1"
+}
+
+require_tool() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required tool: $1" >&2
+    exit 1
+  fi
+}
+
+normalize_zone_id() {
+  local zone_id="$1"
+  zone_id="${zone_id#/hostedzone/}"
+  echo "$zone_id"
+}
+
+resolve_hosted_zone_id() {
+  local domain="$1"
+  local labels=()
+  local candidate
+  local zone_id
+
+  IFS='.' read -r -a labels <<< "$domain"
+  if [[ ${#labels[@]} -lt 2 ]]; then
+    return 1
+  fi
+
+  for ((i=0; i<${#labels[@]}-1; i++)); do
+    candidate="${labels[i]}"
+    for ((j=i+1; j<${#labels[@]}; j++)); do
+      candidate+=".${labels[j]}"
+    done
+
+    zone_id="$(aws route53 list-hosted-zones-by-name \
+      --dns-name "$candidate" \
+      --max-items 1 \
+      --query "HostedZones[?Name=='${candidate}.']|[0].Id" \
+      --output text 2>/dev/null || true)"
+
+    if [[ -n "$zone_id" && "$zone_id" != "None" ]]; then
+      normalize_zone_id "$zone_id"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if [[ "$DEPLOYMENT_BACKEND" != "ec2" && "$DEPLOYMENT_BACKEND" != "fargate" ]]; then
+  log "ERROR: DEPLOYMENT_BACKEND must be 'ec2' or 'fargate', got '${DEPLOYMENT_BACKEND}'"
+  exit 1
+fi
+
+require_tool aws
+require_tool openssl
+
+AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+S3_BUCKET="${S3_BUCKET:-aasmaa-demo-data-${AWS_ACCOUNT_ID}}"
+CUR_BUCKET="${CUR_BUCKET:-$S3_BUCKET}"
+CUR_PREFIX="${CUR_PREFIX:-demo-cur/}"
+ATHENA_DB="${ATHENA_DB:-cost_and_usage_db}"
+ATHENA_TABLE="${ATHENA_TABLE:-costandusagereport}"
+DB_PASSWORD_PLACEHOLDER="demo-disabled-db-password"
+
+BACKEND_IMAGE_URI="${BACKEND_IMAGE_URI:-${ECR_REGISTRY}/aasmaa-backend:demo}"
+FRONTEND_IMAGE_URI="${FRONTEND_IMAGE_URI:-${ECR_REGISTRY}/aasmaa-frontend:demo}"
+
+log "Deployment mode: ${DEPLOYMENT_BACKEND}"
+log "Ensuring S3 bucket exists: ${S3_BUCKET}"
+aws s3api head-bucket --bucket "$S3_BUCKET" >/dev/null 2>&1 || aws s3 mb "s3://${S3_BUCKET}" --region "$AWS_REGION"
+
+log "Ensuring ECR repositories exist"
+aws ecr create-repository --repository-name aasmaa-backend --region "$AWS_REGION" >/dev/null 2>&1 || true
+aws ecr create-repository --repository-name aasmaa-frontend --region "$AWS_REGION" >/dev/null 2>&1 || true
+
+if command -v docker >/dev/null 2>&1; then
+  log "Docker detected; building and pushing fresh images"
+  log "Logging into ECR"
+  aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+  log "Building and pushing backend image"
+  docker build --platform linux/amd64 -f backend/Dockerfile -t aasmaa-backend:demo .
+  docker tag aasmaa-backend:demo "$BACKEND_IMAGE_URI"
+  docker push "$BACKEND_IMAGE_URI"
+
+  log "Building and pushing frontend image"
+  docker build --platform linux/amd64 -f frontend/Dockerfile -t aasmaa-frontend:demo .
+  docker tag aasmaa-frontend:demo "$FRONTEND_IMAGE_URI"
+  docker push "$FRONTEND_IMAGE_URI"
+else
+  log "Docker not found; reusing existing ECR image tags"
+  log "Expecting backend image: ${BACKEND_IMAGE_URI}"
+  log "Expecting frontend image: ${FRONTEND_IMAGE_URI}"
+
+  aws ecr describe-images \
+    --repository-name aasmaa-backend \
+    --image-ids imageTag=demo \
+    --region "$AWS_REGION" >/dev/null
+
+  aws ecr describe-images \
+    --repository-name aasmaa-frontend \
+    --image-ids imageTag=demo \
+    --region "$AWS_REGION" >/dev/null
+fi
+
+if [[ -z "$HOSTED_ZONE_ID" && -n "$DOMAIN_NAME" ]]; then
+  log "HOSTED_ZONE_ID not provided, attempting auto-discovery for ${DOMAIN_NAME}"
+  HOSTED_ZONE_ID="$(resolve_hosted_zone_id "$DOMAIN_NAME" || true)"
+fi
+
+if [[ -z "$HOSTED_ZONE_ID" ]]; then
+  log "Hosted zone auto-discovery failed; deploying without Route53/ACM custom domain"
+  DOMAIN_NAME=""
+  CREATE_ACM_CERTIFICATE="false"
+else
+  log "Using hosted zone ID: ${HOSTED_ZONE_ID}"
+fi
+
+BASIC_AUTH_PASSWORD_PARAM_NAME="${BASIC_AUTH_PASSWORD_PARAM_NAME:-/aasmaa/demo/basic-auth/password}"
+
+if [[ "$DEPLOYMENT_BACKEND" == "ec2" ]]; then
+  log "Preparing demo password protection (HTTP Basic Auth via nginx + browser login prompt)"
+
+  if [[ -z "$BASIC_AUTH_PASSWORD" ]]; then
+    # Attempt to reuse existing password stored in SSM to avoid rotating on every deploy
+    BASIC_AUTH_PASSWORD="$(aws ssm get-parameter \
+      --name "$BASIC_AUTH_PASSWORD_PARAM_NAME" \
+      --with-decryption \
+      --query Parameter.Value \
+      --output text \
+      --region "$AWS_REGION" 2>/dev/null || true)"
+
+    if [[ -n "$BASIC_AUTH_PASSWORD" ]]; then
+      log "Reusing existing password from SSM (${BASIC_AUTH_PASSWORD_PARAM_NAME})"
+    else
+      log "No existing password found; generating a new one"
+      BASIC_AUTH_PASSWORD="$(openssl rand -base64 18 | tr -d '=+/' | cut -c1-16)"
+      # Persist plain password so future deploys can reuse it
+      aws ssm put-parameter \
+        --name "$BASIC_AUTH_PASSWORD_PARAM_NAME" \
+        --type SecureString \
+        --overwrite \
+        --value "$BASIC_AUTH_PASSWORD" \
+        --region "$AWS_REGION" >/dev/null
+      log "New password stored in SSM (${BASIC_AUTH_PASSWORD_PARAM_NAME})"
+    fi
+  fi
+
+  HTPASSWD_HASH="$(openssl passwd -apr1 "$BASIC_AUTH_PASSWORD")"
+  HTPASSWD_LINE="${BASIC_AUTH_USERNAME}:${HTPASSWD_HASH}"
+
+  log "Storing htpasswd hash in SSM Parameter Store (${BASIC_AUTH_PARAM_NAME})"
+  aws ssm put-parameter \
+    --name "$BASIC_AUTH_PARAM_NAME" \
+    --type SecureString \
+    --overwrite \
+    --value "$HTPASSWD_LINE" \
+    --region "$AWS_REGION" >/dev/null
+
+  log "Deploying EC2-based infrastructure stack (${STACK_NAME})"
+  EC2_PARAMS=(
+    DomainName="$DOMAIN_NAME"
+    HostedZoneId="$HOSTED_ZONE_ID"
+    CreateACMCertificate="$CREATE_ACM_CERTIFICATE"
+    BackendImageUri="$BACKEND_IMAGE_URI"
+    FrontendImageUri="$FRONTEND_IMAGE_URI"
+    BedrockModelId="$BEDROCK_MODEL"
+    S3BucketName="$S3_BUCKET"
+    CurReportBucketName="$CUR_BUCKET"
+    DemoUserEmail="$DEMO_USER_EMAIL"
+    DemoOrganizationName="$DEMO_ORGANIZATION_NAME"
+    DemoAllowedAccountIds="$DEMO_ALLOWED_ACCOUNT_IDS"
+    BasicAuthUsername="$BASIC_AUTH_USERNAME"
+    BasicAuthHtpasswdParameterName="$BASIC_AUTH_PARAM_NAME"
+  )
+
+  aws cloudformation deploy \
+    --template-file infrastructure/cloudformation/main-stack-demo-ec2.yaml \
+    --stack-name "$STACK_NAME" \
+    --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM \
+    --region "$AWS_REGION" \
+    --parameter-overrides "${EC2_PARAMS[@]}"
+
+  INSTANCE_ID="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`EC2InstanceId`].OutputValue' --output text 2>/dev/null || true)"
+  PUBLIC_IP="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`EC2PublicIP`].OutputValue' --output text 2>/dev/null || true)"
+  APP_URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text 2>/dev/null || true)"
+
+  log "EC2 deployment complete"
+  log "Instance ID: ${INSTANCE_ID}"
+  log "Public IP: ${PUBLIC_IP}"
+  log "Application URL: ${APP_URL}"
+  log "Wait ~3-5 minutes for instance bootstrap and containers to become healthy"
+
+  echo
+  echo "============================================================"
+  echo "DEMO BASIC AUTH CREDENTIALS"
+  echo "Username: ${BASIC_AUTH_USERNAME}"
+  echo "Password: ${BASIC_AUTH_PASSWORD}"
+  echo "Stored as SecureString SSM parameter: ${BASIC_AUTH_PARAM_NAME}"
+  echo "============================================================"
+  echo
+
+else
+  log "Deploying Fargate infrastructure stack (${STACK_NAME})"
+  aws cloudformation deploy \
+    --template-file infrastructure/cloudformation/main-stack-demo.yaml \
+    --stack-name "$STACK_NAME" \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --region "$AWS_REGION" \
+    --parameter-overrides \
+      Environment="$ENVIRONMENT" \
+      S3BucketName="$S3_BUCKET" \
+      CurReportBucketName="$CUR_BUCKET" \
+      DomainName="$DOMAIN_NAME" \
+      HostedZoneId="$HOSTED_ZONE_ID" \
+      CreateACMCertificate="$CREATE_ACM_CERTIFICATE"
+
+  CERT_ARN="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text 2>/dev/null || true)"
+
+  SERVICE_PARAMS=(
+    ParentStackName="$STACK_NAME"
+    DeploymentMode="demo"
+    BackendImageUri="$BACKEND_IMAGE_URI"
+    FrontendImageUri="$FRONTEND_IMAGE_URI"
+    DatabaseEndpoint="localhost"
+    ValkeyEndpoint="localhost"
+    DatabasePassword="$DB_PASSWORD_PLACEHOLDER"
+    BedrockModelId="$BEDROCK_MODEL"
+    S3BucketName="$S3_BUCKET"
+    CurBucketName="$CUR_BUCKET"
+    CurDatabase="$ATHENA_DB"
+    CurTable="$ATHENA_TABLE"
+    CurS3Prefix="$CUR_PREFIX"
+    DemoUserEmail="$DEMO_USER_EMAIL"
+    DemoOrganizationName="$DEMO_ORGANIZATION_NAME"
+    DemoAllowedAccountIds="$DEMO_ALLOWED_ACCOUNT_IDS"
+  )
+
+  if [[ -n "$CERT_ARN" && "$CERT_ARN" != "None" ]]; then
+    SERVICE_PARAMS+=(CertificateArn="$CERT_ARN")
+  fi
+
+  log "Deploying Fargate ECS services stack (${STACK_NAME}-services)"
+  aws cloudformation deploy \
+    --template-file infrastructure/cloudformation/ecs-services.yaml \
+    --stack-name "${STACK_NAME}-services" \
+    --capabilities CAPABILITY_IAM \
+    --region "$AWS_REGION" \
+    --parameter-overrides "${SERVICE_PARAMS[@]}"
+
+  APP_URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text 2>/dev/null || true)"
+  ALB_DNS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDNS`].OutputValue' --output text 2>/dev/null || true)"
+
+  log "Fargate deployment complete"
+  log "Application URL: ${APP_URL}"
+  log "ALB DNS: ${ALB_DNS}"
+fi

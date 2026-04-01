@@ -37,7 +37,6 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
-    "@rollup/rollup-darwin-arm64": "^4.60.0",
     "@types/chart.js": "^2.9.35",
     "@types/node": "^20.0.0",
     "@typescript-eslint/parser": "^6.0.0",

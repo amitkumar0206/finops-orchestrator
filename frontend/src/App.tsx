@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
+  Avatar,
   Box,
   Button,
   List,
@@ -8,6 +9,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Stack,
   Tooltip,
 } from '@mui/material';
 import {
@@ -351,9 +353,70 @@ const App: React.FC = () => {
           overflow: hideSidebar ? 'auto' : 'hidden',
         }}
       >
+        {!hideSidebar && (
+          <Box
+            sx={{
+              px: { xs: 1.2, md: 2.2 },
+              py: 1,
+              borderBottom: '1px solid rgba(15,23,42,0.08)',
+              bgcolor: 'rgba(255,255,255,0.92)',
+              backdropFilter: 'blur(8px)',
+            }}
+          >
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <Button
+                component={Link}
+                to="/profile"
+                startIcon={<PersonOutlineIcon sx={{ fontSize: 18 }} />}
+                sx={{
+                  color: '#334155',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  borderRadius: 2,
+                  px: 1.4,
+                  '&:hover': { bgcolor: 'rgba(15,23,42,0.05)' },
+                }}
+              >
+                Profile
+              </Button>
+              <Button
+                component={Link}
+                to="/settings"
+                startIcon={<SettingsOutlinedIcon sx={{ fontSize: 18 }} />}
+                sx={{
+                  color: '#334155',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  borderRadius: 2,
+                  px: 1.4,
+                  '&:hover': { bgcolor: 'rgba(15,23,42,0.05)' },
+                }}
+              >
+                Settings
+              </Button>
+              <Button
+                onClick={handleLogout}
+                startIcon={<LogoutIcon sx={{ fontSize: 18 }} />}
+                sx={{
+                  color: '#0D47A1',
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  borderRadius: 2,
+                  px: 1.4,
+                  border: '1px solid rgba(21,101,192,0.28)',
+                  '&:hover': { bgcolor: 'rgba(21,101,192,0.08)', borderColor: '#1565C0' },
+                }}
+              >
+                Logout
+              </Button>
+              <Avatar sx={{ width: 32, height: 32, fontSize: '0.8rem', fontWeight: 700, bgcolor: '#1565C0' }}>AA</Avatar>
+            </Stack>
+          </Box>
+        )}
+
         <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
           <Routes>
-            <Route path="/" element={<ErrorBoundary><LandingPage /></ErrorBoundary>} />
+            <Route path="/" element={<ErrorBoundary><LandingPage onLogout={handleLogout} /></ErrorBoundary>} />
             <Route path="/home" element={<Navigate to="/" replace />} />
             <Route path="/home/*" element={<Navigate to="/" replace />} />
             <Route path="/chat" element={<ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary>} />

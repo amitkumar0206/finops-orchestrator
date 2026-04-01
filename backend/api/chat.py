@@ -5,6 +5,7 @@ Handles conversation management and agent orchestration with conversation histor
 
 from typing import Optional
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 import json
@@ -22,6 +23,25 @@ logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 logger.info("Chat API initialized with Multi-Agent System")
+
+
+def _is_chat_history_enabled() -> bool:
+    """Return whether persistent conversation history is enabled."""
+    return settings.database_enabled and settings.chat_history_enabled
+
+
+def _require_chat_history_enabled() -> None:
+    """Reject endpoints that require persisted conversation storage."""
+    if _is_chat_history_enabled():
+        return
+
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "Persistent chat history is disabled by configuration. "
+            "Set DATABASE_ENABLED=true and CHAT_HISTORY_ENABLED=true to re-enable it."
+        ),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,6 +81,8 @@ def require_conversation_owner(
         HTTPException: 404 if the thread does not exist, 403 if the caller
             is not the owner.
     """
+    _require_chat_history_enabled()
+
     metadata = conversation_manager.get_thread_metadata(conversation_id)
     if not metadata:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -93,6 +115,9 @@ def resolve_owned_conversation(
     Threads are ALWAYS owned by a real authenticated user — there is no
     IP/anon fallback path.
     """
+    if not _is_chat_history_enabled():
+        return supplied_conversation_id or str(uuid4())
+
     if supplied_conversation_id:
         return require_conversation_owner(supplied_conversation_id, context, action=action)
     return conversation_manager.create_thread(user_id=str(context.user_id), title=None)
@@ -130,20 +155,26 @@ async def chat(
     )
 
     try:
-        # Persist user message and build context.
-        # HIGH-14: user_id passed to the service layer — defense-in-depth beneath
-        # require_conversation_owner(). If F-33's API check is ever bypassed
-        # (new endpoint, scheduled job), the service layer now enforces ownership.
         caller_user_id = str(context.user_id)
-        conversation_manager.add_message(
-            thread_id=conversation_id,
-            user_id=caller_user_id,
-            role="user",
-            content=request.message,
-            message_type="query",
-            metadata={"include_reasoning": request.include_reasoning},
-        )
-        derived_context = conversation_manager.get_context_for_query(conversation_id, user_id=caller_user_id)
+        derived_context = {}
+
+        if _is_chat_history_enabled():
+            # Persist user message and build context.
+            # HIGH-14: user_id passed to the service layer — defense-in-depth beneath
+            # require_conversation_owner(). If F-33's API check is ever bypassed
+            # (new endpoint, scheduled job), the service layer now enforces ownership.
+            conversation_manager.add_message(
+                thread_id=conversation_id,
+                user_id=caller_user_id,
+                role="user",
+                content=request.message,
+                message_type="query",
+                metadata={"include_reasoning": request.include_reasoning},
+            )
+            derived_context = conversation_manager.get_context_for_query(
+                conversation_id,
+                user_id=caller_user_id,
+            )
 
         # Execute multi-agent workflow with tenant scoping
         response = await execute_multi_agent_query(
@@ -174,6 +205,11 @@ async def chat(
                     clarifications[0] if clarifications else
                     "Please try rephrasing or provide more specific details (e.g., time period, service name)."
                 )
+            elif status == "validation_failed":
+                message_text = (
+                    clarifications[0] if clarifications else
+                    "I can help with that. Try asking with a clear time period, such as 'last 7 days' or 'last month'."
+                )
             elif status == "needs_clarification":
                 message_text = (clarifications[0] if clarifications else
                     "I need more information to proceed. Could you specify a time period or breakdown preference?")
@@ -192,6 +228,7 @@ async def chat(
         # Merge scope info into metadata
         response_metadata = response.get("metadata", {})
         response_metadata["scope"] = scope_info
+        response_metadata["chat_history_enabled"] = _is_chat_history_enabled()
 
         chat_response = ChatResponse(
             message=message_text,
@@ -240,7 +277,8 @@ async def chat(
             except Exception as e:
                 logger.error("Failed to persist multi-agent conversation", error=str(e))
 
-        background_tasks.add_task(_persist_multi_agent_default)
+        if _is_chat_history_enabled():
+            background_tasks.add_task(_persist_multi_agent_default)
 
         return chat_response
 
@@ -296,6 +334,7 @@ async def get_conversation(
 ):
     """Get conversation history by thread ID with optional limit (default 100)."""
     try:
+        _require_chat_history_enabled()
         require_conversation_owner(conversation_id, context, action="read")
 
         # HIGH-14 — service layer filters by user_id too. Belt-and-braces with
@@ -332,6 +371,7 @@ async def delete_conversation(
 ):
     """Soft-delete a conversation thread by marking it inactive."""
     try:
+        _require_chat_history_enabled()
         require_conversation_owner(conversation_id, context, action="delete")
 
         # Perform soft delete

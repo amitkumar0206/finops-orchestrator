@@ -217,6 +217,7 @@ __marimo__/
 deployment.env
 deployment.env.backup
 cur-config.env
+scripts/demo/lambda-control/.control-token
 
 # Deployment logs
 log_deploy.log

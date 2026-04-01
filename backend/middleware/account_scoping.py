@@ -13,12 +13,16 @@ to load the full context from the database.
 
 from typing import Optional
 from uuid import UUID, uuid4
+import os
+import re
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.responses import JSONResponse
 import structlog
 
+from backend.config.settings import get_settings
 from backend.services.request_context import (
     RequestContext,
     SavedViewInfo,
@@ -29,6 +33,7 @@ from backend.services.database import DatabaseService
 from backend.middleware.authentication import AnonymousUser
 
 logger = structlog.get_logger(__name__)
+settings = get_settings()
 
 
 class AccountScopingMiddleware(BaseHTTPMiddleware):
@@ -70,6 +75,57 @@ class AccountScopingMiddleware(BaseHTTPMiddleware):
         # Skip scoping for health/metrics/auth endpoints
         if request.url.path in self.SKIP_PATHS:
             return await call_next(request)
+
+        if settings.demo_mode:
+            demo_allowed_accounts = settings.demo_allowed_account_ids
+            if not demo_allowed_accounts:
+                raw_demo_accounts = os.getenv("DEMO_ALLOWED_ACCOUNT_IDS", "")
+                demo_allowed_accounts = [
+                    item.strip() for item in raw_demo_accounts.split(",")
+                    if re.fullmatch(r"\d{12}", item.strip())
+                ]
+
+            try:
+                demo_user_id = UUID(settings.demo_user_id)
+            except ValueError:
+                demo_user_id = UUID('11111111-1111-1111-1111-111111111111')
+
+            try:
+                demo_org_id = UUID(settings.demo_org_id)
+            except ValueError:
+                demo_org_id = UUID('22222222-2222-2222-2222-222222222222')
+
+            request.state.context = RequestContext(
+                user_id=demo_user_id,
+                user_email=settings.demo_user_email,
+                is_admin=True,
+                organization_id=demo_org_id,
+                organization_name=settings.demo_org_name,
+                organization_info=OrganizationInfo(
+                    id=demo_org_id,
+                    name=settings.demo_org_name,
+                    slug="demo-org",
+                    subscription_tier="enterprise",
+                    settings={},
+                    saved_view_default_expiration_days=None,
+                ),
+                allowed_account_ids=demo_allowed_accounts,
+                active_saved_view=None,
+                effective_time_range=None,
+                effective_filters=None,
+                org_role='owner',
+                request_id=uuid4(),
+            )
+            return await call_next(request)
+
+        if not settings.database_enabled:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "Database-backed request scoping is disabled. "
+                    "Set DATABASE_ENABLED=true to enable authenticated application features."
+                },
+            )
 
         # Generate request ID
         request_id = uuid4()

@@ -8,6 +8,13 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/load_deploy_config.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/load_deploy_config.sh"
+  load_deploy_config
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -67,6 +74,7 @@ fi
 STACK_NAME="${STACK_NAME:-aasmaa}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 STATE_FILE=".deploy-state.env"
+DEPLOY_STATE_FILE="${DEPLOY_STATE_FILE:-${ENV_FILE:-deployment.env}}"
 EXPORT_NAME="aasmaa-cost-export"
 
 # Reuse bucket from state file or deployment.env if it exists
@@ -76,18 +84,18 @@ if [ -f "$STATE_FILE" ]; then
         CUR_BUCKET_NAME="$EXISTING_BUCKET"
         log_info "Reusing existing S3 bucket from state: $CUR_BUCKET_NAME"
     fi
-elif [ -f "deployment.env" ]; then
-    EXISTING_BUCKET=$(awk -F'=' '$1=="S3_BUCKET"{print $2}' "deployment.env")
+elif [ -f "$DEPLOY_STATE_FILE" ]; then
+  EXISTING_BUCKET=$(awk -F'=' '$1=="S3_BUCKET"{print $2}' "$DEPLOY_STATE_FILE")
     if [ -n "$EXISTING_BUCKET" ]; then
         CUR_BUCKET_NAME="$EXISTING_BUCKET"
-        log_info "Reusing existing S3 bucket from deployment: $CUR_BUCKET_NAME"
+    log_info "Reusing existing S3 bucket from state file: $CUR_BUCKET_NAME"
     fi
 fi
 
 # Determine results bucket (from deployment.env if available), else default canonical
 ATHENA_RESULTS_BUCKET=""
-if [ -f "deployment.env" ]; then
-  ATHENA_RESULTS_BUCKET=$(awk -F'=' '$1=="ATHENA_RESULTS_BUCKET"{print $2}' deployment.env)
+if [ -f "$DEPLOY_STATE_FILE" ]; then
+  ATHENA_RESULTS_BUCKET=$(awk -F'=' '$1=="ATHENA_RESULTS_BUCKET"{print $2}' "$DEPLOY_STATE_FILE")
 fi
 if [ -z "$ATHENA_RESULTS_BUCKET" ]; then
   AWS_ACCOUNT_ID_DETECT=$(aws sts get-caller-identity --query Account --output text)

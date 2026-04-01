@@ -6,6 +6,12 @@ Parameters:
     Type: String
     Description: Name of the parent infrastructure stack
 
+  DeploymentMode:
+    Type: String
+    Default: full
+    AllowedValues: [full, demo]
+    Description: Full deploy (RDS/Valkey-backed) or low-cost demo mode
+
   BackendImageUri:
     Type: String
     Description: URI of the backend Docker image in ECR
@@ -92,8 +98,31 @@ Parameters:
     Default: ''
     Description: ARN of ACM certificate for HTTPS (optional, leave empty for HTTP only)
 
+  ExistingHttpsListenerArn:
+    Type: String
+    Default: ''
+    Description: Optional existing HTTPS listener ARN to reuse (prevents listener create conflicts on updates)
+
+  DemoUserEmail:
+    Type: String
+    Default: demo@aasmaa.ai
+    Description: Demo-mode synthetic authenticated email
+
+  DemoOrganizationName:
+    Type: String
+    Default: Demo Organization
+    Description: Demo-mode synthetic organization name
+
+  DemoAllowedAccountIds:
+    Type: String
+    Default: ''
+    Description: Comma-separated AWS account IDs for demo scope
+
 Conditions:
   HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
+  HasExistingHttpsListener: !Not [!Equals [!Ref ExistingHttpsListenerArn, '']]
+  CreateHttpsListener: !And [!Condition HasCertificate, !Not [!Condition HasExistingHttpsListener]]
+  IsDemoMode: !Equals [!Ref DeploymentMode, demo]
 
 Resources:
   # CloudWatch Logs Groups
@@ -132,7 +161,19 @@ Resources:
               Protocol: tcp
           Environment:
             - Name: POSTGRES_HOST
-              Value: !Ref DatabaseEndpoint
+              Value: !If [IsDemoMode, 'localhost', !Ref DatabaseEndpoint]
+            - Name: DATABASE_ENABLED
+              Value: !If [IsDemoMode, 'false', 'true']
+            - Name: CHAT_HISTORY_ENABLED
+              Value: !If [IsDemoMode, 'false', 'true']
+            - Name: DEMO_MODE
+              Value: !If [IsDemoMode, 'true', 'false']
+            - Name: DEMO_USER_EMAIL
+              Value: !Ref DemoUserEmail
+            - Name: DEMO_ORGANIZATION_NAME
+              Value: !Ref DemoOrganizationName
+            - Name: DEMO_ALLOWED_ACCOUNT_IDS
+              Value: !Ref DemoAllowedAccountIds
             - Name: POSTGRES_PORT
               Value: '5432'
             - Name: POSTGRES_DB
@@ -140,7 +181,7 @@ Resources:
             - Name: POSTGRES_USER
               Value: 'aasmaa'
             - Name: VALKEY_HOST
-              Value: !Ref ValkeyEndpoint
+              Value: !If [IsDemoMode, 'localhost', !Ref ValkeyEndpoint]
             - Name: VALKEY_PORT
               Value: '6379'
             - Name: S3_BUCKET
@@ -178,16 +219,23 @@ Resources:
                     Fn::ImportValue: !Sub '${ParentStackName}-app-url'
           Secrets:
             - Name: SECRET_KEY
-              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:aasmaa/secret-key'
-            - Name: POSTGRES_PASSWORD
-              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:aasmaa/database-password'
+              ValueFrom:
+                Fn::ImportValue: !Sub '${ParentStackName}-secret-key-arn'
+            - !If
+              - IsDemoMode
+              - !Ref AWS::NoValue
+              - Name: POSTGRES_PASSWORD
+                ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:aasmaa/database-password'
             # SECURITY (HIGH-33): encryption.py:97 raises ValueError on boot when
             # ENVIRONMENT=production (line 151 above) and FIELD_ENCRYPTION_KEY is
             # unset or <32 chars. Without this entry the backend container crash-loops
             # on the first call to get_field_encryptor(). Secret resource + IAM grant
             # are in main-stack.yaml (FieldEncryptionKeySecret).
-            - Name: FIELD_ENCRYPTION_KEY
-              ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:aasmaa/field-encryption-key'
+            - !If
+              - IsDemoMode
+              - !Ref AWS::NoValue
+              - Name: FIELD_ENCRYPTION_KEY
+                ValueFrom: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:aasmaa/field-encryption-key'
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -305,7 +353,7 @@ Resources:
 
   ALBListenerHTTPS:
     Type: AWS::ElasticLoadBalancingV2::Listener
-    Condition: HasCertificate
+    Condition: CreateHttpsListener
     Properties:
       LoadBalancerArn:
         Fn::ImportValue: !Sub '${ParentStackName}-alb-arn'
@@ -321,12 +369,18 @@ Resources:
   BackendListenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
-      ListenerArn: !If [HasCertificate, !Ref ALBListenerHTTPS, !Ref ALBListenerHTTP]
+      ListenerArn: !If
+        - HasCertificate
+        - !If [HasExistingHttpsListener, !Ref ExistingHttpsListenerArn, !Ref ALBListenerHTTPS]
+        - !Ref ALBListenerHTTP
       Priority: 1
       Conditions:
         - Field: path-pattern
           Values:
             - /api/*
+            - /docs*
+            - /redoc*
+            - /openapi.json
       Actions:
         - Type: forward
           TargetGroupArn: !Ref BackendTargetGroup
@@ -345,12 +399,18 @@ Resources:
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
+          AssignPublicIp: !If [IsDemoMode, ENABLED, DISABLED]
           SecurityGroups:
             - Fn::ImportValue: !Sub '${ParentStackName}-ecs-sg'
           Subnets:
-            - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-1'
-            - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-2'
+            - !If
+              - IsDemoMode
+              - Fn::ImportValue: !Sub '${ParentStackName}-public-subnet-1'
+              - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-1'
+            - !If
+              - IsDemoMode
+              - Fn::ImportValue: !Sub '${ParentStackName}-public-subnet-2'
+              - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-2'
       LoadBalancers:
         - ContainerName: backend
           ContainerPort: 8000
@@ -373,12 +433,18 @@ Resources:
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
+          AssignPublicIp: !If [IsDemoMode, ENABLED, DISABLED]
           SecurityGroups:
             - Fn::ImportValue: !Sub '${ParentStackName}-ecs-sg'
           Subnets:
-            - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-1'
-            - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-2'
+            - !If
+              - IsDemoMode
+              - Fn::ImportValue: !Sub '${ParentStackName}-public-subnet-1'
+              - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-1'
+            - !If
+              - IsDemoMode
+              - Fn::ImportValue: !Sub '${ParentStackName}-public-subnet-2'
+              - Fn::ImportValue: !Sub '${ParentStackName}-private-subnet-2'
       LoadBalancers:
         - ContainerName: frontend
           ContainerPort: 80

@@ -1,0 +1,12 @@
+{
+    "commands": [
+        "set -e",
+        "cd /opt/aasmaa-demo",
+        "sed -i 's/^[[:space:]]*ATHENA_WORKGROUP:/      ATHENA_WORKGROUP:/' docker-compose.yml",
+        "docker-compose config > /tmp/compose.rendered.yml",
+        "docker-compose up -d backend frontend",
+        "sleep 8",
+        "docker inspect aasmaa-backend --format \"{{range .Config.Env}}{{println .}}{{end}}\" | grep -E \"DEMO_MODE=|DATABASE_ENABLED=|CHAT_HISTORY_ENABLED=|ATHENA_WORKGROUP=|AWS_CUR_DATABASE=|AWS_CUR_TABLE=\" || true",
+        "docker ps --filter name=aasmaa-backend --filter name=aasmaa-frontend --format \"table {{.Names}}\\t{{.Image}}\\t{{.Status}}\""
+    ]
+}

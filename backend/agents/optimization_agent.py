@@ -438,6 +438,13 @@ class OptimizationAgent:
         Returns:
             List of opportunity dictionaries
         """
+        if not settings.database_enabled:
+            logger.info(
+                "opportunities_lookup_skipped",
+                reason="database_disabled",
+            )
+            return []
+
         # Build filter
         filter_obj = OpportunityFilter(
             statuses=[OpportunityStatus.OPEN],

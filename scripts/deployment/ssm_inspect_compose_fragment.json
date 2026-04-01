@@ -1,0 +1,7 @@
+{
+    "commands": [
+        "set -e",
+        "cd /opt/aasmaa-demo",
+        "sed -n '20,34p' docker-compose.yml | cat -vet"
+    ]
+}
