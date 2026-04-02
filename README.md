@@ -1,49 +1,50 @@
 # aasmaa AI Cost Intelligence Platform
 
-Enterprise-grade AWS cost intelligence platform powered by AI agents, featuring robust service name resolution, multi-turn conversations, and intelligent cost analysis.
+AI-assisted AWS FinOps platform for cost analysis, optimization discovery, CUR mining, governed multi-tenant access, and infrastructure design workflows.
 
-## 🌟 Key Features
+## Current Status
 
-### Intelligence & Analysis
-- 🎯 **Multi-Agent Orchestration**: LangGraph-powered supervisor pattern with specialized agents for cost analysis, optimization, and infrastructure insights
-- 🧠 **Universal Parameter Schema (UPS)**: AI-driven intent + parameter extraction with LLM/heuristic hybrid, embedding validation, and JSON repair
-- 💬 **Context-Aware Conversations**: Multi-turn dialogue with time range inheritance and conversation persistence
-- 📊 **Intelligent Visualizations**: Intent-based chart recommendations with responsive layouts and AWS service label normalization
-- 🔍 **Deep Cost Breakdowns**: Drill down from services → usage types → operations with automatic dimension inference
+- As of 3 April 2026, the core product is implemented and actively maintained.
+- The application can run locally and can also be deployed as an AWS-hosted stack for organization use.
+- End-to-end shipped areas include AI cost analysis chat, optimization opportunities, CUR deep analysis, multi-tenant scoping, authentication, demo admin controls, IaC analysis, and IaC blueprint generation.
+- Recent security fixes are documented and verified in the security docs and test suite.
+- Some Phase 3 enterprise surfaces are still partial or scaffolded, especially scheduled reports, dashboards, and parts of the reporting layer. Those areas should be treated as work in progress unless you validate them directly in code.
 
-### Optimization Opportunities (NEW)
-- 💰 **AWS Optimization Signals**: Integration with Cost Explorer, Trusted Advisor, and Compute Optimizer
-- 📋 **Opportunities Dashboard**: Filterable, sortable table of optimization recommendations with status tracking
-- 🔎 **Evidence Panel**: Deep-dive view with API trace, deep links, CUR validation SQL, and utilization metrics
-- 🤖 **LLM-Powered Intent Detection**: Robust understanding of optimization queries with typo tolerance and semantic matching
-- 📊 **Savings Analytics**: Track potential monthly/annual savings by category and service
-- ✅ **Status Management**: Mark opportunities as open/accepted/dismissed with bulk actions and export
+## Key Features
 
-### CUR / Billing Export Deep Analysis (NEW)
-- 🔌 **Connected Mode**: Mines the live Athena CUR table for unused RI hours, under-utilised Savings Plans, cross-region data transfer, idle resources and on-demand steady-state DBs, then layers on `ce:GetAnomalies` cost-spike alerts and `ce:GetCostAndUsage` month-over-month service trends — all flow into `POST /api/v1/opportunities/ingest` and `POST /api/v1/cur-analysis/mine`
-- 📂 **Advisory Mode**: Upload a CUR `.csv` / `.csv.gz` to `POST /api/v1/cur-analysis/upload` and the same seven detectors run locally with **zero AWS API access** — findings are persisted to the org-scoped Opportunities store *and* returned in the response
-- 🎚️ **Per-Tenant Tuning**: Every threshold (idle-cost floor, MoM-increase %, lookback days, upload limits, max findings) is configurable via `CUR_MINING_*` / `CUR_UPLOAD_*` env vars
-- 🧭 **Capability Discovery**: `GET /api/v1/cur-analysis/capabilities` tells the UI which mode(s) are available and the active thresholds for the tenant
+### AI FinOps Analysis
+- **Multi-agent orchestration**: LangGraph-style routing with specialized paths for cost analysis, optimization, and infrastructure workflows.
+- **Universal Parameter Schema (UPS)**: Hybrid LLM and heuristic extraction for intent, entities, filters, and follow-up context.
+- **Context-aware chat**: Multi-turn conversations with time-range inheritance and conversation persistence.
+- **Athena-backed cost analysis**: CUR-driven SQL generation and async query execution with optimized templates.
+- **Visual responses**: Charts, markdown summaries, follow-up suggestions, and optional Athena query exposure in chat responses.
+- **Deep drill-downs**: Service, usage type, operation, and comparative breakdowns with automatic dimension inference.
 
-### Data & Integration
-- 📈 **Complete CUR Access**: 15+ optimized Athena SQL templates with partition pruning and effective cost calculations
-- ⚡ **Async Query Execution**: Non-blocking Athena queries with automatic result parsing and retry logic
-- 🗄️ **PostgreSQL Conversation Store**: Full chat history persistence with agent execution tracking
-- 📉 **Prometheus Metrics**: Service resolution counters, query performance, and system health monitoring
+### Optimization & Opportunity Management
+- **AWS optimization signals**: Ingestion from Cost Explorer, Trusted Advisor, Compute Optimizer, and other signal services.
+- **Opportunities workspace**: Filterable recommendations with savings analytics, evidence views, status updates, bulk actions, and export support.
+- **CUR pattern mining, connected mode**: Athena-based mining for unused RI/SP coverage, idle resources, cross-region transfer, and steady-state spend patterns.
+- **CUR pattern mining, advisory mode**: Upload CUR CSV or CSV.GZ files and run the same detector family without live AWS API access.
+- **Tenant-level controls**: Thresholds and upload limits are configurable through `CUR_MINING_*` and `CUR_UPLOAD_*` settings.
 
-### Admin Console & Token Quota Management (NEW)
-- 🏢 **Org-Level Monthly Budget**: Admin can set a total token budget for the entire organization — only admins can modify this value
-- 🏬 **Department Management**: Create, update, and delete departments with per-department token limits; deletion blocked if users are still assigned
-- 👥 **User-to-Department Assignment**: Mandatory department assignment when creating users; admins can reassign users to different departments at any time
-- 🎯 **Per-User Token Override**: Admins can enable a personal token limit override for any individual user, independent of their department limit
-- 📊 **Token Quota Hierarchy**: Three-tier enforcement — Org budget → Department limit → User override; unallocated budget tracked automatically
-- 🖥️ **Redesigned Admin Console**: Beautiful three-tab UI (Overview, Users, Departments) with inline org budget editing, department card grid with live usage bars, and searchable/filterable user table with department assignment badges
+### Multi-Tenant Access & Governance
+- **Organization-scoped access**: Request context enforces organization and AWS account isolation for chat and query flows.
+- **Saved views and active scope**: Users can save scoped account views, set active views, and reuse time ranges and filters.
+- **Organization management**: Organization switching, member management, and scoped permissions are implemented in the API layer.
+- **Admin console with quotas**: Demo admin workflows support organization budgets, departments, per-user token overrides, and feature access controls.
+- **Role-aware access control**: JWT auth, org roles, platform admin privileges, audit logging, and rate limiting are built into the platform.
 
-### User Experience
-- 🎯 **Professional aasmaa Responses**: Structured 6-section format (Summary/Scope/Results/Insights/Charts/Next Steps)
-- 💡 **Smart Follow-up Suggestions**: Context-aware clickable suggestions after every response
-- 🔄 **New Chat Reset**: Complete conversation context clearing for fresh sessions
-- 📱 **Responsive UI**: Material-UI React frontend with real-time chart rendering and markdown support
+### Infrastructure Design Workflows
+- **IaC workbench**: Upload one or more infrastructure files for AI review, explanation, pros and cons, cost analysis, and improvement suggestions.
+- **IaC follow-up chat**: Continue a conversation against a previously analyzed template.
+- **Optimized template generation**: Produce a revised version from an analyzed template plus user goals.
+- **Blueprint generation**: Generate Terraform or CloudFormation from text requirements, selected services, or uploaded diagrams.
+
+### Security & Operations
+- **JWT authentication** with refresh tokens, blacklisting, password-hash migration, and demo identity support.
+- **Health and readiness endpoints** for operational checks.
+- **Security hardening** for recent critical and high findings, including SSRF, command injection, PII masking, and auth protections.
+- **Operational deployment support** with local Docker workflows, AWS deployment scripts, migrations, and setup guides.
 
 ## 🏗️ Architecture Overview
 
@@ -340,8 +341,8 @@ The platform uses a **LangGraph state machine** with **Pydantic structured outpu
 ### Data Layer
 - **Primary Source**: AWS Athena querying CUR data in S3
 - **Vector Store**: ChromaDB for semantic search (optional)
-- **Metadata**: PostgreSQL for conversation history (planned)
-- **Cache**: Valkey for query result caching (planned)
+- **Metadata**: PostgreSQL for conversation history, organizations, saved views, opportunities, and audit-oriented application data when database-backed mode is enabled
+- **Cache**: Valkey for login throttling, token blacklisting, and cache-backed runtime protections where configured
 
 ## API Documentation
 
@@ -738,15 +739,21 @@ cd frontend && npm run lint:fix
 
 ## Contributing
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
+This repository is private and not offered for public use or open-source contribution.
+
+If you want to evaluate, modify, deploy, or contribute to this codebase, obtain prior written permission from the copyright owner first.
+
+For approved internal or private collaboration:
+
+1. Create an authorized branch in the private repository.
+2. Make and test your changes.
+3. Open a private pull request for review.
 
 ## License
 
-This project is proprietary to aasmaa Group Limited. All rights reserved.
+See [LICENSE](./LICENSE).
+
+This codebase is proprietary and confidential. No license is granted to use, copy, modify, distribute, deploy, sublicense, sell, or create derivative works from any part of this repository for personal, internal, evaluation, educational, or commercial purposes without prior written permission from the copyright owner.
 
 ## Documentation
 
