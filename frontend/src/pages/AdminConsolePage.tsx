@@ -120,6 +120,7 @@ const featureLabels: Record<string, string> = {
     analyze: 'Analyze',
     generate: 'Generate',
     opportunities: 'Opportunities',
+    cur_analysis: 'CUR Analysis',
     admin_console: 'Admin Console',
 };
 
@@ -142,6 +143,7 @@ const defaultNewUser = {
         analyze: true,
         generate: false,
         opportunities: true,
+        cur_analysis: false,
         admin_console: false,
     },
 };

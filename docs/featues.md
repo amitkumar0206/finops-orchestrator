@@ -154,6 +154,17 @@ The app already has query templates for: `line_item_product_code`, `line_item_us
 
 > **Note:** `ce:*` APIs require at least 14 days of EC2 usage history. In new accounts, seed with manual CUR CSV upload via Advisory Mode.
 
+### Implementation Status — ✅ SHIPPED
+
+| Component | File | Endpoint(s) |
+|-----------|------|-------------|
+| Athena pattern-mining SQL templates | `backend/services/athena_cur_templates.py` → `CURPatternMiningTemplates` | n/a |
+| Connected Mode signal service | `backend/services/cur_pattern_mining_signals.py` | `POST /api/v1/cur-analysis/mine`, `POST /api/v1/opportunities/ingest?source=cur_analysis` |
+| Advisory Mode CSV analyzer | `backend/services/cur_csv_analyzer.py` | `POST /api/v1/cur-analysis/upload` |
+| Capabilities discovery | `backend/api/cur_analysis.py` | `GET /api/v1/cur-analysis/capabilities` |
+
+All thresholds (idle-cost floor, data-transfer floor, RI/SP unused floor, steady-state hours/day, scheduling off-hours share, MoM-increase %, lookback days, upload size/row limits, max findings per detector) are configurable per deployment via the `CUR_MINING_*` / `CUR_UPLOAD_*` environment variables — see `backend/config/settings.py`.
+
 ---
 
 ## Feature 3: Tagging & Cost Attribution Advisor
@@ -291,14 +302,13 @@ For each client the feature should produce:
 - **psycopg2 + PostgreSQL** — all new services must follow the `OpportunitiesService(organization_id=uuid)` pattern
 - **Celery scheduler** (in `requirements.txt`) — configure with `CELERY_BROKER_URL=redis://...` for nightly ingestion runs
 
-### File Upload Endpoints to Build (Advisory Mode)
-The following API endpoints do not yet exist and are required for Advisory Mode:
+### File Upload Endpoints (Advisory Mode)
 
-| Endpoint | Accepts | Processing |
-|---------|---------|-----------|
-| `POST /api/v1/ingest/iac` | `.yaml`, `.json`, `.tf` files | LLM parsing → structured findings → OpportunitiesService |
-| `POST /api/v1/ingest/cur-csv` | CUR CSV export from S3 or Billing Console | CSV parsing → same analysis as Athena queries |
-| `POST /api/v1/ingest/config-snapshot` | AWS Config snapshot JSON | Resource inventory → tag coverage + sizing analysis |
+| Endpoint | Accepts | Processing | Status |
+|---------|---------|-----------|--------|
+| `POST /api/v1/ingest/iac` | `.yaml`, `.json`, `.tf` files | LLM parsing → structured findings → OpportunitiesService | TODO |
+| `POST /api/v1/cur-analysis/upload` | CUR `.csv` / `.csv.gz` from S3 or Billing Console | pandas parsing → 7 detectors → OpportunitiesService (persist + return) | ✅ Shipped |
+| `POST /api/v1/ingest/config-snapshot` | AWS Config snapshot JSON | Resource inventory → tag coverage + sizing analysis | TODO |
 
 ### Advisory Mode UI Requirements
 - File upload component (drag-and-drop, multiple files)
@@ -316,11 +326,11 @@ The following are already implemented and wired into `POST /api/v1/opportunities
 |---------|-------------|-------|
 | CloudWatch idle detection | `cloudwatch_optimization_signals.py` | EC2, RDS, ELB, Lambda; no prerequisites |
 | RI/SP coverage + utilization | `ri_savings_plans_signals.py` | 7 Cost Explorer API calls |
+| **CUR pattern mining (Connected)** | `cur_pattern_mining_signals.py` | Athena RI/SP/idle/data-transfer/RDS-RI miners + `ce:GetAnomalies` + `ce:GetCostAndUsage` MoM trend |
+| **CUR pattern mining (Advisory)** | `cur_csv_analyzer.py` | 7 pandas detectors over uploaded `.csv` / `.csv.gz`; no AWS access required |
 | Storage waste | `storage_optimization_signals.py` | Unattached EBS, orphaned snapshots, gp2→gp3, S3 lifecycle |
 | Trusted Advisor | `aws_optimization_signals.py` | Requires Business/Enterprise Support |
 | Compute Optimizer | `aws_optimization_signals.py` | Requires manual opt-in per account |
 | Nightly scheduler | `worker/tasks.py` + `worker/__init__.py` | Celery Beat at 2 AM UTC; needs Redis |
 
 ---
-
-*No implementation should begin on Advisory Mode features without reviewing file format support requirements and the client-facing upload UX with the product team.*

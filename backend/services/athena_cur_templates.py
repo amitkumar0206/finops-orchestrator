@@ -1689,3 +1689,285 @@ def calculate_date_range(period: str, reference_date: Optional[date] = None) -> 
 class AthenaCURTemplatesExtensions(AthenaCURTemplates):
     """Extension methods for AthenaCURTemplates that were previously misplaced."""
     pass
+
+
+# ============================================================================
+# CUR PATTERN-MINING TEMPLATES (Feature 2: CUR / Billing Export Deep Analysis)
+# ============================================================================
+# These templates power CURPatternMiningSignalsService (Connected Mode) and
+# emit the same logical signals as CURCSVAnalyzer (Advisory Mode). Each query
+# returns one row per candidate optimization opportunity with enough columns
+# (resource_id / service / region / cost_usd / supporting metric) for the
+# signals service to build an opportunity dict and a cur_validation_sql
+# evidence string. All templates follow the existing security model: dates
+# are validated through _build_partition_filter() and no caller-supplied
+# string is interpolated unescaped.
+class CURPatternMiningTemplates(AthenaCURTemplates):
+    """SQL templates that mine the CUR for waste, anomaly and commitment signals."""
+
+    def usage_type_cost_drivers(
+        self,
+        start_date: str,
+        end_date: str,
+        limit: int = 25,
+    ) -> str:
+        """
+        Dominant cost drivers broken down by line_item_usage_type family
+        (BoxUsage / DataTransfer / EBS:VolumeUsage / NatGateway / etc).
+        Used to surface "where is the money going" before drilling into
+        per-resource opportunities.
+        """
+        partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
+        effective_cost = self._effective_cost_expr()
+
+        query = f"""
+SELECT
+  CASE
+    WHEN line_item_usage_type LIKE '%BoxUsage%' THEN 'Compute (BoxUsage)'
+    WHEN line_item_usage_type LIKE '%DataTransfer%' THEN 'Data Transfer'
+    WHEN line_item_usage_type LIKE '%EBS:Volume%' THEN 'EBS Volumes'
+    WHEN line_item_usage_type LIKE '%EBS:Snapshot%' THEN 'EBS Snapshots'
+    WHEN line_item_usage_type LIKE '%NatGateway%' THEN 'NAT Gateway'
+    WHEN line_item_usage_type LIKE '%LoadBalancer%' THEN 'Load Balancer'
+    WHEN line_item_usage_type LIKE '%Requests%' THEN 'API Requests'
+    WHEN line_item_usage_type LIKE '%Storage%' THEN 'Storage'
+    ELSE 'Other'
+  END AS usage_family,
+  line_item_product_code AS service,
+  ROUND(SUM({effective_cost}), 2) AS cost_usd,
+  ROUND(SUM({effective_cost}) * 100.0 / SUM(SUM({effective_cost})) OVER (), 2) AS share_pct
+FROM {self.full_table}
+WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+  AND {partition_filter}
+  AND line_item_line_item_type IN ('Usage', 'DiscountedUsage', 'SavingsPlanCoveredUsage')
+GROUP BY 1, 2
+ORDER BY cost_usd DESC
+LIMIT {int(limit)};
+"""
+        return query.strip()
+
+    def ri_unused_hours(
+        self,
+        start_date: str,
+        end_date: str,
+        min_unused_cost: float = 1.0,
+    ) -> str:
+        """
+        Reserved Instance waste from CUR amortization columns. A row appears
+        for every reservation ARN where unused amortized fees > min_unused_cost
+        in the window. Mirrors ce:GetReservationUtilization but works from CUR
+        alone (so it also runs in Advisory Mode against an uploaded CSV).
+        """
+        partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
+
+        query = f"""
+SELECT
+  reservation_reservation_a_r_n AS reservation_arn,
+  line_item_product_code AS service,
+  {self._col('product_region')} AS region,
+  ROUND(SUM(COALESCE(reservation_unused_amortized_upfront_fee_for_billing_period, 0)
+            + COALESCE(reservation_unused_recurring_fee, 0)), 2) AS unused_cost_usd,
+  ROUND(SUM(COALESCE(reservation_unused_quantity, 0)), 2) AS unused_hours,
+  ROUND(SUM(COALESCE(reservation_amortized_upfront_fee_for_billing_period, 0)
+            + COALESCE(reservation_recurring_fee_for_usage, 0)), 2) AS amortized_cost_usd
+FROM {self.full_table}
+WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+  AND {partition_filter}
+  AND line_item_line_item_type = 'RIFee'
+  AND reservation_reservation_a_r_n IS NOT NULL
+  AND reservation_reservation_a_r_n <> ''
+GROUP BY 1, 2, 3
+HAVING SUM(COALESCE(reservation_unused_amortized_upfront_fee_for_billing_period, 0)
+           + COALESCE(reservation_unused_recurring_fee, 0)) > {float(min_unused_cost)}
+ORDER BY unused_cost_usd DESC;
+"""
+        return query.strip()
+
+    def sp_unused_commitment(
+        self,
+        start_date: str,
+        end_date: str,
+        min_unused_cost: float = 1.0,
+    ) -> str:
+        """
+        Savings Plan waste: committed spend that was paid for but not consumed.
+        SavingsPlanRecurringFee rows carry savings_plan_total_commitment_to_date
+        and savings_plan_used_commitment; the delta is wasted commitment.
+        """
+        partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
+
+        query = f"""
+SELECT
+  savings_plan_savings_plan_a_r_n AS savings_plan_arn,
+  {self._col('product_region')} AS region,
+  ROUND(SUM(COALESCE(savings_plan_total_commitment_to_date, 0)), 2) AS committed_usd,
+  ROUND(SUM(COALESCE(savings_plan_used_commitment, 0)), 2) AS used_usd,
+  ROUND(SUM(COALESCE(savings_plan_total_commitment_to_date, 0)
+            - COALESCE(savings_plan_used_commitment, 0)), 2) AS unused_commitment_usd
+FROM {self.full_table}
+WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+  AND {partition_filter}
+  AND line_item_line_item_type = 'SavingsPlanRecurringFee'
+  AND savings_plan_savings_plan_a_r_n IS NOT NULL
+GROUP BY 1, 2
+HAVING SUM(COALESCE(savings_plan_total_commitment_to_date, 0)
+           - COALESCE(savings_plan_used_commitment, 0)) > {float(min_unused_cost)}
+ORDER BY unused_commitment_usd DESC;
+"""
+        return query.strip()
+
+    def cross_region_data_transfer(
+        self,
+        start_date: str,
+        end_date: str,
+        min_cost: float = 10.0,
+    ) -> str:
+        """
+        Cross-region / inter-region data-transfer charges by source region.
+        High values are a consolidation opportunity (move producer + consumer
+        into the same region or use VPC peering / PrivateLink).
+        """
+        partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
+
+        query = f"""
+SELECT
+  {self._col('product_region')} AS region,
+  line_item_product_code AS service,
+  ROUND(SUM(line_item_unblended_cost), 2) AS cost_usd,
+  ROUND(SUM(line_item_usage_amount), 2) AS gb_transferred
+FROM {self.full_table}
+WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+  AND {partition_filter}
+  AND line_item_line_item_type = 'Usage'
+  AND (line_item_usage_type LIKE '%InterRegion%'
+       OR line_item_usage_type LIKE '%-AWS-Out-Bytes%'
+       OR line_item_usage_type LIKE '%DataTransfer-Regional-Bytes%')
+GROUP BY 1, 2
+HAVING SUM(line_item_unblended_cost) > {float(min_cost)}
+ORDER BY cost_usd DESC;
+"""
+        return query.strip()
+
+    def idle_resources_with_cost(
+        self,
+        start_date: str,
+        end_date: str,
+        min_cost: float = 5.0,
+    ) -> str:
+        """
+        Resources that incurred non-zero cost but recorded zero usage_amount
+        across the entire window — classic idle-resource marker (e.g. provisioned
+        IOPS volumes with no I/O, allocated Elastic IPs, idle NAT gateways).
+        """
+        partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
+
+        query = f"""
+SELECT
+  line_item_resource_id AS resource_id,
+  line_item_product_code AS service,
+  {self._col('product_region')} AS region,
+  line_item_usage_type AS usage_type,
+  ROUND(SUM(line_item_unblended_cost), 2) AS cost_usd,
+  ROUND(SUM(line_item_usage_amount), 4) AS usage_amount
+FROM {self.full_table}
+WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+  AND {partition_filter}
+  AND line_item_line_item_type = 'Usage'
+  AND line_item_resource_id IS NOT NULL
+  AND line_item_resource_id <> ''
+GROUP BY 1, 2, 3, 4
+HAVING SUM(line_item_usage_amount) = 0
+   AND SUM(line_item_unblended_cost) > {float(min_cost)}
+ORDER BY cost_usd DESC
+LIMIT 100;
+"""
+        return query.strip()
+
+    def on_demand_steady_state_db(
+        self,
+        start_date: str,
+        end_date: str,
+        min_run_hours_per_day: float = 20.0,
+        min_cost: float = 50.0,
+    ) -> str:
+        """
+        RDS / database instances billed entirely on-demand that ran ~24x7
+        across the window — strong RI / Savings Plan purchase candidates.
+        """
+        partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
+
+        query = f"""
+WITH per_resource AS (
+  SELECT
+    line_item_resource_id AS resource_id,
+    product_instance_type AS instance_type,
+    {self._col('product_region')} AS region,
+    SUM(line_item_usage_amount) AS run_hours,
+    SUM(line_item_unblended_cost) AS cost_usd,
+    COUNT(DISTINCT CAST(line_item_usage_start_date AS DATE)) AS active_days
+  FROM {self.full_table}
+  WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+    AND {partition_filter}
+    AND line_item_product_code IN ('AmazonRDS', 'AmazonElastiCache', 'AmazonRedshift')
+    AND line_item_line_item_type = 'Usage'
+    AND line_item_usage_type LIKE '%InstanceUsage%'
+    AND (pricing_term IS NULL OR pricing_term = '' OR pricing_term = 'OnDemand')
+    AND (reservation_reservation_a_r_n IS NULL OR reservation_reservation_a_r_n = '')
+    AND line_item_resource_id IS NOT NULL
+  GROUP BY 1, 2, 3
+)
+SELECT
+  resource_id,
+  instance_type,
+  region,
+  ROUND(run_hours, 1) AS run_hours,
+  active_days,
+  ROUND(run_hours / NULLIF(active_days, 0), 1) AS avg_hours_per_day,
+  ROUND(cost_usd, 2) AS cost_usd,
+  ROUND(cost_usd * 0.40, 2) AS est_ri_savings_usd
+FROM per_resource
+WHERE active_days > 0
+  AND run_hours / active_days >= {float(min_run_hours_per_day)}
+  AND cost_usd >= {float(min_cost)}
+ORDER BY cost_usd DESC;
+"""
+        return query.strip()
+
+    def hourly_usage_pattern(
+        self,
+        start_date: str,
+        end_date: str,
+        service_code: Optional[str] = None,
+    ) -> str:
+        """
+        Cost by hour-of-day for compute services. A flat profile on a workload
+        the client describes as "batch" indicates a scheduling opportunity
+        (stop/start outside business hours).
+        """
+        partition_filter, _, _ = self._build_partition_filter(start_date, end_date)
+        effective_cost = self._effective_cost_expr()
+
+        service_clause = ""
+        if service_code:
+            try:
+                validated = validate_service_code(service_code)
+                service_clause = f"AND line_item_product_code = '{validated}'"
+            except ValidationError as e:
+                logger.warning("Invalid service code for hourly_usage_pattern", error=str(e))
+
+        query = f"""
+SELECT
+  line_item_product_code AS service,
+  hour(line_item_usage_start_date) AS hour_of_day,
+  ROUND(SUM({effective_cost}), 2) AS cost_usd,
+  ROUND(SUM(line_item_usage_amount), 2) AS usage_amount
+FROM {self.full_table}
+WHERE CAST(line_item_usage_start_date AS DATE) BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+  AND {partition_filter}
+  AND line_item_line_item_type IN ('Usage', 'DiscountedUsage', 'SavingsPlanCoveredUsage')
+  AND line_item_usage_type LIKE '%BoxUsage%'
+  {service_clause}
+GROUP BY 1, 2
+ORDER BY 1, 2;
+"""
+        return query.strip()

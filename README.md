@@ -19,6 +19,12 @@ Enterprise-grade AWS cost intelligence platform powered by AI agents, featuring 
 - 📊 **Savings Analytics**: Track potential monthly/annual savings by category and service
 - ✅ **Status Management**: Mark opportunities as open/accepted/dismissed with bulk actions and export
 
+### CUR / Billing Export Deep Analysis (NEW)
+- 🔌 **Connected Mode**: Mines the live Athena CUR table for unused RI hours, under-utilised Savings Plans, cross-region data transfer, idle resources and on-demand steady-state DBs, then layers on `ce:GetAnomalies` cost-spike alerts and `ce:GetCostAndUsage` month-over-month service trends — all flow into `POST /api/v1/opportunities/ingest` and `POST /api/v1/cur-analysis/mine`
+- 📂 **Advisory Mode**: Upload a CUR `.csv` / `.csv.gz` to `POST /api/v1/cur-analysis/upload` and the same seven detectors run locally with **zero AWS API access** — findings are persisted to the org-scoped Opportunities store *and* returned in the response
+- 🎚️ **Per-Tenant Tuning**: Every threshold (idle-cost floor, MoM-increase %, lookback days, upload limits, max findings) is configurable via `CUR_MINING_*` / `CUR_UPLOAD_*` env vars
+- 🧭 **Capability Discovery**: `GET /api/v1/cur-analysis/capabilities` tells the UI which mode(s) are available and the active thresholds for the tenant
+
 ### Data & Integration
 - 📈 **Complete CUR Access**: 15+ optimized Athena SQL templates with partition pruning and effective cost calculations
 - ⚡ **Async Query Execution**: Non-blocking Athena queries with automatic result parsing and retry logic
@@ -363,6 +369,7 @@ aasmaa/
 │   │   ├── saved_views.py                # Saved account-scope views
 │   │   ├── phase3_enterprise.py          # Scheduled reports, RBAC, dashboards
 │   │   ├── opportunities.py              # Optimization opportunities
+│   │   ├── cur_analysis.py               # CUR pattern mining (upload / mine / capabilities)
 │   │   ├── scope.py                      # Account-scope switching
 │   │   ├── demo_admin.py                 # Demo admin console (dept/token quota mgmt)
 │   │   └── reports.py                    # Report endpoints
@@ -377,8 +384,10 @@ aasmaa/
 │   │   ├── opportunities.py             # Optimization opportunity models
 │   │   └── schemas.py                   # Request/response schemas
 │   ├── services/                 # Core business logic (~40 modules)
-│   │   ├── athena_cur_templates.py      # 15+ optimized SQL templates
+│   │   ├── athena_cur_templates.py      # 15+ optimized SQL templates (+ CURPatternMiningTemplates)
 │   │   ├── athena_executor.py           # Async Athena client
+│   │   ├── cur_csv_analyzer.py          # Advisory-Mode CUR CSV pattern miner (pandas)
+│   │   ├── cur_pattern_mining_signals.py # Connected-Mode CUR miner (Athena + CE anomalies/trend)
 │   │   ├── athena_query_service.py      # Query generation + validation
 │   │   ├── cache_service.py             # Valkey cache + fail-closed blacklist
 │   │   ├── conversation_manager.py      # Postgres-backed chat history
@@ -478,6 +487,21 @@ ENVIRONMENT=development
 # LLM-based conversation understanding (enabled by default)
 # Set to 'false' to use rule-based parameter extraction instead
 # USE_LLM_CONVERSATION_UNDERSTANDING=false
+
+# CUR / Billing Export Deep Analysis (all optional — defaults shown)
+CUR_PATTERN_MINING_ENABLED=true
+CUR_UPLOAD_MAX_SIZE_MB=200
+CUR_UPLOAD_MAX_ROWS=2000000
+CUR_MINING_LOOKBACK_DAYS=30
+CUR_MINING_MIN_IDLE_COST_USD=5.0
+CUR_MINING_MIN_DATA_TRANSFER_USD=10.0
+CUR_MINING_MIN_RI_UNUSED_USD=1.0
+CUR_MINING_MIN_SP_UNUSED_USD=1.0
+CUR_MINING_STEADY_STATE_HOURS_PER_DAY=20.0
+CUR_MINING_MIN_STEADY_STATE_COST_USD=50.0
+CUR_MINING_SCHEDULING_OFF_HOURS_SHARE=0.40
+CUR_MINING_MOM_INCREASE_THRESHOLD_PCT=40.0
+CUR_MINING_MAX_FINDINGS_PER_DETECTOR=25
 ```
 
 ### Athena Setup Requirements
@@ -805,12 +829,12 @@ For technical support and questions:
 - 🔄 Integration with ticketing systems (Jira, ServiceNow, GitHub, Linear)
 - 🔄 Cost allocation and chargeback (department/team attribution)
 
-### Phase 4: Advanced Analytics ⏳ PLANNED
+### Phase 4: Advanced Analytics 🔄 IN PROGRESS
 
 **Cost Intelligence**
 - ⏳ ML-based cost forecasting with trend prediction
-- ⏳ Automated anomaly detection with root cause analysis
-- ⏳ Advanced optimization recommendations (RI/SP analysis, rightsizing)
+- ✅ Automated anomaly detection with root cause analysis (`ce:GetAnomalies` → Opportunities)
+- ✅ Advanced optimization recommendations — RI/SP coverage & utilisation, unused-commitment mining, on-demand→RI candidates, cross-region data-transfer, idle-resource & scheduling detection (Connected + Advisory Mode)
 - ⏳ Budget management and alerting (threshold-based notifications)
 
 **Platform Expansion**

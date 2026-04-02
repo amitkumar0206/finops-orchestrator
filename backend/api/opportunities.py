@@ -47,6 +47,8 @@ from backend.services.aws_optimization_signals import get_optimization_signals_s
 from backend.services.cloudwatch_optimization_signals import CloudWatchOptimizationSignalsService
 from backend.services.ri_savings_plans_signals import RISavingsPlansSignalsService
 from backend.services.storage_optimization_signals import StorageOptimizationSignalsService
+from backend.services.cur_pattern_mining_signals import CURPatternMiningSignalsService
+from backend.config.settings import get_settings
 from backend.services.request_context import require_context, RequestContext
 from backend.middleware.rate_limiting import check_ingest_rate_limit
 from backend.utils.errors import (
@@ -496,6 +498,8 @@ async def ingest_signals(
     - CloudWatch (idle EC2, RDS, ELB, Lambda — works at all support tiers)
     - RI & Savings Plans coverage and utilization analysis
     - S3 and EBS storage lifecycle optimization
+    - CUR pattern mining (Athena: unused RI/SP, cross-region transfer, idle
+      resources, on-demand steady-state DB; Cost Explorer: anomalies, MoM trend)
 
     The ingestion runs in the background and returns immediately with a result summary.
 
@@ -559,6 +563,21 @@ async def ingest_signals(
             except Exception as e:
                 logger.warning(f"Failed to fetch RI/SP signals: {e}")
                 ingestion_errors.append("RI/Savings Plans: Unable to fetch coverage signals")
+
+        # Feature 2: CUR / Billing Export Deep Analysis (Connected Mode)
+        if (source is None or source == OpportunitySource.CUR_ANALYSIS) and \
+                get_settings().cur_pattern_mining_enabled:
+            try:
+                cur_svc = CURPatternMiningSignalsService(
+                    organization_id=context.organization_id
+                )
+                cur_signals = await cur_svc.fetch_all_cur_signals()
+                signals.extend(cur_signals)
+            except Exception as e:
+                logger.warning(f"Failed to fetch CUR pattern-mining signals: {e}")
+                ingestion_errors.append(
+                    "CUR Analysis: Unable to mine Athena/Cost Explorer for billing patterns"
+                )
 
         # Feature 3: S3 and EBS storage lifecycle optimization
         if source is None:

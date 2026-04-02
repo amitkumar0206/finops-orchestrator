@@ -28,6 +28,7 @@ DEFAULT_FEATURE_ACCESS = {
     "analyze": False,
     "generate": False,
     "opportunities": False,
+    "cur_analysis": False,
     "admin_console": False,
 }
 

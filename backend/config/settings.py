@@ -248,7 +248,79 @@ class Settings(BaseSettings):
         env="ATHENA_OUTPUT_LOCATION"
     )
     athena_workgroup: str = Field(default="aasmaa-workgroup", env="ATHENA_WORKGROUP")
-    
+
+    # ------------------------------------------------------------------
+    # CUR Pattern Mining (Feature 2: CUR / Billing Export Deep Analysis)
+    # ------------------------------------------------------------------
+    # Applies to BOTH Connected Mode (Athena + Cost Explorer) and Advisory
+    # Mode (uploaded CUR CSV). Every threshold is env-driven so each tenant
+    # deployment can tune sensitivity without a code change.
+    cur_pattern_mining_enabled: bool = Field(
+        default=True,
+        env="CUR_PATTERN_MINING_ENABLED",
+        description="Master switch for the CUR pattern-mining detectors and /cur-analysis API.",
+    )
+    cur_upload_max_size_mb: int = Field(
+        default=200,
+        env="CUR_UPLOAD_MAX_SIZE_MB",
+        description="Maximum size of an uploaded CUR CSV/.gz file in Advisory Mode.",
+    )
+    cur_upload_max_rows: int = Field(
+        default=2_000_000,
+        env="CUR_UPLOAD_MAX_ROWS",
+        description="Hard cap on rows parsed from an uploaded CUR file (memory guard).",
+    )
+    cur_mining_lookback_days: int = Field(
+        default=30,
+        env="CUR_MINING_LOOKBACK_DAYS",
+        description="How many days of CUR history Connected-Mode Athena detectors scan.",
+    )
+    cur_mining_min_idle_cost_usd: float = Field(
+        default=5.0,
+        env="CUR_MINING_MIN_IDLE_COST_USD",
+        description="Suppress idle-resource findings below this dollar amount in the window.",
+    )
+    cur_mining_min_data_transfer_usd: float = Field(
+        default=10.0,
+        env="CUR_MINING_MIN_DATA_TRANSFER_USD",
+        description="Suppress cross-region data-transfer findings below this dollar amount.",
+    )
+    cur_mining_min_ri_unused_usd: float = Field(
+        default=1.0,
+        env="CUR_MINING_MIN_RI_UNUSED_USD",
+        description="Suppress unused-RI findings below this wasted-dollar amount.",
+    )
+    cur_mining_min_sp_unused_usd: float = Field(
+        default=1.0,
+        env="CUR_MINING_MIN_SP_UNUSED_USD",
+        description="Suppress unused-Savings-Plan findings below this wasted-dollar amount.",
+    )
+    cur_mining_steady_state_hours_per_day: float = Field(
+        default=20.0,
+        env="CUR_MINING_STEADY_STATE_HOURS_PER_DAY",
+        description="Avg hours/day a DB instance must run on-demand to be flagged as an RI candidate.",
+    )
+    cur_mining_min_steady_state_cost_usd: float = Field(
+        default=50.0,
+        env="CUR_MINING_MIN_STEADY_STATE_COST_USD",
+        description="Suppress on-demand-DB RI-candidate findings below this dollar amount.",
+    )
+    cur_mining_scheduling_off_hours_share: float = Field(
+        default=0.40,
+        env="CUR_MINING_SCHEDULING_OFF_HOURS_SHARE",
+        description="Off-hours cost share (0–1) above which a compute service is flagged for scheduling.",
+    )
+    cur_mining_mom_increase_threshold_pct: float = Field(
+        default=40.0,
+        env="CUR_MINING_MOM_INCREASE_THRESHOLD_PCT",
+        description="Service-cost month-over-month increase (%) that triggers a trend finding.",
+    )
+    cur_mining_max_findings_per_detector: int = Field(
+        default=25,
+        env="CUR_MINING_MAX_FINDINGS_PER_DETECTOR",
+        description="Cap on opportunities emitted by any single CUR detector per run.",
+    )
+
     # AWS Bedrock Configuration
     bedrock_model_id: str = Field(
         default="us.amazon.nova-pro-v1:0",

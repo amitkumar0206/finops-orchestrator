@@ -14,6 +14,7 @@ export interface FeatureAccess {
     analyze: boolean;
     generate: boolean;
     opportunities: boolean;
+    cur_analysis: boolean;
     admin_console: boolean;
 }
 
@@ -75,6 +76,7 @@ const defaultFeatures: FeatureAccess = {
     analyze: false,
     generate: false,
     opportunities: false,
+    cur_analysis: false,
     admin_console: false,
 };
 

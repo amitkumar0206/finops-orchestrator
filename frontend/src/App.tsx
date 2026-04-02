@@ -15,6 +15,7 @@ import {
   ForumOutlined as ForumOutlinedIcon,
   InsightsOutlined as InsightsOutlinedIcon,
   AutoFixHighOutlined as AutoFixHighOutlinedIcon,
+  ReceiptLongOutlined as ReceiptLongOutlinedIcon,
   SettingsOutlined as SettingsOutlinedIcon,
   AdminPanelSettings as AdminPanelSettingsIcon,
   PersonOutline as PersonOutlineIcon,
@@ -24,6 +25,7 @@ import ChatInterface from './components/Chat/ChatInterface';
 import LoginPage from './pages/LoginPage';
 import LandingPage from './pages/LandingPage';
 import IacWorkbenchPage from './pages/IacWorkbenchPage';
+import CurAnalysisPage from './pages/CurAnalysisPage';
 import GenerateBlueprintPage from './pages/GenerateBlueprintPage';
 import SettingsPage from './pages/SettingsPage';
 import ProfilePage from './pages/ProfilePage';
@@ -77,6 +79,7 @@ const AppShell: React.FC = () => {
   const activeRoute = (() => {
     if (location.pathname === '/' || location.pathname.startsWith('/home')) return '/';
     if (location.pathname.startsWith('/generate')) return '/generate';
+    if (location.pathname.startsWith('/cur-analysis')) return '/cur-analysis';
     if (location.pathname.startsWith('/iac') || location.pathname.startsWith('/analyze')) return '/analyze';
     if (location.pathname.startsWith('/settings')) return '/settings';
     if (location.pathname.startsWith('/profile')) return '/profile';
@@ -89,12 +92,14 @@ const AppShell: React.FC = () => {
   const navItems = [
     canAccess('chat') ? { key: '/chat', label: 'Cost Chat', icon: <ForumOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
     canAccess('analyze') ? { key: '/analyze', label: 'Analyze', icon: <InsightsOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
+    canAccess('cur_analysis') ? { key: '/cur-analysis', label: 'CUR Analysis', icon: <ReceiptLongOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
     canAccess('generate') ? { key: '/generate', label: 'Generate', icon: <AutoFixHighOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
     canAccess('admin_console') ? { key: '/admin', label: 'Admin', icon: <AdminPanelSettingsIcon sx={{ fontSize: 20 }} /> } : null,
   ].filter(Boolean) as Array<{ key: string; label: string; icon: React.ReactNode }>;
 
   const chatRouteElement = canAccess('chat') ? <ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary> : <Navigate to="/" replace />;
   const analyzeRouteElement = canAccess('analyze') ? <ErrorBoundary><IacWorkbenchPage /></ErrorBoundary> : <Navigate to="/" replace />;
+  const curAnalysisRouteElement = canAccess('cur_analysis') ? <ErrorBoundary><CurAnalysisPage /></ErrorBoundary> : <Navigate to="/" replace />;
   const generateRouteElement = canAccess('generate') ? <ErrorBoundary><GenerateBlueprintPage /></ErrorBoundary> : <Navigate to="/" replace />;
   const adminRouteElement = canAccess('admin_console') ? <ErrorBoundary><AdminConsolePage /></ErrorBoundary> : <Navigate to="/" replace />;
 
@@ -313,6 +318,8 @@ const AppShell: React.FC = () => {
             <Route path="/chat/*" element={<Navigate to="/chat" replace />} />
             <Route path="/analyze" element={analyzeRouteElement} />
             <Route path="/analyze/*" element={<Navigate to="/analyze" replace />} />
+            <Route path="/cur-analysis" element={curAnalysisRouteElement} />
+            <Route path="/cur-analysis/*" element={<Navigate to="/cur-analysis" replace />} />
             <Route path="/generate" element={generateRouteElement} />
             <Route path="/generate/*" element={<Navigate to="/generate" replace />} />
             <Route path="/iac" element={<Navigate to="/analyze" replace />} />

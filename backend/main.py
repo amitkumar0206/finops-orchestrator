@@ -18,7 +18,7 @@ from prometheus_client import generate_latest, Counter, Histogram
 from backend.config.settings import get_settings
 from backend.api import chat, health, reports, analytics, athena_queries
 from backend.api import saved_views, organizations, scope, opportunities, auth
-from backend.api import iac_workbench, iac_generate_workflow
+from backend.api import iac_workbench, iac_generate_workflow, cur_analysis
 from backend.api.admin import rate_limits as admin_rate_limits
 from backend.api import demo_admin
 from backend.services.vector_store import VectorStoreService
@@ -281,6 +281,9 @@ app.include_router(scope.router, prefix="/api/v1", tags=["Scope"])
 
 # Optimization opportunities router
 app.include_router(opportunities.router, prefix="/api/v1", tags=["Opportunities"])
+
+# CUR / Billing Export Deep Analysis (Connected + Advisory Mode)
+app.include_router(cur_analysis.router, prefix="/api/v1", tags=["CUR Analysis"])
 
 # IaC workbench router
 app.include_router(iac_workbench.router, prefix="/api/v1", tags=["IaC Workbench"])

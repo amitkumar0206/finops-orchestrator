@@ -6,6 +6,8 @@ This guide provides step-by-step instructions for manually configuring AWS Legac
 
 > **⚠️ Important:** The platform **works immediately** with Cost Explorer API (no CUR required). CUR setup is **optional** and only needed for historical data beyond 13 months.
 
+> **🆕 No Athena? Use Advisory Mode.** If you cannot configure Athena/Glue (or simply want a one-off analysis), download a CUR CSV from the Billing Console and upload it to `POST /api/v1/cur-analysis/upload` — the same seven waste/anomaly detectors run locally with no AWS API access. See [Advisory Mode](#advisory-mode-cur-csv-upload-no-athena-required) below.
+
 ## When to Configure CUR
 
 **Configure CUR if you need:**
@@ -310,6 +312,58 @@ The deploy script will:
 | **Backfill Request** | **FREE** | No additional cost via AWS Support |
 
 **Example:** 100 GB of CUR data = ~$2.30/month storage + ~$0.50/month Athena queries = **$2.80/month**
+
+## Advisory Mode: CUR CSV Upload (No Athena Required)
+
+If a tenant cannot or will not grant live AWS API access, the **CUR / Billing Export Deep Analysis** feature still works in **Advisory Mode**:
+
+1. In the AWS Billing Console → **Cost & Usage Reports**, open any active report and download a recent `.csv` (or `.csv.gz`) export — or copy one directly from the CUR S3 bucket.
+2. `POST` the file as `multipart/form-data` to:
+
+   ```bash
+   curl -X POST https://<host>/api/v1/cur-analysis/upload \
+        -H "Authorization: Bearer <token>" \
+        -F "file=@cur-2025-01.csv.gz" \
+        -F "account_id=123456789012"   # optional override
+   ```
+
+3. The response contains the full **opportunity list** plus a **summary** (rows analyzed, billing period, total spend, savings by detector). Findings are also persisted into the org-scoped Opportunities dashboard with `source=cur_analysis`, so they appear alongside live signals.
+
+The analyzer normalises all three CUR header conventions (Glue snake_case, Billing-console `lineItem/UsageType`, CUR 2.0) and runs the same seven detectors as Connected Mode:
+
+| Detector | CUR columns used |
+|----------|------------------|
+| Usage-type cost drivers | `line_item_usage_type`, `line_item_unblended_cost` |
+| RI unused hours | `reservation_unused_*`, `reservation_reservation_a_r_n` |
+| SP unused commitment | `savings_plan_total_commitment_to_date`, `savings_plan_used_commitment` |
+| Cross-region data transfer | `line_item_usage_type LIKE '%InterRegion%'`, `product_region` |
+| Idle resources | `line_item_resource_id`, `line_item_usage_amount = 0`, `line_item_unblended_cost > 0` |
+| On-demand steady-state DB | `line_item_product_code IN (RDS, ElastiCache, Redshift)`, `pricing_term = OnDemand` |
+| Scheduling candidates | `line_item_usage_start_date` hour-of-day vs `BoxUsage` cost |
+
+### Connected Mode (Athena + Cost Explorer)
+
+Once Athena/CUR are configured per this guide, call `POST /api/v1/cur-analysis/mine` (or `POST /api/v1/opportunities/ingest?source=cur_analysis`) to run the same detectors against the live CUR table **plus** `ce:GetAnomalies` and `ce:GetCostAndUsage` month-over-month trend analysis. `GET /api/v1/cur-analysis/capabilities` reports which mode(s) are currently available.
+
+### Per-Tenant Configuration
+
+Every threshold is environment-driven (no code change required):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CUR_PATTERN_MINING_ENABLED` | `true` | Master kill-switch for the feature |
+| `CUR_UPLOAD_MAX_SIZE_MB` | `200` | Max accepted upload size |
+| `CUR_UPLOAD_MAX_ROWS` | `2000000` | Max CSV rows parsed |
+| `CUR_MINING_LOOKBACK_DAYS` | `30` | Connected-Mode Athena/CE lookback window |
+| `CUR_MINING_MIN_IDLE_COST_USD` | `5.0` | Floor below which idle resources are ignored |
+| `CUR_MINING_MIN_DATA_TRANSFER_USD` | `10.0` | Floor for cross-region transfer findings |
+| `CUR_MINING_MIN_RI_UNUSED_USD` | `1.0` | Floor for unused-RI findings |
+| `CUR_MINING_MIN_SP_UNUSED_USD` | `1.0` | Floor for unused-SP findings |
+| `CUR_MINING_STEADY_STATE_HOURS_PER_DAY` | `20.0` | Hours/day above which a DB is "always on" |
+| `CUR_MINING_MIN_STEADY_STATE_COST_USD` | `50.0` | Floor for RI-candidate findings |
+| `CUR_MINING_SCHEDULING_OFF_HOURS_SHARE` | `0.40` | Off-hours cost share that triggers a scheduling rec |
+| `CUR_MINING_MOM_INCREASE_THRESHOLD_PCT` | `40.0` | % above 3-month avg that triggers a trend alert |
+| `CUR_MINING_MAX_FINDINGS_PER_DETECTOR` | `25` | Output cap per detector |
 
 ## Best Practices
 

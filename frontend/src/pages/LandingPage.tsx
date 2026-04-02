@@ -5,6 +5,7 @@ import {
     ForumOutlined as ForumOutlinedIcon,
     InsightsOutlined as InsightsOutlinedIcon,
     AutoFixHighOutlined as AutoFixHighOutlinedIcon,
+    ReceiptLongOutlined as ReceiptLongOutlinedIcon,
     ArrowForward as ArrowForwardIcon,
     LogoutOutlined as LogoutOutlinedIcon,
     SettingsOutlined as SettingsOutlinedIcon,
@@ -36,6 +37,13 @@ const flowCards = [
         icon: <InsightsOutlinedIcon sx={{ fontSize: 26 }} />,
     },
     {
+        key: '/cur-analysis',
+        title: 'CUR Analysis',
+        subtitle: 'Mine your AWS billing export',
+        description: 'Upload a CUR CSV or run live Athena detectors to surface idle resources, commitment gaps, and savings.',
+        icon: <ReceiptLongOutlinedIcon sx={{ fontSize: 26 }} />,
+    },
+    {
         key: '/generate',
         title: 'Generate',
         subtitle: 'Create cloud blueprints with AI',
@@ -55,9 +63,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogout }) => {
     const visibleCards = flowCards.filter((card) => {
         if (card.key === '/chat') return canAccess('chat');
         if (card.key === '/analyze') return canAccess('analyze');
+        if (card.key === '/cur-analysis') return canAccess('cur_analysis');
         if (card.key === '/generate') return canAccess('generate');
         return false;
     });
+
+    const cardMd = visibleCards.length >= 4 ? 3 : 4;
 
     return (
         <Box
@@ -305,7 +316,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLogout }) => {
 
                 <Grid container spacing={2} alignItems="stretch">
                     {visibleCards.map((card) => (
-                        <Grid key={card.key} item xs={12} md={4} sx={{ display: 'flex' }}>
+                        <Grid key={card.key} item xs={12} sm={6} md={cardMd} sx={{ display: 'flex' }}>
                             <Paper
                                 elevation={0}
                                 sx={{

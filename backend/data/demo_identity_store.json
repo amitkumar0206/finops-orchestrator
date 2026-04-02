@@ -71,6 +71,7 @@
         "analyze": true,
         "generate": true,
         "opportunities": true,
+        "cur_analysis": true,
         "admin_console": true
       },
       "monthly_token_limit": 750000,
@@ -116,6 +117,7 @@
         "analyze": true,
         "generate": false,
         "opportunities": true,
+        "cur_analysis": true,
         "admin_console": false
       },
       "monthly_token_limit": 300000,
@@ -159,6 +161,7 @@
         "analyze": false,
         "generate": true,
         "opportunities": true,
+        "cur_analysis": false,
         "admin_console": false
       },
       "monthly_token_limit": 350000,
@@ -202,6 +205,7 @@
         "analyze": true,
         "generate": false,
         "opportunities": true,
+        "cur_analysis": true,
         "admin_console": false
       },
       "monthly_token_limit": 250000,
