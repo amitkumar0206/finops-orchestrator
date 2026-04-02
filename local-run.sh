@@ -246,6 +246,10 @@ bootstrap_frontend() {
 }
 
 start_docker_deps() {
+  if [[ "${DATABASE_ENABLED:-false}" != "true" ]]; then
+    echo "DATABASE_ENABLED=false — skipping postgres and valkey."
+    return
+  fi
   echo "Starting Docker dependencies (postgres, valkey)..."
   (
     cd "$REPO_ROOT"
@@ -390,12 +394,14 @@ stop_all() {
   stop_port_listener "frontend" "$FRONTEND_PORT"
   stop_port_listener "backend" "$BACKEND_PORT"
 
-  echo "Stopping Docker dependencies (postgres, valkey)..."
-  (
-    cd "$REPO_ROOT"
-    resolve_aws_account_id
-    docker compose stop postgres valkey >/dev/null || true
-  )
+  if [[ "${DATABASE_ENABLED:-false}" == "true" ]]; then
+    echo "Stopping Docker dependencies (postgres, valkey)..."
+    (
+      cd "$REPO_ROOT"
+      resolve_aws_account_id
+      docker compose stop postgres valkey >/dev/null || true
+    )
+  fi
 
   echo "Stopped."
 }
