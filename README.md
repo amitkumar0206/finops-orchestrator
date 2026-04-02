@@ -25,6 +25,14 @@ Enterprise-grade AWS cost intelligence platform powered by AI agents, featuring 
 - 🗄️ **PostgreSQL Conversation Store**: Full chat history persistence with agent execution tracking
 - 📉 **Prometheus Metrics**: Service resolution counters, query performance, and system health monitoring
 
+### Admin Console & Token Quota Management (NEW)
+- 🏢 **Org-Level Monthly Budget**: Admin can set a total token budget for the entire organization — only admins can modify this value
+- 🏬 **Department Management**: Create, update, and delete departments with per-department token limits; deletion blocked if users are still assigned
+- 👥 **User-to-Department Assignment**: Mandatory department assignment when creating users; admins can reassign users to different departments at any time
+- 🎯 **Per-User Token Override**: Admins can enable a personal token limit override for any individual user, independent of their department limit
+- 📊 **Token Quota Hierarchy**: Three-tier enforcement — Org budget → Department limit → User override; unallocated budget tracked automatically
+- 🖥️ **Redesigned Admin Console**: Beautiful three-tab UI (Overview, Users, Departments) with inline org budget editing, department card grid with live usage bars, and searchable/filterable user table with department assignment badges
+
 ### User Experience
 - 🎯 **Professional aasmaa Responses**: Structured 6-section format (Summary/Scope/Results/Insights/Charts/Next Steps)
 - 💡 **Smart Follow-up Suggestions**: Context-aware clickable suggestions after every response
@@ -356,6 +364,7 @@ aasmaa/
 │   │   ├── phase3_enterprise.py          # Scheduled reports, RBAC, dashboards
 │   │   ├── opportunities.py              # Optimization opportunities
 │   │   ├── scope.py                      # Account-scope switching
+│   │   ├── demo_admin.py                 # Demo admin console (dept/token quota mgmt)
 │   │   └── reports.py                    # Report endpoints
 │   ├── middleware/               # Request-level middleware
 │   │   ├── authentication.py            # JWT-only auth (no header fallback)
@@ -380,6 +389,7 @@ aasmaa/
 │   │   ├── saved_views_service.py       # Account-scope view persistence
 │   │   ├── request_context.py           # Per-request tenant context
 │   │   ├── audit_log_service.py         # Compliance audit trail
+│   │   ├── demo_identity_store.py       # JSON-backed identity store (demo mode) — users, departments, token quotas
 │   │   └── ...                          # + 25 additional service modules
 │   ├── config/                   # Configuration
 │   │   └── settings.py                  # Pydantic env-based settings
@@ -414,7 +424,7 @@ aasmaa/
 │   ├── deployment/              # Deployment helpers
 │   ├── setup/                   # CUR setup & verification
 │   └── utilities/               # Athena-results cleanup
-├── tests/                       # Test suite (631 tests)
+├── tests/                       # Test suite (664 tests)
 │   ├── unit/                    # Unit tests (organised by layer)
 │   │   ├── api/                 #   API sanitisation & health tests
 │   │   ├── config/              #   Settings-security tests
@@ -423,6 +433,7 @@ aasmaa/
 │   │   ├── opportunities/       #   Opportunities API & agent tests
 │   │   ├── services/            #   Cache, DB-SSL, IAM-migration tests
 │   │   └── utils/               #   Auth, AWS-session, SQL, PII, error tests
+│   ├── test_token_quota_and_departments.py  # Token quota & dept management (33 tests)
 │   └── (integration & e2e)     # 20 cross-layer test files
 ├── docs/                        # Project documentation
 ├── pytest.ini                   # pytest + asyncio configuration
@@ -584,6 +595,33 @@ DELETE /api/organizations/{org_id}/rate-limits/roles/{role}
 DELETE /api/organizations/{org_id}/rate-limits/users/{user_id}
 ```
 
+### Demo Admin Console API (Token Quota & Department Management)
+
+**Admin-only endpoints** (requires `is_admin=true`, demo mode):
+```http
+# Organization settings & token budget
+GET  /api/demo/admin/org-settings                    # Get org budget + live usage stats
+PATCH /api/demo/admin/org-settings                   # Update monthly_token_budget (admin only)
+  Body: { "monthly_token_budget": 3000000 }
+
+# Token quota summary (full hierarchy)
+GET  /api/demo/admin/token-summary                   # Org → depts → users with usage
+
+# Department CRUD
+GET    /api/demo/admin/departments                   # List all depts with usage stats
+POST   /api/demo/admin/departments                   # Create department
+  Body: { "name": "Engineering", "description": "...", "monthly_token_limit": 500000 }
+PATCH  /api/demo/admin/departments/{dept_id}         # Update dept name/limit/description
+DELETE /api/demo/admin/departments/{dept_id}         # Delete (fails if users assigned)
+
+# User management (extended with dept and token override)
+GET    /api/demo/admin/summary                       # Admin summary with departments array
+POST   /api/demo/admin/users                         # Create user (department_id required)
+  Body: { "email": "...", "department_id": "dept-xxx", "token_limit_override": false, ... }
+PATCH  /api/demo/admin/users/{user_id}               # Update user, incl. dept reassignment
+  Body: { "department_id": "dept-yyy", "token_limit_override": true, "monthly_token_limit": 200000 }
+```
+
 **Use Cases:**
 - **Set role overrides**: Increase member limit from 50/hour to 75/hour for entire organization
 - **Give power user custom limit**: Data analyst needs 200/hour instead of default 50/hour
@@ -631,7 +669,7 @@ See [SECURITY_AUDIT_REPORT.md](./SECURITY_AUDIT_REPORT.md) for complete security
 
 ### Running Tests
 ```bash
-# All backend tests (631 tests — run from project root)
+# All backend tests (664 tests — run from project root)
 pytest
 
 # Unit tests only
@@ -641,6 +679,9 @@ pytest tests/unit/
 pytest tests/unit/api/          # API sanitisation & health
 pytest tests/unit/middleware/   # Auth, rate-limiting, security headers
 pytest tests/unit/services/     # Cache, DB-SSL, IAM migration
+
+# Token quota & department management tests (33 tests)
+pytest tests/test_token_quota_and_departments.py -v
 
 # Frontend tests
 cd frontend && npm test

@@ -1,10 +1,11 @@
 {
-  "version": 1,
+  "version": 2,
   "organization": {
     "id": "22222222-2222-2222-2222-222222222222",
     "name": "Aasmaa Demo Organization",
     "slug": "aasmaa-demo-org",
     "subscription_tier": "enterprise",
+    "monthly_token_budget": 2000000,
     "settings": {
       "mode": "demo"
     },
@@ -12,6 +13,40 @@
       "123456789012",
       "210987654321",
       "345678901234"
+    ],
+    "departments": [
+      {
+        "id": "dept-aaa-111-finops-leadership",
+        "name": "FinOps Leadership",
+        "description": "FinOps strategy, governance and cost optimization leadership",
+        "monthly_token_limit": 800000,
+        "created_at": "2026-03-20T09:00:00+00:00",
+        "updated_at": "2026-03-20T09:00:00+00:00"
+      },
+      {
+        "id": "dept-bbb-222-app-engineering",
+        "name": "Application Engineering",
+        "description": "Application development and engineering teams",
+        "monthly_token_limit": 600000,
+        "created_at": "2026-03-20T09:00:00+00:00",
+        "updated_at": "2026-03-20T09:00:00+00:00"
+      },
+      {
+        "id": "dept-ccc-333-cloud-platform",
+        "name": "Cloud Platform",
+        "description": "Cloud infrastructure, DevOps and platform engineering",
+        "monthly_token_limit": 600000,
+        "created_at": "2026-03-20T09:00:00+00:00",
+        "updated_at": "2026-03-20T09:00:00+00:00"
+      },
+      {
+        "id": "dept-c5b1fb84db1e9516",
+        "name": "Development",
+        "description": "Developers",
+        "monthly_token_limit": 100000,
+        "created_at": "2026-04-02T13:58:07.276180+00:00",
+        "updated_at": "2026-04-02T13:58:07.276180+00:00"
+      }
     ]
   },
   "users": [
@@ -20,10 +55,12 @@
       "email": "admin@aasmaa.demo",
       "full_name": "Priya Admin",
       "department": "FinOps Leadership",
+      "department_id": "dept-aaa-111-finops-leadership",
       "title": "Platform Admin",
       "org_role": "owner",
       "is_admin": true,
       "is_active": true,
+      "token_limit_override": true,
       "allowed_account_ids": [
         "123456789012",
         "210987654321",
@@ -42,13 +79,13 @@
         "queries_run": 1247,
         "analysis_runs": 34,
         "generate_runs": 22,
-        "logins": 20,
+        "logins": 21,
         "feature_usage": {
           "chat": 182,
           "analyze": 34,
           "generate": 22
         },
-        "last_activity_at": "2026-04-02T05:46:46.131344+00:00"
+        "last_activity_at": "2026-04-02T07:20:29.910069+00:00"
       },
       "preferences": {},
       "demo_password_hint": "DemoAdmin!2026",
@@ -57,17 +94,19 @@
       "password_hash_version": 2,
       "created_at": "2026-03-20T09:00:00+00:00",
       "updated_at": "2026-03-31T10:30:00+00:00",
-      "last_login_at": "2026-04-02T05:46:46.131344+00:00"
+      "last_login_at": "2026-04-02T07:20:29.910069+00:00"
     },
     {
       "id": "33333333-3333-3333-3333-333333333333",
       "email": "developer@aasmaa.demo",
       "full_name": "Devon Developer",
       "department": "Application Engineering",
+      "department_id": "dept-bbb-222-app-engineering",
       "title": "Senior Developer",
       "org_role": "developer",
       "is_admin": false,
       "is_active": true,
+      "token_limit_override": false,
       "allowed_account_ids": [
         "123456789012",
         "345678901234"
@@ -105,10 +144,12 @@
       "email": "devops@aasmaa.demo",
       "full_name": "Olivia DevOps",
       "department": "Cloud Platform",
+      "department_id": "dept-ccc-333-cloud-platform",
       "title": "DevOps Engineer",
       "org_role": "devops",
       "is_admin": false,
       "is_active": true,
+      "token_limit_override": false,
       "allowed_account_ids": [
         "210987654321",
         "345678901234"
@@ -140,6 +181,47 @@
       "password_hash_version": 2,
       "created_at": "2026-03-20T09:10:00+00:00",
       "updated_at": "2026-03-31T11:15:00+00:00"
+    },
+    {
+      "id": "0ee22b4cfe85d0b1721b5afd0a6df5a1",
+      "email": "amit@aasmaa.demo",
+      "full_name": "Amit Developer",
+      "department": "Development",
+      "department_id": "dept-c5b1fb84db1e9516",
+      "title": null,
+      "org_role": "developer",
+      "is_active": true,
+      "is_admin": false,
+      "allowed_account_ids": [
+        "123456789012",
+        "210987654321",
+        "345678901234"
+      ],
+      "feature_access": {
+        "chat": true,
+        "analyze": true,
+        "generate": false,
+        "opportunities": true,
+        "admin_console": false
+      },
+      "monthly_token_limit": 250000,
+      "token_topup_tokens": 0,
+      "token_limit_override": false,
+      "usage": {
+        "monthly_token_used": 0,
+        "queries_run": 0,
+        "analysis_runs": 0,
+        "generate_runs": 0,
+        "logins": 0,
+        "feature_usage": {},
+        "last_activity_at": "2026-04-02T13:59:48.679130+00:00"
+      },
+      "preferences": {},
+      "password_salt": "32b09dcabdbc3391cdb4f58eeaca3b8e813bd549a9b5c8a422d5e7a923c13b50",
+      "password_hash": "a8087eb39d7563cd4a853d85d9aba8394935fc3430909d0cedb9771be7deda82",
+      "password_hash_version": 2,
+      "created_at": "2026-04-02T13:59:48.679130+00:00",
+      "updated_at": "2026-04-02T13:59:48.679130+00:00"
     }
   ],
   "activity_log": [
@@ -184,6 +266,36 @@
       "action": "login",
       "details": {
         "email": "admin@aasmaa.demo"
+      }
+    },
+    {
+      "timestamp": "2026-04-02T07:20:29.910441+00:00",
+      "actor_user_id": "11111111-1111-1111-1111-111111111111",
+      "target_user_id": "11111111-1111-1111-1111-111111111111",
+      "action": "login",
+      "details": {
+        "email": "admin@aasmaa.demo"
+      }
+    },
+    {
+      "timestamp": "2026-04-02T13:58:07.276245+00:00",
+      "actor_user_id": "11111111-1111-1111-1111-111111111111",
+      "target_user_id": null,
+      "action": "department_created",
+      "details": {
+        "department_name": "Development",
+        "monthly_token_limit": 100000
+      }
+    },
+    {
+      "timestamp": "2026-04-02T13:59:48.827689+00:00",
+      "actor_user_id": "11111111-1111-1111-1111-111111111111",
+      "target_user_id": "0ee22b4cfe85d0b1721b5afd0a6df5a1",
+      "action": "user_created",
+      "details": {
+        "email": "amit@aasmaa.demo",
+        "org_role": "developer",
+        "department_id": "dept-c5b1fb84db1e9516"
       }
     }
   ]

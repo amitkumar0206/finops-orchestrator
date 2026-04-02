@@ -31,6 +31,9 @@ DEFAULT_FEATURE_ACCESS = {
     "admin_console": False,
 }
 
+# Default org-level monthly token budget if not set in store
+DEFAULT_ORG_MONTHLY_TOKEN_BUDGET = 2_000_000
+
 
 def estimate_text_tokens(text: str) -> int:
     """Approximate token count for demo usage tracking."""
@@ -89,7 +92,13 @@ class DemoIdentityStore:
             handle.write("\n")
         tmp_path.replace(self._path)
 
-    def _sanitize_user(self, user: Dict[str, Any], *, include_password_hint: bool = False) -> Dict[str, Any]:
+    def _sanitize_user(
+        self,
+        user: Dict[str, Any],
+        *,
+        include_password_hint: bool = False,
+        data: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         sanitized = deepcopy(user)
         for sensitive_key in ("password_hash", "password_salt", "password_hash_version"):
             sanitized.pop(sensitive_key, None)
@@ -98,7 +107,11 @@ class DemoIdentityStore:
             sanitized.pop("demo_password_hint", None)
 
         usage = sanitized.setdefault("usage", {})
-        limit = int(sanitized.get("monthly_token_limit") or 0)
+        if data is not None:
+            _, limit, topup_tokens = self._effective_user_limit_unlocked(data, sanitized)
+        else:
+            limit = int(sanitized.get("monthly_token_limit") or 0)
+            topup_tokens = max(int(sanitized.get("token_topup_tokens") or 0), 0)
         used = int(usage.get("monthly_token_used") or 0)
         usage["monthly_token_limit"] = limit
         usage["monthly_token_used"] = used
@@ -109,6 +122,9 @@ class DemoIdentityStore:
             **DEFAULT_FEATURE_ACCESS,
             **(sanitized.get("feature_access") or {}),
         }
+        sanitized["token_topup_tokens"] = topup_tokens
+        sanitized["token_limit_override"] = topup_tokens > 0
+        sanitized["effective_monthly_token_limit"] = limit
         return sanitized
 
     def _append_activity(
@@ -140,6 +156,53 @@ class DemoIdentityStore:
             if email and str(user.get("email", "")).lower() == email.lower():
                 return index
         return None
+
+    def _get_department_index(self, data: Dict[str, Any], *, dept_id: Optional[str] = None, name: Optional[str] = None) -> Optional[int]:
+        departments = (data.get("organization") or {}).get("departments", [])
+        for index, dept in enumerate(departments):
+            if dept_id and dept.get("id") == dept_id:
+                return index
+            if name and str(dept.get("name", "")).lower() == name.lower():
+                return index
+        return None
+
+    # ─── Department helpers ───────────────────────────────────────────────
+
+    def _dept_usage_stats(self, data: Dict[str, Any], dept_id: str) -> Dict[str, Any]:
+        """Compute aggregate token usage for a department from its users."""
+        users = data.get("users", [])
+        dept_users = [u for u in users if u.get("department_id") == dept_id]
+        total_limit = sum(self._effective_user_limit_unlocked(data, u)[1] for u in dept_users)
+        total_used = sum(int((u.get("usage") or {}).get("monthly_token_used") or 0) for u in dept_users)
+        return {
+            "user_count": len(dept_users),
+            "active_user_count": len([u for u in dept_users if u.get("is_active", True)]),
+            "total_user_token_limit": total_limit,
+            "total_token_used": total_used,
+            "total_token_remaining": max(total_limit - total_used, 0),
+        }
+
+    def _department_limit_unlocked(self, data: Dict[str, Any], department_id: Optional[str]) -> int:
+        if not department_id:
+            return 0
+        dept_index = self._get_department_index(data, dept_id=department_id)
+        if dept_index is None:
+            return 0
+        organization = data.get("organization") or {}
+        departments = organization.get("departments") or []
+        return int((departments[dept_index] or {}).get("monthly_token_limit") or 0)
+
+    def _effective_user_limit_unlocked(self, data: Dict[str, Any], user: Dict[str, Any]) -> Tuple[int, int, int]:
+        """Return (base_limit, effective_limit, topup_tokens) for a user."""
+        department_id = user.get("department_id")
+        topup_tokens = max(int(user.get("token_topup_tokens") or 0), 0)
+        if department_id:
+            base_limit = self._department_limit_unlocked(data, department_id)
+        else:
+            base_limit = int(user.get("monthly_token_limit") or 0)
+        return base_limit, base_limit + topup_tokens, topup_tokens
+
+    # ─── Public read methods ──────────────────────────────────────────────
 
     async def get_demo_catalog(self) -> List[Dict[str, Any]]:
         async with self._lock:
@@ -220,13 +283,253 @@ class DemoIdentityStore:
     async def list_users(self) -> List[Dict[str, Any]]:
         async with self._lock:
             data = self._read_unlocked()
-            return [self._sanitize_user(user) for user in data.get("users", [])]
+            return [self._sanitize_user(user, data=data) for user in data.get("users", [])]
+
+    # ─── Department CRUD ──────────────────────────────────────────────────
+
+    async def list_departments(self) -> List[Dict[str, Any]]:
+        """Return all departments with live usage statistics."""
+        async with self._lock:
+            data = self._read_unlocked()
+            organization = data.get("organization") or {}
+            departments = deepcopy(organization.get("departments") or [])
+            for dept in departments:
+                dept["usage"] = self._dept_usage_stats(data, dept["id"])
+            return departments
+
+    async def create_department(self, payload: Dict[str, Any], *, created_by: str) -> Dict[str, Any]:
+        """Create a new department. Raises ValueError on duplicate name."""
+        async with self._lock:
+            data = self._read_unlocked()
+            organization = data.setdefault("organization", {})
+            departments = organization.setdefault("departments", [])
+
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                raise ValueError("Department name is required")
+            if self._get_department_index(data, name=name) is not None:
+                raise ValueError(f"A department named '{name}' already exists")
+
+            monthly_token_limit = int(payload.get("monthly_token_limit") or 0)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            dept = {
+                "id": f"dept-{secrets.token_hex(8)}",
+                "name": name,
+                "description": str(payload.get("description") or "").strip() or None,
+                "monthly_token_limit": monthly_token_limit,
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            }
+            departments.append(dept)
+            self._append_activity(
+                data,
+                actor_user_id=created_by,
+                action="department_created",
+                details={"department_name": name, "monthly_token_limit": monthly_token_limit},
+            )
+            self._write_unlocked(data)
+            dept_out = deepcopy(dept)
+            dept_out["usage"] = self._dept_usage_stats(data, dept["id"])
+            return dept_out
+
+    async def update_department(self, dept_id: str, updates: Dict[str, Any], *, updated_by: str) -> Dict[str, Any]:
+        """Update an existing department. Raises ValueError if not found."""
+        async with self._lock:
+            data = self._read_unlocked()
+            index = self._get_department_index(data, dept_id=dept_id)
+            if index is None:
+                raise ValueError("Department not found")
+
+            organization = data.get("organization") or {}
+            dept = organization["departments"][index]
+
+            if "name" in updates:
+                new_name = str(updates["name"] or "").strip()
+                if not new_name:
+                    raise ValueError("Department name cannot be blank")
+                # Check for duplicate (ignore self)
+                existing_index = self._get_department_index(data, name=new_name)
+                if existing_index is not None and existing_index != index:
+                    raise ValueError(f"A department named '{new_name}' already exists")
+                dept["name"] = new_name
+
+            if "description" in updates:
+                dept["description"] = str(updates["description"] or "").strip() or None
+
+            if "monthly_token_limit" in updates:
+                dept["monthly_token_limit"] = int(updates["monthly_token_limit"] or 0)
+
+            dept["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._append_activity(
+                data,
+                actor_user_id=updated_by,
+                action="department_updated",
+                details={"department_id": dept_id, "updated_fields": sorted(list(updates.keys()))},
+            )
+            self._write_unlocked(data)
+            dept_out = deepcopy(dept)
+            dept_out["usage"] = self._dept_usage_stats(data, dept_id)
+            return dept_out
+
+    async def delete_department(self, dept_id: str, *, deleted_by: str) -> None:
+        """Delete a department. Raises ValueError if users are still assigned to it."""
+        async with self._lock:
+            data = self._read_unlocked()
+            index = self._get_department_index(data, dept_id=dept_id)
+            if index is None:
+                raise ValueError("Department not found")
+
+            # Check if any active users belong to this department
+            users_in_dept = [u for u in data.get("users", []) if u.get("department_id") == dept_id]
+            if users_in_dept:
+                raise ValueError(
+                    f"Cannot delete department: {len(users_in_dept)} user(s) are still assigned to it. "
+                    "Move or reassign users first."
+                )
+
+            organization = data.get("organization") or {}
+            dept_name = organization["departments"][index].get("name", dept_id)
+            del organization["departments"][index]
+            self._append_activity(
+                data,
+                actor_user_id=deleted_by,
+                action="department_deleted",
+                details={"department_id": dept_id, "department_name": dept_name},
+            )
+            self._write_unlocked(data)
+
+    # ─── Org settings ─────────────────────────────────────────────────────
+
+    async def get_org_settings(self) -> Dict[str, Any]:
+        """Return org-level settings including the monthly token budget."""
+        async with self._lock:
+            data = self._read_unlocked()
+            return self._compute_org_settings_unlocked(data)
+
+    async def update_org_settings(self, updates: Dict[str, Any], *, updated_by: str) -> Dict[str, Any]:
+        """Update org-level settings (name, monthly_token_budget). Admin only."""
+        async with self._lock:
+            data = self._read_unlocked()
+            organization = data.setdefault("organization", {})
+
+            if "monthly_token_budget" in updates:
+                organization["monthly_token_budget"] = int(updates["monthly_token_budget"] or 0)
+
+            if "name" in updates:
+                name = str(updates["name"] or "").strip()
+                if name:
+                    organization["name"] = name
+
+            self._append_activity(
+                data,
+                actor_user_id=updated_by,
+                action="org_settings_updated",
+                details={"updated_fields": sorted(list(updates.keys()))},
+            )
+            self._write_unlocked(data)
+            # Return computed settings without re-acquiring the lock
+            # (asyncio.Lock is not reentrant — calling get_org_settings() here would deadlock)
+            return self._compute_org_settings_unlocked(data)
+
+    def _compute_org_settings_unlocked(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Compute org settings dict from already-loaded data (call only while lock is held)."""
+        organization = deepcopy(data.get("organization") or {})
+        organization.setdefault("monthly_token_budget", DEFAULT_ORG_MONTHLY_TOKEN_BUDGET)
+        users = data.get("users", [])
+        total_used = sum(int((u.get("usage") or {}).get("monthly_token_used") or 0) for u in users)
+        departments = organization.get("departments", [])
+        total_dept_allocated = sum(int(d.get("monthly_token_limit") or 0) for d in departments)
+        organization["usage"] = {
+            "total_token_used": total_used,
+            "total_dept_allocated": total_dept_allocated,
+            "unallocated": max(organization["monthly_token_budget"] - total_dept_allocated, 0),
+            "utilization_pct": round(
+                (total_used / organization["monthly_token_budget"]) * 100, 1
+            ) if organization["monthly_token_budget"] else 0.0,
+        }
+        return organization
+
+    # ─── Token summary ────────────────────────────────────────────────────
+
+    async def get_token_summary(self) -> Dict[str, Any]:
+        """Return full token quota hierarchy: org → departments → users."""
+        async with self._lock:
+            data = self._read_unlocked()
+            organization = data.get("organization") or {}
+            org_budget = int(organization.get("monthly_token_budget") or DEFAULT_ORG_MONTHLY_TOKEN_BUDGET)
+            departments = organization.get("departments") or []
+            users = [self._sanitize_user(u, data=data) for u in data.get("users", [])]
+
+            total_used = sum(int((u.get("usage") or {}).get("monthly_token_used") or 0) for u in users)
+            total_dept_allocated = sum(int(d.get("monthly_token_limit") or 0) for d in departments)
+
+            dept_summaries = []
+            for dept in departments:
+                dept_id = dept["id"]
+                dept_users = [u for u in users if u.get("department_id") == dept_id]
+                dept_used = sum(int((u.get("usage") or {}).get("monthly_token_used") or 0) for u in dept_users)
+                dept_limit = int(dept.get("monthly_token_limit") or 0)
+                dept_summaries.append({
+                    "id": dept_id,
+                    "name": dept["name"],
+                    "description": dept.get("description"),
+                    "monthly_token_limit": dept_limit,
+                    "total_token_used": dept_used,
+                    "total_token_remaining": max(dept_limit - dept_used, 0),
+                    "utilization_pct": round((dept_used / dept_limit) * 100, 1) if dept_limit else 0.0,
+                    "user_count": len(dept_users),
+                    "users": [
+                        {
+                            "id": u["id"],
+                            "full_name": u["full_name"],
+                            "email": u["email"],
+                            "monthly_token_limit": u.get("effective_monthly_token_limit") or 0,
+                            "token_topup_tokens": u.get("token_topup_tokens") or 0,
+                            "token_limit_override": (u.get("token_topup_tokens") or 0) > 0,
+                            "monthly_token_used": (u.get("usage") or {}).get("monthly_token_used") or 0,
+                            "utilization_pct": (u.get("usage") or {}).get("monthly_token_utilization_pct") or 0.0,
+                        }
+                        for u in dept_users
+                    ],
+                })
+
+            # Users without a department
+            unassigned_users = [u for u in users if not u.get("department_id")]
+
+            return {
+                "org_budget": org_budget,
+                "total_dept_allocated": total_dept_allocated,
+                "unallocated_budget": max(org_budget - total_dept_allocated, 0),
+                "total_token_used": total_used,
+                "org_utilization_pct": round((total_used / org_budget) * 100, 1) if org_budget else 0.0,
+                "departments": dept_summaries,
+                "unassigned_user_count": len(unassigned_users),
+            }
+
+    # ─── User CRUD ────────────────────────────────────────────────────────
 
     async def create_user(self, payload: Dict[str, Any], *, created_by: str) -> Tuple[Dict[str, Any], Optional[str]]:
         async with self._lock:
             data = self._read_unlocked()
             if self._get_user_index(data, email=str(payload.get("email") or "")) is not None:
                 raise ValueError("A user with that email already exists")
+
+            # Department validation
+            department_id = str(payload.get("department_id") or "").strip() or None
+            department_name: Optional[str] = None
+            if department_id:
+                dept_index = self._get_department_index(data, dept_id=department_id)
+                if dept_index is None:
+                    raise ValueError(f"Department with id '{department_id}' not found")
+                organization = data.get("organization") or {}
+                department_name = organization["departments"][dept_index].get("name")
+            elif str(payload.get("department") or "").strip():
+                # Fall back to department name look-up for backwards compatibility
+                department_name = str(payload.get("department") or "").strip()
+                dept_index = self._get_department_index(data, name=department_name)
+                if dept_index is not None:
+                    organization = data.get("organization") or {}
+                    department_id = organization["departments"][dept_index].get("id")
 
             generated_password = None
             password = str(payload.get("password") or "").strip()
@@ -248,7 +551,8 @@ class DemoIdentityStore:
                 "id": secrets.token_hex(16),
                 "email": str(payload.get("email") or "").strip().lower(),
                 "full_name": str(payload.get("full_name") or "").strip() or str(payload.get("email") or ""),
-                "department": str(payload.get("department") or "").strip() or None,
+                "department": department_name,
+                "department_id": department_id,
                 "title": str(payload.get("title") or "").strip() or None,
                 "org_role": str(payload.get("org_role") or "member").strip() or "member",
                 "is_active": bool(payload.get("is_active", True)),
@@ -256,6 +560,8 @@ class DemoIdentityStore:
                 "allowed_account_ids": list(payload.get("allowed_account_ids") or default_accounts),
                 "feature_access": feature_access,
                 "monthly_token_limit": int(payload.get("monthly_token_limit") or 250000),
+                "token_topup_tokens": max(int(payload.get("token_topup_tokens") or 0), 0),
+                "token_limit_override": bool(payload.get("token_topup_tokens") or 0),
                 "usage": {
                     "monthly_token_used": 0,
                     "queries_run": 0,
@@ -281,10 +587,11 @@ class DemoIdentityStore:
                 details={
                     "email": user["email"],
                     "org_role": user["org_role"],
+                    "department_id": department_id,
                 },
             )
             self._write_unlocked(data)
-            return self._sanitize_user(user), generated_password
+            return self._sanitize_user(user, data=data), generated_password
 
     async def update_user(self, user_id: str, updates: Dict[str, Any], *, updated_by: str) -> Dict[str, Any]:
         async with self._lock:
@@ -296,17 +603,47 @@ class DemoIdentityStore:
             user = data["users"][index]
             mutable_fields = {
                 "full_name",
-                "department",
                 "title",
                 "org_role",
                 "is_active",
                 "is_admin",
                 "monthly_token_limit",
+                "token_topup_tokens",
             }
 
             for field in mutable_fields:
                 if field in updates:
                     user[field] = updates[field]
+
+            if "token_limit_override" in updates and "token_topup_tokens" not in updates:
+                # Backward compatibility for older clients toggling the legacy flag.
+                if not bool(updates.get("token_limit_override")):
+                    user["token_topup_tokens"] = 0
+
+            user["token_topup_tokens"] = max(int(user.get("token_topup_tokens") or 0), 0)
+            user["token_limit_override"] = user["token_topup_tokens"] > 0
+
+            # Department change
+            if "department_id" in updates:
+                new_dept_id = str(updates["department_id"] or "").strip() or None
+                if new_dept_id:
+                    dept_index = self._get_department_index(data, dept_id=new_dept_id)
+                    if dept_index is None:
+                        raise ValueError(f"Department with id '{new_dept_id}' not found")
+                    organization = data.get("organization") or {}
+                    user["department"] = organization["departments"][dept_index].get("name")
+                else:
+                    user["department"] = None
+                user["department_id"] = new_dept_id
+            elif "department" in updates:
+                # Legacy name-based update (for backwards compatibility)
+                dept_name = str(updates["department"] or "").strip() or None
+                if dept_name:
+                    dept_index = self._get_department_index(data, name=dept_name)
+                    if dept_index is not None:
+                        organization = data.get("organization") or {}
+                        user["department_id"] = organization["departments"][dept_index].get("id")
+                user["department"] = dept_name
 
             if "allowed_account_ids" in updates:
                 user["allowed_account_ids"] = list(updates.get("allowed_account_ids") or [])
@@ -336,7 +673,7 @@ class DemoIdentityStore:
                 },
             )
             self._write_unlocked(data)
-            return self._sanitize_user(user)
+            return self._sanitize_user(user, data=data)
 
     async def get_user_usage(self, user_id: str) -> Dict[str, Any]:
         async with self._lock:
@@ -351,7 +688,7 @@ class DemoIdentityStore:
                 if activity.get("actor_user_id") == user_id or activity.get("target_user_id") == user_id
             ][-20:]
 
-            sanitized_user = self._sanitize_user(user)
+            sanitized_user = self._sanitize_user(user, data=data)
             return {
                 "user": sanitized_user,
                 "usage": sanitized_user.get("usage") or {},
@@ -361,22 +698,47 @@ class DemoIdentityStore:
     async def get_admin_summary(self) -> Dict[str, Any]:
         async with self._lock:
             data = self._read_unlocked()
-            users = [self._sanitize_user(user) for user in data.get("users", [])]
+            organization = data.get("organization") or {}
+            users = [self._sanitize_user(user, data=data) for user in data.get("users", [])]
             active_users = [user for user in users if user.get("is_active", True)]
             total_limit = sum(int(user.get("monthly_token_limit") or 0) for user in users)
             total_used = sum(int((user.get("usage") or {}).get("monthly_token_used") or 0) for user in users)
+            org_budget = int(organization.get("monthly_token_budget") or DEFAULT_ORG_MONTHLY_TOKEN_BUDGET)
+            departments = organization.get("departments") or []
+            total_dept_allocated = sum(int(d.get("monthly_token_limit") or 0) for d in departments)
+
             feature_counts = {key: 0 for key in DEFAULT_FEATURE_ACCESS}
             for user in users:
                 for feature, enabled in (user.get("feature_access") or {}).items():
                     if enabled and feature in feature_counts:
                         feature_counts[feature] += 1
 
+            dept_summaries = []
+            for dept in departments:
+                dept_id = dept["id"]
+                dept_users = [u for u in users if u.get("department_id") == dept_id]
+                dept_used = sum(int((u.get("usage") or {}).get("monthly_token_used") or 0) for u in dept_users)
+                dept_limit = int(dept.get("monthly_token_limit") or 0)
+                dept_summaries.append({
+                    "id": dept_id,
+                    "name": dept["name"],
+                    "description": dept.get("description"),
+                    "monthly_token_limit": dept_limit,
+                    "total_token_used": dept_used,
+                    "user_count": len(dept_users),
+                    "utilization_pct": round((dept_used / dept_limit) * 100, 1) if dept_limit else 0.0,
+                })
+
             return {
-                "organization": deepcopy(data.get("organization") or {}),
+                "organization": deepcopy(organization),
                 "totals": {
                     "user_count": len(users),
                     "active_user_count": len(active_users),
                     "admin_count": len([user for user in users if user.get("is_admin")]),
+                    "department_count": len(departments),
+                    "org_monthly_token_budget": org_budget,
+                    "total_dept_allocated": total_dept_allocated,
+                    "unallocated_budget": max(org_budget - total_dept_allocated, 0),
                     "monthly_token_limit": total_limit,
                     "monthly_token_used": total_used,
                     "monthly_token_remaining": max(total_limit - total_used, 0),
@@ -384,6 +746,7 @@ class DemoIdentityStore:
                 "feature_access_counts": feature_counts,
                 "recent_activity": list(reversed((data.get("activity_log") or [])[-30:])),
                 "users": users,
+                "departments": dept_summaries,
             }
 
     async def record_feature_usage(
@@ -437,3 +800,5 @@ def get_demo_identity_store() -> DemoIdentityStore:
     if _demo_identity_store is None:
         _demo_identity_store = DemoIdentityStore()
     return _demo_identity_store
+
+
