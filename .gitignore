@@ -5,6 +5,7 @@ __pycache__/
 
 # Local development runtime artifacts
 .local-run/
+data/
 
 # Database migration tracking (instance-specific)
 backend/scripts/completed/
