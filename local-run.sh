@@ -13,6 +13,7 @@ BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 BACKEND_RELOAD="${BACKEND_RELOAD:-false}"
 BACKEND_HEALTH_TIMEOUT="${BACKEND_HEALTH_TIMEOUT:-180}"
+AUTO_INSTALL_DEPS="${AUTO_INSTALL_DEPS:-true}"
 
 mkdir -p "$LOG_DIR"
 
@@ -34,7 +35,22 @@ Environment overrides:
 Notes:
   - Backend runs on host, so it uses your local AWS credential chain (~/.aws, AWS_PROFILE, SSO, etc.)
   - Optional env files auto-loaded if present: deployment.env, backend/.env
+  - Fresh checkout bootstrap is automatic by default; set AUTO_INSTALL_DEPS=false to disable
 EOF
+}
+
+find_python_cmd() {
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3"
+    return 0
+  fi
+
+  if command -v python >/dev/null 2>&1; then
+    echo "python"
+    return 0
+  fi
+
+  return 1
 }
 
 is_pid_running() {
@@ -84,6 +100,37 @@ stop_pid() {
   rm -f "$pid_file"
 }
 
+stop_port_listener() {
+  local name="$1"
+  local port="$2"
+
+  local port_pids
+  port_pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  if [[ -z "$port_pids" ]]; then
+    return
+  fi
+
+  echo "Stopping $name listener(s) on port $port..."
+  while IFS= read -r pid; do
+    if [[ -n "$pid" ]]; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  done <<< "$port_pids"
+
+  sleep 1
+
+  # If still listening, force kill remaining process(es).
+  port_pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  if [[ -n "$port_pids" ]]; then
+    echo "Force killing $name listener(s) on port $port..."
+    while IFS= read -r pid; do
+      if [[ -n "$pid" ]]; then
+        kill -9 "$pid" 2>/dev/null || true
+      fi
+    done <<< "$port_pids"
+  fi
+}
+
 load_env_files() {
   if [[ -f "$REPO_ROOT/deployment.env" ]]; then
     set +u
@@ -104,6 +151,25 @@ load_env_files() {
   fi
 }
 
+resolve_aws_account_id() {
+  if [[ -n "${AWS_ACCOUNT_ID:-}" ]]; then
+    return
+  fi
+
+  if ! command -v aws >/dev/null 2>&1; then
+    export AWS_ACCOUNT_ID="local"
+    return
+  fi
+
+  local account_id
+  account_id="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
+  if [[ -n "$account_id" && "$account_id" != "None" ]]; then
+    export AWS_ACCOUNT_ID="$account_id"
+  else
+    export AWS_ACCOUNT_ID="local"
+  fi
+}
+
 ensure_prereqs() {
   if ! command -v docker >/dev/null 2>&1; then
     echo "ERROR: docker is required."
@@ -115,22 +181,75 @@ ensure_prereqs() {
     exit 1
   fi
 
-  if [[ ! -x "$REPO_ROOT/.venv/bin/python" ]]; then
-    echo "ERROR: Python venv not found at $REPO_ROOT/.venv/bin/python"
-    echo "Create it first, e.g.: python3 -m venv .venv && source .venv/bin/activate && pip install -r backend/requirements.txt"
+  if ! find_python_cmd >/dev/null 2>&1; then
+    echo "ERROR: python3 (or python) is required."
     exit 1
   fi
 
-  if [[ ! -d "$REPO_ROOT/frontend/node_modules" ]]; then
+  bootstrap_backend
+  bootstrap_frontend
+}
+
+bootstrap_backend() {
+  local python_cmd
+  python_cmd="$(find_python_cmd)"
+
+  if [[ ! -x "$REPO_ROOT/.venv/bin/python" ]]; then
+    if [[ "$AUTO_INSTALL_DEPS" != "true" ]]; then
+      echo "ERROR: Python venv not found at $REPO_ROOT/.venv/bin/python"
+      echo "Set AUTO_INSTALL_DEPS=true or create it manually."
+      exit 1
+    fi
+
+    echo "Bootstrapping backend virtualenv..."
+    (
+      cd "$REPO_ROOT"
+      "$python_cmd" -m venv .venv
+    )
+  fi
+
+  if ! "$REPO_ROOT/.venv/bin/python" -c "import uvicorn" >/dev/null 2>&1; then
+    if [[ "$AUTO_INSTALL_DEPS" != "true" ]]; then
+      echo "ERROR: backend Python dependencies are missing in .venv"
+      echo "Set AUTO_INSTALL_DEPS=true or install them manually with pip install -r backend/requirements.txt"
+      exit 1
+    fi
+
+    echo "Installing backend Python dependencies..."
+    (
+      cd "$REPO_ROOT"
+      "$REPO_ROOT/.venv/bin/python" -m pip install --upgrade pip
+      "$REPO_ROOT/.venv/bin/python" -m pip install -r backend/requirements.txt
+    )
+  fi
+}
+
+bootstrap_frontend() {
+  if [[ -d "$REPO_ROOT/frontend/node_modules" ]]; then
+    return
+  fi
+
+  if [[ "$AUTO_INSTALL_DEPS" != "true" ]]; then
     echo "ERROR: frontend/node_modules missing. Run: cd frontend && npm install"
     exit 1
   fi
+
+  echo "Installing frontend dependencies..."
+  (
+    cd "$REPO_ROOT/frontend"
+    if [[ -f package-lock.json ]]; then
+      npm ci
+    else
+      npm install
+    fi
+  )
 }
 
 start_docker_deps() {
   echo "Starting Docker dependencies (postgres, valkey)..."
   (
     cd "$REPO_ROOT"
+    resolve_aws_account_id
     docker compose up -d postgres valkey
   )
 }
@@ -245,6 +364,7 @@ show_status() {
 
   (
     cd "$REPO_ROOT"
+    resolve_aws_account_id
     docker compose ps postgres valkey
   )
 }
@@ -266,9 +386,14 @@ stop_all() {
   stop_pid "frontend" "$FRONTEND_PID_FILE"
   stop_pid "backend" "$BACKEND_PID_FILE"
 
+  # Fallback cleanup for orphaned servers when pid files are missing/stale.
+  stop_port_listener "frontend" "$FRONTEND_PORT"
+  stop_port_listener "backend" "$BACKEND_PORT"
+
   echo "Stopping Docker dependencies (postgres, valkey)..."
   (
     cd "$REPO_ROOT"
+    resolve_aws_account_id
     docker compose stop postgres valkey >/dev/null || true
   )
 

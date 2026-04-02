@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ====================================================================
 # DEMO-ONLY Docker Compose Configuration
 # Purpose: Run aasmaa demo locally without RDS/Valkey/ALB

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:
@@ -17,7 +15,7 @@ services:
     networks:
       - aasmaa_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aasmaa -d aasmaa"]
+      test: [ "CMD-SHELL", "pg_isready -U aasmaa -d aasmaa" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -33,7 +31,7 @@ services:
     networks:
       - aasmaa_network
     healthcheck:
-      test: ["CMD", "valkey-cli", "--raw", "incr", "ping"]
+      test: [ "CMD", "valkey-cli", "--raw", "incr", "ping" ]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -58,7 +56,7 @@ services:
       - VALKEY_PASSWORD=${VALKEY_PASSWORD:-valkey_password}
       - SECRET_KEY=${SECRET_KEY:-}
       - AWS_REGION=us-east-1
-      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-aasmaa-data-${AWS_ACCOUNT_ID}}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-aasmaa-data-local}
       - AWS_CUR_DATABASE=cost_usage_db
       - AWS_CUR_TABLE=cur_data
       - CHROMA_DB_PATH=/app/data/chroma
@@ -74,7 +72,7 @@ services:
     networks:
       - aasmaa_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
