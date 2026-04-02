@@ -42,6 +42,23 @@ log() {
   echo "[demo-update] $1"
 }
 
+resolve_stack_output() {
+  local stack_name="$1"
+  local output_key="$2"
+  aws cloudformation describe-stacks \
+    --stack-name "$stack_name" \
+    --region "$AWS_REGION" \
+    --query "Stacks[0].Outputs[?OutputKey==\`${output_key}\`].OutputValue | [0]" \
+    --output text 2>/dev/null || true
+}
+
+stack_exists() {
+  local stack_name="$1"
+  aws cloudformation describe-stacks \
+    --stack-name "$stack_name" \
+    --region "$AWS_REGION" >/dev/null 2>&1
+}
+
 BACKEND_IMAGE_URI="${BACKEND_IMAGE_URI:-$ECR_REGISTRY/aasmaa-backend:latest}"
 FRONTEND_IMAGE_URI="${FRONTEND_IMAGE_URI:-$ECR_REGISTRY/aasmaa-frontend:latest}"
 
@@ -51,16 +68,78 @@ log "Target services: $DEMO_BACKEND_SERVICE, $DEMO_FRONTEND_SERVICE"
 log "Target URL: $DEMO_URL"
 
 run_cmd aws cloudformation describe-stacks --stack-name "$DEMO_STACK_NAME" --region "$AWS_REGION" >/dev/null
-if ! aws ecs describe-services --cluster "$DEMO_CLUSTER_NAME" --services "$DEMO_BACKEND_SERVICE" "$DEMO_FRONTEND_SERVICE" --region "$AWS_REGION" --query 'length(failures)' --output text | grep -q '^0$'; then
-  echo "[demo-update] ECS preflight failed: one or more demo services not found in cluster $DEMO_CLUSTER_NAME" >&2
+
+DEMO_SERVICES_STACK_NAME="${DEMO_SERVICES_STACK_NAME:-${DEMO_STACK_NAME}-services}"
+
+# Resolve canonical ECS names from CloudFormation outputs when available.
+STACK_CLUSTER_NAME="$(resolve_stack_output "$DEMO_STACK_NAME" "ECSClusterName")"
+STACK_BACKEND_SERVICE="$(resolve_stack_output "$DEMO_SERVICES_STACK_NAME" "BackendServiceName")"
+STACK_FRONTEND_SERVICE="$(resolve_stack_output "$DEMO_SERVICES_STACK_NAME" "FrontendServiceName")"
+
+if [[ -n "$STACK_CLUSTER_NAME" && "$STACK_CLUSTER_NAME" != "None" ]]; then
+  DEMO_CLUSTER_NAME="$STACK_CLUSTER_NAME"
+fi
+if [[ -n "$STACK_BACKEND_SERVICE" && "$STACK_BACKEND_SERVICE" != "None" ]]; then
+  DEMO_BACKEND_SERVICE="$STACK_BACKEND_SERVICE"
+fi
+if [[ -n "$STACK_FRONTEND_SERVICE" && "$STACK_FRONTEND_SERVICE" != "None" ]]; then
+  DEMO_FRONTEND_SERVICE="$STACK_FRONTEND_SERVICE"
+fi
+
+log "Resolved cluster: $DEMO_CLUSTER_NAME"
+log "Resolved services: $DEMO_BACKEND_SERVICE, $DEMO_FRONTEND_SERVICE"
+
+EXISTING_SERVICE_COUNT="$(aws ecs list-services \
+  --cluster "$DEMO_CLUSTER_NAME" \
+  --region "$AWS_REGION" \
+  --query 'length(serviceArns)' \
+  --output text 2>/dev/null || echo "0")"
+
+if [[ "$EXISTING_SERVICE_COUNT" == "0" ]]; then
+  echo "[demo-update] ECS preflight failed: cluster $DEMO_CLUSTER_NAME has no services" >&2
+  if stack_exists "$DEMO_SERVICES_STACK_NAME"; then
+    SERVICES_STACK_STATUS="$(aws cloudformation describe-stacks \
+      --stack-name "$DEMO_SERVICES_STACK_NAME" \
+      --region "$AWS_REGION" \
+      --query 'Stacks[0].StackStatus' \
+      --output text 2>/dev/null || true)"
+    echo "[demo-update] Services stack status: ${SERVICES_STACK_STATUS:-unknown}" >&2
+  else
+    echo "[demo-update] Services stack not found: $DEMO_SERVICES_STACK_NAME" >&2
+  fi
+  echo "[demo-update] Run ./scripts/deployment/deploy-demo-barebones.sh first to create the demo ECS services." >&2
+  exit 1
+fi
+
+if [[ -z "${DEMO_ALB_DNS:-}" ]]; then
+  DEMO_ALB_DNS="$(aws cloudformation describe-stacks \
+    --stack-name "$DEMO_STACK_NAME" \
+    --region "$AWS_REGION" \
+    --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDNS`].OutputValue' \
+    --output text 2>/dev/null || true)"
+fi
+
+ECS_FAILURES_JSON="$(aws ecs describe-services \
+  --cluster "$DEMO_CLUSTER_NAME" \
+  --services "$DEMO_BACKEND_SERVICE" "$DEMO_FRONTEND_SERVICE" \
+  --region "$AWS_REGION" \
+  --query 'failures[].{arn:arn,reason:reason,detail:detail}' \
+  --output json 2>/dev/null || true)"
+
+if [[ "$ECS_FAILURES_JSON" != "[]" ]]; then
+  echo "[demo-update] ECS preflight failed for cluster $DEMO_CLUSTER_NAME" >&2
+  echo "[demo-update] Requested services: $DEMO_BACKEND_SERVICE, $DEMO_FRONTEND_SERVICE" >&2
+  echo "[demo-update] AWS failures: $ECS_FAILURES_JSON" >&2
   exit 1
 fi
 
 if command -v dig >/dev/null 2>&1; then
   LIVE_IPS="$(dig +short "$DEMO_URL" | tr '\n' ' ' | xargs || true)"
-  ALB_IPS="$(dig +short "$DEMO_ALB_DNS" | tr '\n' ' ' | xargs || true)"
+  ALB_IPS="${DEMO_ALB_DNS:+$(dig +short "$DEMO_ALB_DNS" | tr '\n' ' ' | xargs || true)}"
   log "DNS check $DEMO_URL -> ${LIVE_IPS:-n/a}"
-  log "DNS check $DEMO_ALB_DNS -> ${ALB_IPS:-n/a}"
+  if [[ -n "${DEMO_ALB_DNS:-}" ]]; then
+    log "DNS check $DEMO_ALB_DNS -> ${ALB_IPS:-n/a}"
+  fi
 fi
 
 if $BUILD_IMAGES; then

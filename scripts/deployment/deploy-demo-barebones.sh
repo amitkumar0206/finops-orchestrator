@@ -19,7 +19,7 @@ if [ -f "$SCRIPT_DIR/../setup/load_deploy_config.sh" ]; then
 fi
 
 STACK_NAME="${STACK_NAME:-aasmaa-demo-barebones}"
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-ap-south-1}"
 ENVIRONMENT="${ENVIRONMENT:-development}"
 BEDROCK_MODEL="${BEDROCK_MODEL:-us.amazon.nova-lite-v1:0}"
 DEMO_ALLOWED_ACCOUNT_IDS="${DEMO_ALLOWED_ACCOUNT_IDS:-123456789012}"
@@ -30,6 +30,17 @@ BUILD_IMAGES="${BUILD_IMAGES:-true}"
 DISABLE_ROLLBACK="${DISABLE_ROLLBACK:-true}"
 DEMO_DOMAIN_NAME="${DEMO_DOMAIN_NAME:-demo.aasmaa.ai}"
 DEMO_HOSTED_ZONE_ID="${DEMO_HOSTED_ZONE_ID:-}"
+CERTIFICATE_ARN="${CERTIFICATE_ARN:-}"
+PRECHECK_ONLY=false
+SKIP_PRECHECK=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --precheck-only) PRECHECK_ONLY=true ;;
+    --skip-precheck) SKIP_PRECHECK=true ;;
+    *) echo "[demo-barebones] Unknown argument: $arg" >&2; exit 1 ;;
+  esac
+done
 
 log() {
   echo "[demo-barebones] $1"
@@ -128,8 +139,90 @@ cleanup_existing_rds() {
   done
 }
 
+stack_exists() {
+  local stack_name="$1"
+  aws cloudformation describe-stacks \
+    --stack-name "$stack_name" \
+    --region "$AWS_REGION" >/dev/null 2>&1
+}
+
+get_stack_status() {
+  local stack_name="$1"
+  aws cloudformation describe-stacks \
+    --stack-name "$stack_name" \
+    --region "$AWS_REGION" \
+    --query 'Stacks[0].StackStatus' \
+    --output text 2>/dev/null || true
+}
+
+run_prechecks() {
+  local failures=0
+  local stack_status
+  local sample_sg
+  local dry_run_output
+  local demo_vpc
+  local conflicting_subnet
+
+  log "Running prechecks"
+
+  # Validate principal can clean up failed network resources during rollback.
+  sample_sg="$(aws ec2 describe-security-groups --region "$AWS_REGION" --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || true)"
+  if [[ -n "$sample_sg" && "$sample_sg" != "None" ]]; then
+    set +e
+    dry_run_output="$(aws ec2 delete-security-group --group-id "$sample_sg" --dry-run --region "$AWS_REGION" 2>&1)"
+    set -e
+    if [[ "$dry_run_output" == *"DryRunOperation"* ]]; then
+      log "Precheck passed: ec2:DeleteSecurityGroup permission is available"
+    else
+      echo "[demo-barebones] PRECHECK FAILED: missing ec2:DeleteSecurityGroup permission for current principal" >&2
+      echo "[demo-barebones] Dry-run response: $dry_run_output" >&2
+      failures=1
+    fi
+  else
+    log "Precheck warning: no security group found to validate ec2:DeleteSecurityGroup via dry-run"
+  fi
+
+  if stack_exists "$STACK_NAME"; then
+    stack_status="$(get_stack_status "$STACK_NAME")"
+    log "Precheck info: stack $STACK_NAME status is ${stack_status:-unknown}"
+
+    if [[ "$stack_status" =~ ^(ROLLBACK_COMPLETE|ROLLBACK_FAILED|UPDATE_ROLLBACK_COMPLETE|UPDATE_ROLLBACK_FAILED|CREATE_FAILED)$ ]]; then
+      demo_vpc="$(aws cloudformation list-stack-resources \
+        --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
+        --query 'StackResourceSummaries[?ResourceType==`AWS::EC2::VPC`].PhysicalResourceId | [0]' \
+        --output text 2>/dev/null || true)"
+
+      if [[ -n "$demo_vpc" && "$demo_vpc" != "None" ]]; then
+        conflicting_subnet="$(aws ec2 describe-subnets \
+          --region "$AWS_REGION" \
+          --filters "Name=vpc-id,Values=${demo_vpc}" "Name=cidr-block,Values=10.0.1.0/24" \
+          --query 'Subnets[0].SubnetId' \
+          --output text 2>/dev/null || true)"
+
+        if [[ -n "$conflicting_subnet" && "$conflicting_subnet" != "None" ]]; then
+          echo "[demo-barebones] PRECHECK FAILED: subnet CIDR conflict candidate found in demo VPC ${demo_vpc}" >&2
+          echo "[demo-barebones] Existing subnet with CIDR 10.0.1.0/24: ${conflicting_subnet}" >&2
+          failures=1
+        fi
+      fi
+    fi
+  fi
+
+  if [[ "$failures" -ne 0 ]]; then
+    echo "[demo-barebones] Prechecks failed. Resolve IAM/VPC issues before deploying." >&2
+    return 1
+  fi
+
+  log "All prechecks passed"
+  return 0
+}
+
 require_tool aws
-require_tool docker
+
+if [[ "$PRECHECK_ONLY" != "true" && "$BUILD_IMAGES" == "true" ]]; then
+  require_tool docker
+fi
 
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -145,6 +238,17 @@ FRONTEND_IMAGE_URI="${FRONTEND_IMAGE_URI:-${ECR_REGISTRY}/aasmaa-frontend:demo}"
 log "Authenticated as: $(aws sts get-caller-identity --query Arn --output text)"
 log "Using stack: $STACK_NAME"
 log "Using region: $AWS_REGION"
+
+if [[ "$SKIP_PRECHECK" != "true" ]]; then
+  run_prechecks
+else
+  log "Skipping prechecks (--skip-precheck)"
+fi
+
+if [[ "$PRECHECK_ONLY" == "true" ]]; then
+  log "Precheck-only mode complete"
+  exit 0
+fi
 
 if [[ "$CLEANUP_EXISTING_RDS" == "true" ]]; then
   log "Checking for existing RDS resources in aasmaa stacks"
@@ -228,7 +332,8 @@ aws cloudformation deploy \
     CurS3Prefix="$CUR_PREFIX" \
     DemoUserEmail="$DEMO_USER_EMAIL" \
     DemoOrganizationName="$DEMO_ORGANIZATION_NAME" \
-    DemoAllowedAccountIds="$DEMO_ALLOWED_ACCOUNT_IDS" || {
+    DemoAllowedAccountIds="$DEMO_ALLOWED_ACCOUNT_IDS" \
+    CertificateArn="$CERTIFICATE_ARN" || {
   log "ERROR: ECS services stack deploy failed. Check CloudFormation events:"
   aws cloudformation describe-stack-events \
     --stack-name "${STACK_NAME}-services" --region "$AWS_REGION" \

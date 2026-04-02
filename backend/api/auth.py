@@ -8,7 +8,7 @@ Provides endpoints for user authentication:
 - Current user info
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 import hashlib
 import secrets
@@ -32,6 +32,7 @@ from backend.utils.pii_masking import mask_email
 from backend.services.demo_identity_store import get_demo_identity_store
 
 logger = structlog.get_logger(__name__)
+settings = get_settings()
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
 
@@ -360,7 +361,6 @@ async def login(request: LoginRequest, http_request: Request):
 
         # Create tokens
         authenticator = get_authenticator()
-        settings = get_settings()
 
         token_pair = authenticator.create_token_pair(
             user_id=user_id,

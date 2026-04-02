@@ -78,6 +78,28 @@ const defaultFeatures: FeatureAccess = {
     admin_console: false,
 };
 
+const mapLoginError = (status: number, payload: Record<string, unknown>) => {
+    const detail = String(payload?.detail || payload?.message || '').toLowerCase();
+
+    if (status === 401) {
+        return 'The email or password is incorrect. Please try again.';
+    }
+
+    if (status === 429) {
+        return String(payload?.message || 'Too many sign-in attempts. Please wait a moment and try again.');
+    }
+
+    if (detail.includes('database-backed') || detail.includes('postgresql')) {
+        return 'Sign-in is temporarily unavailable. Please try again shortly.';
+    }
+
+    if (status >= 500) {
+        return 'Sign-in is temporarily unavailable. Please try again shortly.';
+    }
+
+    return String(payload?.detail || payload?.message || 'Unable to sign in right now. Please try again.');
+};
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const normalizeUser = (user: Partial<AuthUser> | null | undefined): AuthUser | null => {
@@ -161,9 +183,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             body: JSON.stringify({ email, password }),
         });
 
-        const payload = await response.json().catch(() => ({}));
+        const payload = await response.json().catch(() => ({} as Record<string, unknown>));
         if (!response.ok) {
-            throw new Error(payload?.detail || payload?.message || 'Login failed');
+            throw new Error(mapLoginError(response.status, payload));
         }
 
         storeAuthTokens(payload.access_token, payload.refresh_token);

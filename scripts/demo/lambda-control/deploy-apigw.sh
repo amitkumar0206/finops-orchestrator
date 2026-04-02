@@ -11,9 +11,10 @@
 
 set -euo pipefail
 
-REGION="${AWS_REGION:-us-east-1}"
-CLUSTER="${ECS_CLUSTER:-aasmaa-cluster}"
-ECS_REGION="${ECS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-ap-south-1}"
+CLUSTER="${ECS_CLUSTER:-aasmaa-demo-barebones-cluster}"
+ECS_REGION="${ECS_REGION:-$REGION}"
+ECS_SERVICES="${ECS_SERVICES:-aasmaa-demo-barebones-backend|aasmaa-demo-barebones-frontend}"
 DEMO_URL="${DEMO_URL:-https://demo.aasmaa.ai}"
 LAMBDA_NAME="aasmaa-demo-control"
 API_NAME="aasmaa-demo-control-api"
@@ -97,7 +98,7 @@ PYEOF
 echo "  [OK]      $(du -h "$ZIP_FILE" | cut -f1) zip created"
 
 # ── Create or Update Lambda ───────────────────────────────────────────────────
-ENV_VARS="Variables={CONTROL_TOKEN=${TOKEN},ECS_CLUSTER=${CLUSTER},ECS_REGION=${ECS_REGION},DEMO_URL=${DEMO_URL}}"
+ENV_VARS="Variables={CONTROL_TOKEN=${TOKEN},ECS_CLUSTER=${CLUSTER},ECS_REGION=${ECS_REGION},ECS_SERVICES=${ECS_SERVICES},DEMO_URL=${DEMO_URL}}"
 
 if aws lambda get-function --function-name "$LAMBDA_NAME" --region "$REGION" &>/dev/null; then
   echo "  [UPDATE]  Lambda code..."
@@ -148,24 +149,32 @@ if [[ -z "$API_ID" ]]; then
   API_ID=$(aws apigatewayv2 create-api \
     --name "$API_NAME" \
     --protocol-type HTTP \
-    --target "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${LAMBDA_NAME}" \
     --region "$REGION" \
     --query ApiId --output text)
-else
-  # Update the integration target if API exists
-  INT_ID=$(aws apigatewayv2 get-integrations \
+fi
+
+# Create/update integration to the Lambda target.
+INT_ID=$(aws apigatewayv2 get-integrations \
+  --api-id "$API_ID" \
+  --region "$REGION" \
+  --query "Items[0].IntegrationId" \
+  --output text 2>/dev/null || true)
+
+if [[ -z "$INT_ID" || "$INT_ID" == "None" ]]; then
+  INT_ID=$(aws apigatewayv2 create-integration \
     --api-id "$API_ID" \
+    --integration-type AWS_PROXY \
+    --integration-uri "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${LAMBDA_NAME}" \
+    --payload-format-version "2.0" \
     --region "$REGION" \
-    --query "Items[0].IntegrationId" \
-    --output text 2>/dev/null || true)
-  
-  if [[ -n "$INT_ID" ]]; then
-    aws apigatewayv2 update-integration \
-      --api-id "$API_ID" \
-      --integration-id "$INT_ID" \
-      --target "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${LAMBDA_NAME}" \
-      --region "$REGION" > /dev/null
-  fi
+    --query IntegrationId --output text)
+else
+  aws apigatewayv2 update-integration \
+    --api-id "$API_ID" \
+    --integration-id "$INT_ID" \
+    --integration-uri "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${LAMBDA_NAME}" \
+    --payload-format-version "2.0" \
+    --region "$REGION" > /dev/null
 fi
 
 # Grant API Gateway permission to invoke Lambda
@@ -184,12 +193,6 @@ ROUTE_ID=$(aws apigatewayv2 get-routes \
   --output text 2>/dev/null || true)
 
 if [[ -z "$ROUTE_ID" ]]; then
-  INT_ID=$(aws apigatewayv2 get-integrations \
-    --api-id "$API_ID" \
-    --region "$REGION" \
-    --query "Items[0].IntegrationId" \
-    --output text)
-  
   aws apigatewayv2 create-route \
     --api-id "$API_ID" \
     --route-key '$default' \

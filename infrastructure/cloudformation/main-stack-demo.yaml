@@ -187,7 +187,7 @@ Resources:
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub '${AWS::StackName}-alb'
+      Name: !Sub '${AWS::StackName}-alb-v2'
       Scheme: internet-facing
       SecurityGroups:
         - !Ref ALBSecurityGroup

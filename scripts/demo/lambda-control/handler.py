@@ -20,9 +20,10 @@ import boto3
 from botocore.exceptions import ClientError
 
 # ── config ────────────────────────────────────────────────────────────────────
-CLUSTER       = os.environ.get("ECS_CLUSTER", "aasmaa-cluster")
-SERVICES      = ["aasmaa-backend", "aasmaa-frontend"]
-ECS_REGION    = os.environ.get("ECS_REGION") or os.environ.get("AWS_REGION", "us-east-1")
+CLUSTER       = os.environ.get("ECS_CLUSTER", "aasmaa-demo-barebones-cluster")
+ECS_SERVICES  = os.environ.get("ECS_SERVICES", "aasmaa-demo-barebones-backend|aasmaa-demo-barebones-frontend")
+SERVICES      = [s.strip() for s in ECS_SERVICES.replace("|", ",").split(",") if s.strip()]
+ECS_REGION    = os.environ.get("ECS_REGION") or os.environ.get("AWS_REGION", "ap-south-1")
 CONTROL_TOKEN = os.environ.get("CONTROL_TOKEN", "")
 DEMO_URL      = os.environ.get("DEMO_URL", "https://demo.aasmaa.ai")
 

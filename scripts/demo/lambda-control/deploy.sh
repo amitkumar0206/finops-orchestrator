@@ -16,8 +16,10 @@
 
 set -euo pipefail
 
-REGION="${AWS_REGION:-us-east-1}"
-CLUSTER="${ECS_CLUSTER:-aasmaa-cluster}"
+REGION="${AWS_REGION:-ap-south-1}"
+CLUSTER="${ECS_CLUSTER:-aasmaa-demo-barebones-cluster}"
+ECS_REGION="${ECS_REGION:-$REGION}"
+ECS_SERVICES="${ECS_SERVICES:-aasmaa-demo-barebones-backend|aasmaa-demo-barebones-frontend}"
 DEMO_URL="${DEMO_URL:-https://demo.aasmaa.ai}"
 LAMBDA_NAME="aasmaa-demo-control"
 ROLE_NAME="aasmaa-demo-control-role"
@@ -42,6 +44,7 @@ echo "==> Deploying $LAMBDA_NAME"
 echo "    Account : $ACCOUNT_ID"
 echo "    Region  : $REGION"
 echo "    Cluster : $CLUSTER"
+echo "    ECS API : $ECS_REGION"
 echo ""
 
 # ── IAM Role ──────────────────────────────────────────────────────────────────
@@ -81,8 +84,8 @@ aws iam put-role-policy \
       \"Effect\":\"Allow\",
       \"Action\":[\"ecs:DescribeServices\",\"ecs:UpdateService\"],
       \"Resource\":[
-        \"arn:aws:ecs:${REGION}:${ACCOUNT_ID}:cluster/${CLUSTER}\",
-        \"arn:aws:ecs:${REGION}:${ACCOUNT_ID}:service/${CLUSTER}/*\"
+        \"arn:aws:ecs:${ECS_REGION}:${ACCOUNT_ID}:cluster/${CLUSTER}\",
+        \"arn:aws:ecs:${ECS_REGION}:${ACCOUNT_ID}:service/${CLUSTER}/*\"
       ]
     }]
   }"
@@ -100,7 +103,7 @@ PYEOF
 echo "  [OK]      $(du -h "$ZIP_FILE" | cut -f1) zip created"
 
 # ── Create or Update Lambda ───────────────────────────────────────────────────
-ENV_VARS="Variables={CONTROL_TOKEN=${TOKEN},ECS_CLUSTER=${CLUSTER},DEMO_URL=${DEMO_URL}}"
+ENV_VARS="Variables={CONTROL_TOKEN=${TOKEN},ECS_CLUSTER=${CLUSTER},ECS_REGION=${ECS_REGION},ECS_SERVICES=${ECS_SERVICES},DEMO_URL=${DEMO_URL}}"
 
 if aws lambda get-function --function-name "$LAMBDA_NAME" --region "$REGION" &>/dev/null; then
   echo "  [UPDATE]  Lambda code..."

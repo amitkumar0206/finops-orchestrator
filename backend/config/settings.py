@@ -581,7 +581,7 @@ class Settings(BaseSettings):
     @property
     def config_demo_auth_enabled(self) -> bool:
         """Return whether config-backed demo auth should be used."""
-        return self.demo_mode and not self.database_enabled and self.demo_identity_enabled
+        return not self.database_enabled and self.demo_identity_enabled
 
     @property
     def database_url(self) -> str:

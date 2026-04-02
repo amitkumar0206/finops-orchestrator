@@ -297,7 +297,6 @@ Resources:
   BackendTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: aasmaa-backend-tg
       Port: 8000
       Protocol: HTTP
       TargetType: ip
@@ -316,7 +315,6 @@ Resources:
   FrontendTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: aasmaa-frontend-tg
       Port: 80
       Protocol: HTTP
       TargetType: ip

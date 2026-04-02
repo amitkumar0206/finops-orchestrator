@@ -1,25 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Avatar,
   Box,
-  Button,
   List,
   ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Stack,
   Tooltip,
 } from '@mui/material';
 import {
   Logout as LogoutIcon,
-  Add as AddIcon,
   HomeOutlined as HomeOutlinedIcon,
   ForumOutlined as ForumOutlinedIcon,
   InsightsOutlined as InsightsOutlinedIcon,
   AutoFixHighOutlined as AutoFixHighOutlinedIcon,
   SettingsOutlined as SettingsOutlinedIcon,
+  AdminPanelSettings as AdminPanelSettingsIcon,
   PersonOutline as PersonOutlineIcon,
 } from '@mui/icons-material';
 
@@ -38,11 +35,10 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 const AppShell: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, isAuthenticated, isCheckingAuth, logout, canAccess } = useAuth();
+  const { isAuthenticated, isCheckingAuth, logout, canAccess } = useAuth();
   const [scopeVersion, setScopeVersion] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
-  // Collapse sidebar whenever the route changes (so navigating always starts collapsed)
   useEffect(() => {
     setIsSidebarCollapsed(true);
   }, [location.pathname]);
@@ -64,7 +60,7 @@ const AppShell: React.FC = () => {
           alignItems: 'center',
           justifyContent: 'center',
           height: '100vh',
-          background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)'
+          background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
         }}
       >
         <Box sx={{ color: 'white', textAlign: 'center' }}>
@@ -84,6 +80,7 @@ const AppShell: React.FC = () => {
     if (location.pathname.startsWith('/iac') || location.pathname.startsWith('/analyze')) return '/analyze';
     if (location.pathname.startsWith('/settings')) return '/settings';
     if (location.pathname.startsWith('/profile')) return '/profile';
+    if (location.pathname.startsWith('/admin')) return '/admin';
     return '/chat';
   })();
 
@@ -93,14 +90,8 @@ const AppShell: React.FC = () => {
     canAccess('chat') ? { key: '/chat', label: 'Cost Chat', icon: <ForumOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
     canAccess('analyze') ? { key: '/analyze', label: 'Analyze', icon: <InsightsOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
     canAccess('generate') ? { key: '/generate', label: 'Generate', icon: <AutoFixHighOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
-    canAccess('admin_console') ? { key: '/admin', label: 'Admin', icon: <SettingsOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
+    canAccess('admin_console') ? { key: '/admin', label: 'Admin', icon: <AdminPanelSettingsIcon sx={{ fontSize: 20 }} /> } : null,
   ].filter(Boolean) as Array<{ key: string; label: string; icon: React.ReactNode }>;
-
-  const initials = (user?.full_name || user?.email || 'A')
-    .split(' ')
-    .map((part) => part.charAt(0).toUpperCase())
-    .join('')
-    .slice(0, 2);
 
   const chatRouteElement = canAccess('chat') ? <ErrorBoundary><ChatInterface key={scopeVersion} /></ErrorBoundary> : <Navigate to="/" replace />;
   const analyzeRouteElement = canAccess('analyze') ? <ErrorBoundary><IacWorkbenchPage /></ErrorBoundary> : <Navigate to="/" replace />;
@@ -123,6 +114,7 @@ const AppShell: React.FC = () => {
             flexShrink: 0,
           }}
         >
+          {/* Logo */}
           <Box
             sx={{
               display: 'flex',
@@ -158,6 +150,7 @@ const AppShell: React.FC = () => {
             </Box>
           )}
 
+          {/* Top nav: Home + dynamic nav items */}
           <List sx={{ px: isSidebarCollapsed ? 0.9 : 1.2, pb: 0.5 }}>
             <ListItem disablePadding sx={{ mb: 0.5 }}>
               <Tooltip title={isSidebarCollapsed ? 'Home' : ''} placement="right">
@@ -178,10 +171,7 @@ const AppShell: React.FC = () => {
                   }}
                 >
                   <ListItemIcon
-                    sx={{
-                      minWidth: isSidebarCollapsed ? 0 : 34,
-                      color: 'inherit',
-                    }}
+                    sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: 'inherit' }}
                   >
                     <HomeOutlinedIcon sx={{ fontSize: 20 }} />
                   </ListItemIcon>
@@ -194,42 +184,7 @@ const AppShell: React.FC = () => {
                 </ListItemButton>
               </Tooltip>
             </ListItem>
-          </List>
 
-          <Box sx={{ px: isSidebarCollapsed ? 1 : 1.25, pt: 0.5 }}>
-            <Tooltip title={isSidebarCollapsed ? 'New Chat' : ''} placement="right">
-              <Button
-                component={Link}
-                to="/chat"
-                onClick={() => setScopeVersion((v) => v + 1)}
-                fullWidth
-                variant="text"
-                startIcon={<AddIcon />}
-                sx={{
-                  minWidth: 0,
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  fontSize: '0.92rem',
-                  borderRadius: 2,
-                  px: isSidebarCollapsed ? 1 : 1.3,
-                  py: 0.75,
-                  minHeight: 44,
-                  color: '#334155',
-                  bgcolor: 'transparent',
-                  '&:hover': { bgcolor: 'rgba(15,23,42,0.06)' },
-                  '& .MuiButton-startIcon': {
-                    mr: isSidebarCollapsed ? 0 : 1,
-                    ml: 0,
-                  },
-                }}
-              >
-                {!isSidebarCollapsed && 'New Chat'}
-              </Button>
-            </Tooltip>
-          </Box>
-
-          <List sx={{ pt: 1.2, px: isSidebarCollapsed ? 0.9 : 1.2 }}>
             {navItems.map((item) => (
               <ListItem key={item.key} disablePadding sx={{ mb: 0.5 }}>
                 <Tooltip title={isSidebarCollapsed ? item.label : ''} placement="right">
@@ -250,10 +205,7 @@ const AppShell: React.FC = () => {
                     }}
                   >
                     <ListItemIcon
-                      sx={{
-                        minWidth: isSidebarCollapsed ? 0 : 34,
-                        color: 'inherit',
-                      }}
+                      sx={{ minWidth: isSidebarCollapsed ? 0 : 34, color: 'inherit' }}
                     >
                       {item.icon}
                     </ListItemIcon>
@@ -271,6 +223,7 @@ const AppShell: React.FC = () => {
 
           <Box sx={{ flexGrow: 1 }} />
 
+          {/* Bottom nav: Settings, Profile, Logout */}
           <List sx={{ px: isSidebarCollapsed ? 0.9 : 1.2, pb: 1.2 }}>
             <ListItem disablePadding sx={{ mb: 0.5 }}>
               <Tooltip title={isSidebarCollapsed ? 'Settings' : ''} placement="right">
@@ -351,67 +304,6 @@ const AppShell: React.FC = () => {
           overflow: hideSidebar ? 'auto' : 'hidden',
         }}
       >
-        {!hideSidebar && (
-          <Box
-            sx={{
-              px: { xs: 1.2, md: 2.2 },
-              py: 1,
-              borderBottom: '1px solid rgba(15,23,42,0.08)',
-              bgcolor: 'rgba(255,255,255,0.92)',
-              backdropFilter: 'blur(8px)',
-            }}
-          >
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <Button
-                component={Link}
-                to="/profile"
-                startIcon={<PersonOutlineIcon sx={{ fontSize: 18 }} />}
-                sx={{
-                  color: '#334155',
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  borderRadius: 2,
-                  px: 1.4,
-                  '&:hover': { bgcolor: 'rgba(15,23,42,0.05)' },
-                }}
-              >
-                Profile
-              </Button>
-              <Button
-                component={Link}
-                to="/settings"
-                startIcon={<SettingsOutlinedIcon sx={{ fontSize: 18 }} />}
-                sx={{
-                  color: '#334155',
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  borderRadius: 2,
-                  px: 1.4,
-                  '&:hover': { bgcolor: 'rgba(15,23,42,0.05)' },
-                }}
-              >
-                Settings
-              </Button>
-              <Button
-                onClick={handleLogout}
-                startIcon={<LogoutIcon sx={{ fontSize: 18 }} />}
-                sx={{
-                  color: '#0D47A1',
-                  textTransform: 'none',
-                  fontWeight: 700,
-                  borderRadius: 2,
-                  px: 1.4,
-                  border: '1px solid rgba(21,101,192,0.28)',
-                  '&:hover': { bgcolor: 'rgba(21,101,192,0.08)', borderColor: '#1565C0' },
-                }}
-              >
-                Logout
-              </Button>
-              <Avatar sx={{ width: 32, height: 32, fontSize: '0.8rem', fontWeight: 700, bgcolor: '#1565C0' }}>{initials}</Avatar>
-            </Stack>
-          </Box>
-        )}
-
         <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
           <Routes>
             <Route path="/" element={<ErrorBoundary><LandingPage onLogout={handleLogout} /></ErrorBoundary>} />
