@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Local development runtime artifacts
+.local-run/
+
 # Database migration tracking (instance-specific)
 backend/scripts/completed/
 *.completed
