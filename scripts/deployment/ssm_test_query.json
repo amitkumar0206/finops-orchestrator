@@ -1,6 +1,0 @@
-{
-    "commands": [
-        "set -e",
-        "curl -sS -X POST http://localhost:8000/api/v1/athena/generate -H 'Content-Type: application/json' -d '{\"user_query\":\"Show me my AWS costs for the last 30 days\",\"execute_query\":true}'"
-    ]
-}

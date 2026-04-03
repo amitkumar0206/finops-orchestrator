@@ -1,8 +1,0 @@
-{
-    "commands": [
-        "set -e",
-        "docker ps -a --filter name=aasmaa-backend --format \"table {{.Names}}\\t{{.Image}}\\t{{.Status}}\"",
-        "docker logs --tail 120 aasmaa-backend",
-        "curl -sS http://localhost:8000/health || true"
-    ]
-}

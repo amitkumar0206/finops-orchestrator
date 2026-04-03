@@ -1,6 +1,0 @@
-{
-    "commands": [
-        "set -e",
-        "nl -ba /opt/aasmaa-demo/docker-compose.yml | sed -n '1,140p'"
-    ]
-}

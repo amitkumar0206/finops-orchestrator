@@ -2,6 +2,8 @@
 
 This directory contains operational scripts for deployment, setup, and maintenance of the aasmaa Intelligence Platform.
 
+Preferred entrypoint for deployment operations is [aasmaaDeployment.sh](aasmaaDeployment.sh), which routes to the correct deployment/update workflow based on mode and process flags.
+
 ## Directory Structure
 
 ```
@@ -15,6 +17,32 @@ scripts/
 ---
 
 ## Deployment Scripts (`deployment/`)
+
+### Unified Command (Recommended)
+**Script:** `./scripts/aasmaaDeployment.sh`
+
+**Usage:**
+```bash
+# Demo barebones update (in-place)
+./scripts/aasmaaDeployment.sh --mode=demo --process=update
+
+# Demo barebones deploy
+./scripts/aasmaaDeployment.sh --mode=demo --process=deploy
+
+# Prod update
+./scripts/aasmaaDeployment.sh --mode=prod --process=update
+
+# Run migrations
+./scripts/aasmaaDeployment.sh --mode=demo --process=migrate --region ap-south-1 --stack-name aasmaa-demo-barebones
+```
+
+**Routes internally to:**
+- `demo/deploy` -> `scripts/deployment/deploy-demo-barebones.sh`
+- `demo/update` -> `scripts/deployment/update-demo-barebones.sh`
+- `prod/update` -> `scripts/deployment/update-prod-full.sh`
+- `*/migrate` -> `scripts/deployment/aws_run_migrations.sh run`
+
+---
 
 ### `aws_run_migrations.sh`
 **Purpose:** Run Alembic database migrations on AWS ECS  
@@ -296,7 +324,7 @@ python scripts/setup/opportunities_ingest.py --sources cost-explorer,compute-opt
 1. **Always run from repository root:**
    ```bash
    cd /path/to/aasmaa
-   ./scripts/deployment/redeploy-backend.sh  # ✅ Correct
+   ./scripts/aasmaaDeployment.sh --mode=demo --process=update  # ✅ Recommended
    ```
 
 2. **Check script permissions:**
