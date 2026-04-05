@@ -16,6 +16,7 @@ from backend.config.settings import get_settings
 from backend.utils.sql_constants import build_sql_in_list, format_display_list
 from backend.utils.sql_validation import ValidationError
 from backend.services.rbac_permission_service import get_rbac_service
+from backend.utils.date_parser import date_parser
 
 if TYPE_CHECKING:
     from backend.services.request_context import RequestContext
@@ -583,7 +584,28 @@ Now generate the query for the user's request. Return ONLY the JSON, no markdown
 
 
 class TextToSQLService:
-    """Pure LLM-based text-to-SQL service for AWS CUR queries"""
+    """Pure LLM-based text-to-SQL service for AWS CUR queries."""
+
+    _DATE_BETWEEN_PATTERN = re.compile(
+        r"(?P<prefix>CAST\(line_item_usage_start_date AS DATE\)\s+BETWEEN\s+DATE\s+')"
+        r"(?P<start>\d{4}-\d{2}-\d{2})"
+        r"(?P<middle>'\s+AND\s+DATE\s+')"
+        r"(?P<end>\d{4}-\d{2}-\d{2})"
+        r"(?P<suffix>')",
+        re.IGNORECASE,
+    )
+    _DATE_START_PATTERN = re.compile(
+        r"(?P<prefix>CAST\(line_item_usage_start_date AS DATE\)\s*>=\s*DATE\s+')"
+        r"(?P<date>\d{4}-\d{2}-\d{2})"
+        r"(?P<suffix>')",
+        re.IGNORECASE,
+    )
+    _DATE_END_PATTERN = re.compile(
+        r"(?P<prefix>CAST\(line_item_usage_start_date AS DATE\)\s*<=\s*DATE\s+')"
+        r"(?P<date>\d{4}-\d{2}-\d{2})"
+        r"(?P<suffix>')",
+        re.IGNORECASE,
+    )
     
     async def generate_sql(
         self,
@@ -714,7 +736,7 @@ class TextToSQLService:
                 )
                 # Last resort: try to extract SQL from the partial JSON if it contains a sql field
                 import re
-                sql_match = re.search(r'"sql"\s*:\s*"([^"]+(?:\\.[^"]*)*)"', sanitized)
+                sql_match = re.search(r'"sql"\s*:\s*"((?:[^"\\]|\\.)*)"', sanitized, re.DOTALL)
                 if sql_match:
                   # Found SQL in malformed JSON - extract it and proceed with minimal metadata
                   sql_query = sql_match.group(1).replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t')
@@ -760,6 +782,12 @@ class TextToSQLService:
                     "explanation": explanation,
                     "result_columns": result_columns
                   }
+                  resolved_time_range = self._resolve_requested_time_range(user_query, previous_context)
+                  sql_query = self._apply_resolved_time_range(sql_query, resolved_time_range)
+                  metadata["explanation"] = self._normalize_explanation_time_range(
+                      metadata.get("explanation", ""),
+                      resolved_time_range,
+                  )
                   return sql_query, metadata
                 
                 # Truly failed - return error
@@ -790,13 +818,19 @@ class TextToSQLService:
                 }
                 return "", metadata
             
+            resolved_time_range = self._resolve_requested_time_range(user_query, previous_context)
+            sql_query = self._apply_resolved_time_range(sql_query, resolved_time_range)
+
             # Extract time period and filters from SQL
             time_period_info = self._extract_time_period_from_sql(sql_query)
             scope_info = self._extract_scope_from_sql(sql_query, user_query)
             filters_info = self._extract_filters_from_sql(sql_query)
             
             metadata = {
-                "explanation": response_data.get("explanation", ""),
+                "explanation": self._normalize_explanation_time_range(
+                  response_data.get("explanation", ""),
+                  resolved_time_range,
+                ),
                 "result_columns": response_data.get("result_columns", []),
                 "query_type": response_data.get("query_type", "unknown"),
                 "generated_via": "text_to_sql_llm",
@@ -866,6 +900,93 @@ class TextToSQLService:
                 "error": str(e)
             }
             return "", metadata
+
+    def _resolve_requested_time_range(
+        self,
+        user_query: str,
+        previous_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        context = previous_context or {}
+
+        for key in ("time_range", "default_time_range"):
+            candidate = context.get(key)
+            if isinstance(candidate, dict) and candidate.get("start_date") and candidate.get("end_date"):
+                return candidate
+
+        start_date, end_date, metadata = date_parser.parse_time_range(user_query)
+        return {
+            "start_date": start_date,
+            "end_date": end_date,
+            "description": metadata.get("description", "Requested period"),
+            "source": metadata.get("source", "explicit"),
+            "metadata": metadata,
+        }
+
+    def _apply_resolved_time_range(
+        self,
+        sql_query: str,
+        time_range: Optional[Dict[str, Any]],
+    ) -> str:
+        if not sql_query or not time_range:
+            return sql_query
+
+        start_date = time_range.get("start_date")
+        end_date = time_range.get("end_date")
+        if not start_date or not end_date:
+            return sql_query
+
+        between_matches = list(self._DATE_BETWEEN_PATTERN.finditer(sql_query))
+        start_matches = list(self._DATE_START_PATTERN.finditer(sql_query))
+        end_matches = list(self._DATE_END_PATTERN.finditer(sql_query))
+
+        if len(between_matches) == 1 and not start_matches and not end_matches:
+            return self._DATE_BETWEEN_PATTERN.sub(
+                rf"\g<prefix>{start_date}\g<middle>{end_date}\g<suffix>",
+                sql_query,
+                count=1,
+            )
+
+        if len(start_matches) == 1 and len(end_matches) == 1 and not between_matches:
+            normalized = self._DATE_START_PATTERN.sub(
+                rf"\g<prefix>{start_date}\g<suffix>",
+                sql_query,
+                count=1,
+            )
+            normalized = self._DATE_END_PATTERN.sub(
+                rf"\g<prefix>{end_date}\g<suffix>",
+                normalized,
+                count=1,
+            )
+            return normalized
+
+        return sql_query
+
+    def _normalize_explanation_time_range(
+        self,
+        explanation: str,
+        time_range: Optional[Dict[str, Any]],
+    ) -> str:
+        if not explanation or not time_range:
+            return explanation
+
+        description = str(time_range.get("description") or "").strip()
+        if not description:
+            return explanation
+
+        normalized_description = description.replace(" (default)", "")
+        lower_description = normalized_description.lower()
+
+        metadata = time_range.get("metadata") or {}
+        days = metadata.get("days")
+        if lower_description.startswith("last ") and days:
+            return re.sub(
+                r"last\s+\d+\s+days?(?:\s*\(default\))?",
+                lower_description,
+                explanation,
+                flags=re.IGNORECASE,
+            )
+
+        return explanation
     
     def _extract_time_period_from_sql(self, sql: str) -> str:
         """Extract time period from SQL WHERE clause"""

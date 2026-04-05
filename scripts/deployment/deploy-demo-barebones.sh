@@ -21,7 +21,7 @@ fi
 STACK_NAME="${STACK_NAME:-aasmaa-demo-barebones}"
 AWS_REGION="${AWS_REGION:-ap-south-1}"
 ENVIRONMENT="${ENVIRONMENT:-development}"
-BEDROCK_MODEL="${BEDROCK_MODEL:-us.amazon.nova-lite-v1:0}"
+BEDROCK_MODEL="${BEDROCK_MODEL:-meta.llama3-8b-instruct-v1:0}"
 DEMO_ALLOWED_ACCOUNT_IDS="${DEMO_ALLOWED_ACCOUNT_IDS:-123456789012}"
 DEMO_USER_EMAIL="${DEMO_USER_EMAIL:-demo@aasmaa.ai}"
 DEMO_ORGANIZATION_NAME="${DEMO_ORGANIZATION_NAME:-Demo Organization}"
@@ -44,6 +44,24 @@ done
 
 log() {
   echo "[demo-barebones] $1"
+}
+
+bucket_region() {
+  local bucket_name="$1"
+  local location
+
+  location="$(aws s3api get-bucket-location --bucket "$bucket_name" --query 'LocationConstraint' --output text 2>/dev/null || true)"
+  if [[ -z "$location" || "$location" == "None" || "$location" == "null" ]]; then
+    echo "us-east-1"
+    return 0
+  fi
+
+  if [[ "$location" == "EU" ]]; then
+    echo "eu-west-1"
+    return 0
+  fi
+
+  echo "$location"
 }
 
 require_tool() {
@@ -257,6 +275,19 @@ fi
 
 log "Checking for stuck CloudFormation stacks that would block deployment"
 cleanup_stuck_stacks
+
+if aws s3api head-bucket --bucket "$S3_BUCKET" >/dev/null 2>&1; then
+  original_s3_bucket="$S3_BUCKET"
+  existing_region="$(bucket_region "$S3_BUCKET")"
+  if [[ "$existing_region" != "$AWS_REGION" ]]; then
+    fallback_bucket="${S3_BUCKET}-${AWS_REGION}"
+    log "S3 bucket $S3_BUCKET is in $existing_region; switching Athena/results bucket to $fallback_bucket in $AWS_REGION"
+    S3_BUCKET="$fallback_bucket"
+    if [[ "$CUR_BUCKET" == "$original_s3_bucket" ]]; then
+      CUR_BUCKET="$S3_BUCKET"
+    fi
+  fi
+fi
 
 log "Ensuring S3 bucket exists: $S3_BUCKET"
 aws s3api head-bucket --bucket "$S3_BUCKET" >/dev/null 2>&1 || aws s3 mb "s3://${S3_BUCKET}" --region "$AWS_REGION"

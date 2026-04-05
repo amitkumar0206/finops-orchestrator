@@ -92,8 +92,8 @@ const AppShell: React.FC = () => {
   const navItems = [
     canAccess('chat') ? { key: '/chat', label: 'Cost Chat', icon: <ForumOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
     canAccess('analyze') ? { key: '/analyze', label: 'Analyze', icon: <InsightsOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
-    canAccess('cur_analysis') ? { key: '/cur-analysis', label: 'CUR Analysis', icon: <ReceiptLongOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
     canAccess('generate') ? { key: '/generate', label: 'Generate', icon: <AutoFixHighOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
+    canAccess('cur_analysis') ? { key: '/cur-analysis', label: 'CUR Analysis', icon: <ReceiptLongOutlinedIcon sx={{ fontSize: 20 }} /> } : null,
     canAccess('admin_console') ? { key: '/admin', label: 'Admin', icon: <AdminPanelSettingsIcon sx={{ fontSize: 20 }} /> } : null,
   ].filter(Boolean) as Array<{ key: string; label: string; icon: React.ReactNode }>;
 

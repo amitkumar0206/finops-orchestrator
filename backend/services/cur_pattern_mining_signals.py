@@ -29,7 +29,7 @@ IAM permissions required (read-only):
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from uuid import UUID, uuid4
 
 import structlog
@@ -88,6 +88,7 @@ class CURPatternMiningSignalsService:
 
         self._session = create_aws_session(region_name=self.region)
         self._ce_client = None
+        self._available_columns_cache: Optional[Set[str]] = None
 
     # ------------------------------------------------------------------
     # Lazy clients
@@ -111,14 +112,45 @@ class CURPatternMiningSignalsService:
         start_s, end_s = start.isoformat(), end.isoformat()
 
         signals: List[Dict[str, Any]] = []
+        available_columns = await self._get_available_columns()
         athena_detectors = [
-            ("ri_unused_hours", self._mine_ri_unused_hours),
-            ("sp_unused_commitment", self._mine_sp_unused_commitment),
-            ("cross_region_data_transfer", self._mine_cross_region_data_transfer),
-            ("idle_resources", self._mine_idle_resources),
-            ("on_demand_steady_state_db", self._mine_on_demand_steady_state_db),
+            (
+                "ri_unused_hours",
+                self._mine_ri_unused_hours,
+                {
+                    "reservation_reservation_a_r_n",
+                    "reservation_unused_amortized_upfront_fee_for_billing_period",
+                    "reservation_unused_recurring_fee",
+                    "reservation_unused_quantity",
+                },
+            ),
+            (
+                "sp_unused_commitment",
+                self._mine_sp_unused_commitment,
+                {
+                    "savings_plan_savings_plan_a_r_n",
+                    "savings_plan_total_commitment_to_date",
+                    "savings_plan_used_commitment",
+                },
+            ),
+            ("cross_region_data_transfer", self._mine_cross_region_data_transfer, set()),
+            ("idle_resources", self._mine_idle_resources, set()),
+            (
+                "on_demand_steady_state_db",
+                self._mine_on_demand_steady_state_db,
+                {"reservation_reservation_a_r_n"},
+            ),
         ]
-        for label, fn in athena_detectors:
+        for label, fn, required_columns in athena_detectors:
+            if available_columns and required_columns:
+                missing = sorted(required_columns - available_columns)
+                if missing:
+                    logger.info(
+                        "CUR mining detector skipped due to missing schema columns",
+                        detector=label,
+                        missing_columns=missing,
+                    )
+                    continue
             try:
                 found = await fn(start_s, end_s)
                 signals.extend(found)
@@ -146,6 +178,34 @@ class CURPatternMiningSignalsService:
     async def _run(self, sql: str) -> List[Dict[str, Any]]:
         # ``_execute_athena_query`` already handles polling + error logging.
         return await self._executor._execute_athena_query(sql)
+
+    async def _get_available_columns(self) -> Set[str]:
+        if self._available_columns_cache is not None:
+            return self._available_columns_cache
+
+        database = settings.aws_cur_database.replace("'", "''")
+        table = settings.aws_cur_table.replace("'", "''")
+        sql = (
+            "SELECT LOWER(column_name) AS column_name "
+            "FROM information_schema.columns "
+            f"WHERE table_schema = '{database}' AND table_name = '{table}'"
+        )
+
+        try:
+            rows = await self._run(sql)
+            discovered: Set[str] = set()
+            for row in rows:
+                name = str(row.get("column_name") or "").strip().lower()
+                if name:
+                    discovered.add(name)
+            self._available_columns_cache = discovered
+            if discovered:
+                logger.info("Discovered CUR schema columns", count=len(discovered))
+            return discovered
+        except Exception as exc:
+            logger.warning("Failed to discover CUR schema columns", error=str(exc))
+            self._available_columns_cache = set()
+            return self._available_columns_cache
 
     async def _mine_ri_unused_hours(self, start: str, end: str) -> List[Dict[str, Any]]:
         sql = self.templates.ri_unused_hours(start, end, min_unused_cost=self.min_ri_unused_cost)

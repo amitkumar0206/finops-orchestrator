@@ -202,6 +202,7 @@ async def execute_multi_agent_query(
         # Enhance context with time range
         enhanced_context = previous_context.copy() if previous_context else {}
         enhanced_context["time_range"] = time_range_result.primary.to_dict()
+        enhanced_context["account_ids"] = account_ids or []
 
         if time_range_result.comparison:
             enhanced_context["comparison_time_range"] = time_range_result.comparison.to_dict()

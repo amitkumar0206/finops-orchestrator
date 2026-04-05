@@ -137,6 +137,7 @@ class BedrockLLMService:
         """
         converse_api_models = [
             "us.amazon.nova",        # Nova 2.0 models
+            "amazon.nova",           # Nova models without region prefix
             "anthropic.claude-3",    # Claude 3 and newer
             "meta.llama3",           # Llama 3 models
             "mistral.mistral-large", # Newer Mistral models
@@ -162,7 +163,7 @@ class BedrockLLMService:
             Dictionary of model-specific parameters
         """
         # Amazon Nova 2.0 models require specific inference configuration
-        if model_id.startswith("us.amazon.nova"):
+        if model_id.startswith("us.amazon.nova") or model_id.startswith("amazon.nova"):
             return {
                 "temperature": self.settings.temperature,
                 "top_p": 0.9,
@@ -171,7 +172,7 @@ class BedrockLLMService:
         # Meta Llama models
         elif model_id.startswith("meta.llama"):
             return {
-                "max_gen_len": self.settings.max_tokens,
+                "max_tokens": self.settings.max_tokens,
                 "temperature": self.settings.temperature,
                 "top_p": 0.9,
             }
@@ -252,12 +253,15 @@ class BedrockLLMService:
     def _build_inference_config(self) -> Dict[str, Any]:
         """Build inference configuration suitable for Bedrock Converse API."""
         config: Dict[str, Any] = {}
+        model_id_lower = (self.model_id or "").lower()
+        max_model_tokens = 4096
+        if model_id_lower.startswith("meta.llama"):
+            max_model_tokens = 2048
 
         max_tokens = self.model_kwargs.get("max_tokens", self.settings.max_tokens)
         if max_tokens:
             # Guard against model hard limits to prevent Bedrock validation failures.
-            # Claude Haiku accepts up to 4096 output tokens.
-            config["maxTokens"] = max(1, min(int(max_tokens), 4096))
+            config["maxTokens"] = max(1, min(int(max_tokens), max_model_tokens))
 
         temperature = self.model_kwargs.get("temperature", self.settings.temperature)
         if temperature is not None:

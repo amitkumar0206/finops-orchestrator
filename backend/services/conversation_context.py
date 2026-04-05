@@ -289,6 +289,11 @@ class ConversationContext:
             # Explicitly keep last time range
             should_inherit_time_range = True
             logger.info("INHERITING: 'same period' phrase detected")
+        elif explicit_new_time_range:
+            # Clear time range change - allow override even for phrases like
+            # "how about last 60 days"
+            should_inherit_time_range = False
+            logger.info(f"NOT INHERITING: Explicit new time range detected: {new_time_range.get('description', 'N/A')}")
         elif not new_time_range:
             # No time range mentioned at all - inherit from previous query
             should_inherit_time_range = True
@@ -297,10 +302,6 @@ class ConversationContext:
             # Ambiguous queries - inherit to avoid confusion
             should_inherit_time_range = True
             logger.info("INHERITING: Ambiguous phrase detected")
-        elif explicit_new_time_range:
-            # Clear time range change - allow override
-            should_inherit_time_range = False
-            logger.info(f"NOT INHERITING: Explicit new time range detected: {new_time_range.get('description', 'N/A')}")
         else:
             # Implicit or default time range - inherit
             should_inherit_time_range = True

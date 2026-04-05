@@ -13,11 +13,9 @@ fi
 source "$CONFIG_FILE"
 
 DRY_RUN=false
-BUILD_IMAGES=true
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
-    --skip-build) BUILD_IMAGES=false ;;
     *) echo "[demo-update] Unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
@@ -57,6 +55,71 @@ stack_exists() {
   aws cloudformation describe-stacks \
     --stack-name "$stack_name" \
     --region "$AWS_REGION" >/dev/null 2>&1
+}
+
+resolve_service_image_uri() {
+  local cluster_name="$1"
+  local service_name="$2"
+  local container_name="$3"
+  local fallback_image="$4"
+  local task_definition
+  local service_image
+
+  task_definition="$(aws ecs describe-services \
+    --cluster "$cluster_name" \
+    --services "$service_name" \
+    --region "$AWS_REGION" \
+    --query 'services[0].taskDefinition' \
+    --output text 2>/dev/null || true)"
+
+  if [[ -z "$task_definition" || "$task_definition" == "None" ]]; then
+    echo "$fallback_image"
+    return 0
+  fi
+
+  service_image="$(aws ecs describe-task-definition \
+    --task-definition "$task_definition" \
+    --region "$AWS_REGION" \
+    --query "taskDefinition.containerDefinitions[?name==\`${container_name}\`].image | [0]" \
+    --output text 2>/dev/null || true)"
+
+  if [[ -z "$service_image" || "$service_image" == "None" ]]; then
+    echo "$fallback_image"
+    return 0
+  fi
+
+  echo "$service_image"
+}
+
+image_registry_from_uri() {
+  local image_uri="$1"
+  echo "$image_uri" | cut -d'/' -f1
+}
+
+image_region_from_uri() {
+  local image_uri="$1"
+  image_registry_from_uri "$image_uri" | awk -F'.' '{print $4}'
+}
+
+ecr_login_for_image() {
+  local image_uri="$1"
+  local registry
+  local registry_region
+
+  registry="$(image_registry_from_uri "$image_uri")"
+  registry_region="$(image_region_from_uri "$image_uri")"
+
+  if [[ -z "$registry" || -z "$registry_region" ]]; then
+    echo "[demo-update] Unable to parse registry/region from image URI: $image_uri" >&2
+    exit 1
+  fi
+
+  if [[ "${LOGGED_ECR_REGISTRIES:-}" == *"|${registry}|"* ]]; then
+    return 0
+  fi
+
+  run_shell "aws ecr get-login-password --region \"$registry_region\" | docker login --username AWS --password-stdin \"$registry\""
+  LOGGED_ECR_REGISTRIES="${LOGGED_ECR_REGISTRIES:-}|${registry}|"
 }
 
 BACKEND_IMAGE_URI="${BACKEND_IMAGE_URI:-$ECR_REGISTRY/aasmaa-backend:latest}"
@@ -133,6 +196,12 @@ if [[ "$ECS_FAILURES_JSON" != "[]" ]]; then
   exit 1
 fi
 
+BACKEND_IMAGE_URI="$(resolve_service_image_uri "$DEMO_CLUSTER_NAME" "$DEMO_BACKEND_SERVICE" "backend" "$BACKEND_IMAGE_URI")"
+FRONTEND_IMAGE_URI="$(resolve_service_image_uri "$DEMO_CLUSTER_NAME" "$DEMO_FRONTEND_SERVICE" "frontend" "$FRONTEND_IMAGE_URI")"
+
+log "Using backend image URI: $BACKEND_IMAGE_URI"
+log "Using frontend image URI: $FRONTEND_IMAGE_URI"
+
 if command -v dig >/dev/null 2>&1; then
   LIVE_IPS="$(dig +short "$DEMO_URL" | tr '\n' ' ' | xargs || true)"
   ALB_IPS="${DEMO_ALB_DNS:+$(dig +short "$DEMO_ALB_DNS" | tr '\n' ' ' | xargs || true)}"
@@ -142,18 +211,17 @@ if command -v dig >/dev/null 2>&1; then
   fi
 fi
 
-if $BUILD_IMAGES; then
-  log "Building and pushing latest backend/frontend images"
-  run_shell "aws ecr get-login-password --region \"$AWS_REGION\" | docker login --username AWS --password-stdin \"$ECR_REGISTRY\""
-  run_shell "DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f \"$ROOT_DIR/backend/Dockerfile\" -t aasmaa-backend:latest \"$ROOT_DIR\""
-  run_cmd docker tag aasmaa-backend:latest "$BACKEND_IMAGE_URI"
-  run_cmd docker push "$BACKEND_IMAGE_URI"
-  run_shell "DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f \"$ROOT_DIR/frontend/Dockerfile\" -t aasmaa-frontend:latest \"$ROOT_DIR\""
-  run_cmd docker tag aasmaa-frontend:latest "$FRONTEND_IMAGE_URI"
-  run_cmd docker push "$FRONTEND_IMAGE_URI"
-else
-  log "Skipping image build/push (--skip-build)"
+log "Building and pushing latest backend/frontend images"
+ecr_login_for_image "$BACKEND_IMAGE_URI"
+if [[ "$FRONTEND_IMAGE_URI" != "$BACKEND_IMAGE_URI" ]]; then
+  ecr_login_for_image "$FRONTEND_IMAGE_URI"
 fi
+run_shell "DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f \"$ROOT_DIR/backend/Dockerfile\" -t aasmaa-backend:latest \"$ROOT_DIR\""
+run_cmd docker tag aasmaa-backend:latest "$BACKEND_IMAGE_URI"
+run_cmd docker push "$BACKEND_IMAGE_URI"
+run_shell "DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f \"$ROOT_DIR/frontend/Dockerfile\" -t aasmaa-frontend:latest \"$ROOT_DIR\""
+run_cmd docker tag aasmaa-frontend:latest "$FRONTEND_IMAGE_URI"
+run_cmd docker push "$FRONTEND_IMAGE_URI"
 
 log "Forcing in-place ECS rollout on existing services"
 run_cmd aws ecs update-service --cluster "$DEMO_CLUSTER_NAME" --service "$DEMO_BACKEND_SERVICE" --force-new-deployment --region "$AWS_REGION" >/dev/null

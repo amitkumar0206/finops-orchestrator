@@ -15,7 +15,7 @@ No parameter extraction. No templates. Just LLM → SQL → Results.
 
 import structlog
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import asyncio
 import re
 from backend.services.text_to_sql_service import text_to_sql_service
@@ -34,6 +34,7 @@ from backend.utils.sql_validation import (
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
+COST_EXPLORER_REGION = "us-east-1"
 
 
 def _fallback_chart_intent(results: List[Dict[str, Any]]) -> str:
@@ -266,6 +267,66 @@ class AthenaExecutor:
             raise
 
 
+async def _fetch_cost_explorer_fallback(
+    previous_context: Optional[Dict[str, Any]],
+    *,
+    max_rows: int = 10,
+) -> List[Dict[str, Any]]:
+    """Fetch a service cost breakdown from Cost Explorer as a fallback."""
+    context = previous_context or {}
+    tr = context.get("time_range") or {}
+    start_date = tr.get("start_date") or (date.today() - timedelta(days=30)).isoformat()
+    end_date = tr.get("end_date") or date.today().isoformat()
+    account_ids = [a for a in (context.get("account_ids") or []) if a]
+
+    ce_client = create_aws_session(region_name=COST_EXPLORER_REGION).client(AwsService.COST_EXPLORER)
+    def _build_rows(req: Dict[str, Any]) -> List[Dict[str, Any]]:
+        response = ce_client.get_cost_and_usage(**req)
+        rows: List[Dict[str, Any]] = []
+        for period in response.get("ResultsByTime", []):
+            for group in period.get("Groups", []):
+                try:
+                    amount = float(((group.get("Metrics") or {}).get("BlendedCost") or {}).get("Amount") or 0)
+                except (TypeError, ValueError):
+                    amount = 0.0
+                if amount <= 0:
+                    continue
+                keys = group.get("Keys") or []
+                rows.append({
+                    "service": keys[0] if keys else "Unknown",
+                    "cost_usd": round(amount, 2),
+                })
+        rows.sort(key=lambda r: float(r.get("cost_usd") or 0), reverse=True)
+        return rows[:max_rows]
+
+    req: Dict[str, Any] = {
+        "TimePeriod": {"Start": start_date, "End": end_date},
+        "Granularity": "MONTHLY",
+        "Metrics": ["BlendedCost"],
+        "GroupBy": [{"Type": "DIMENSION", "Key": "SERVICE"}],
+    }
+    if account_ids:
+        req["Filter"] = {
+            "Dimensions": {
+                "Key": "LINKED_ACCOUNT",
+                "Values": account_ids,
+            }
+        }
+
+    out = _build_rows(req)
+    if out:
+        return out
+
+    # Demo mode often uses synthetic scoped account IDs; retry unfiltered so
+    # users still get a meaningful high-level cost view when scope is non-real.
+    if account_ids and (settings.demo_mode or settings.config_demo_auth_enabled):
+        req.pop("Filter", None)
+        logger.info("Cost Explorer fallback retrying without account filter in demo mode")
+        return _build_rows(req)
+
+    return out
+
+
 async def execute_query_simple(
     query: str,
     conversation_history: Optional[List[Dict[str, str]]] = None,
@@ -345,7 +406,35 @@ async def execute_query_simple(
                 "context": {"last_query": query, "timestamp": datetime.now().isoformat()}
             }
 
-        results = await executor.execute_sql(sql_query)
+        try:
+            results = await executor.execute_sql(sql_query)
+        except Exception as execute_error:
+            error_text = str(execute_error)
+            fallback_markers = [
+                "SCHEMA_NOT_FOUND",
+                "Unable to verify/create output bucket",
+                "The S3 location provided to save your query results is invalid",
+            ]
+            if any(marker in error_text for marker in fallback_markers):
+                logger.warning(
+                    "Athena execution failed, using Cost Explorer fallback",
+                    error=error_text,
+                )
+                results = await _fetch_cost_explorer_fallback(previous_context)
+                if results:
+                    metadata["generated_via"] = "cost_explorer_fallback"
+                    metadata["status"] = "ok"
+                    metadata["fallback_reason"] = error_text
+                    metadata["query_type"] = "top_services"
+                    metadata["explanation"] = (
+                        "**Cost Explorer Fallback**\n\n"
+                        "Athena results were temporarily unavailable for this account, so I used AWS Cost Explorer "
+                        "to provide a service-level cost breakdown for the requested period."
+                    )
+                else:
+                    raise
+            else:
+                raise
         
         # Auto-drill-down: If single service/resource result, fetch breakdown by usage_type
         should_drill_down = False

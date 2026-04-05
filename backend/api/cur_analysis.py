@@ -254,13 +254,19 @@ async def mine_cur_connected(
 
     ingest_result: Optional[OpportunityIngestResult] = None
     if opportunities:
-        try:
-            opp_svc = get_opportunities_service(context.organization_id)
-            ingest_result = opp_svc.ingest_signals(opportunities)
-        except Exception as exc:
-            logger.warning(
-                "CUR mining opportunities could not be persisted; returning stateless results",
-                error=str(exc),
+        if settings.database_enabled:
+            try:
+                opp_svc = get_opportunities_service(context.organization_id)
+                ingest_result = opp_svc.ingest_signals(opportunities)
+            except Exception as exc:
+                logger.warning(
+                    "CUR mining opportunities could not be persisted; returning stateless results",
+                    error=str(exc),
+                    org_id=str(context.organization_id),
+                )
+        else:
+            logger.info(
+                "CUR mining persistence skipped because database is disabled",
                 org_id=str(context.organization_id),
             )
 

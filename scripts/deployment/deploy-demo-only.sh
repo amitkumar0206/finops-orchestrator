@@ -11,7 +11,7 @@ CREATE_ACM_CERTIFICATE="${CREATE_ACM_CERTIFICATE:-true}"
 DEMO_ALLOWED_ACCOUNT_IDS="${DEMO_ALLOWED_ACCOUNT_IDS:-123456789012}"
 DEMO_USER_EMAIL="${DEMO_USER_EMAIL:-demo@aasmaa.ai}"
 DEMO_ORGANIZATION_NAME="${DEMO_ORGANIZATION_NAME:-Demo Organization}"
-BEDROCK_MODEL="${BEDROCK_MODEL:-us.amazon.nova-lite-v1:0}"
+BEDROCK_MODEL="${BEDROCK_MODEL:-meta.llama3-8b-instruct-v1:0}"
 DEPLOYMENT_BACKEND="${DEPLOYMENT_BACKEND:-ec2}"
 
 # Demo access protection (EC2 mode)
@@ -21,6 +21,24 @@ BASIC_AUTH_PARAM_NAME="${BASIC_AUTH_PARAM_NAME:-/aasmaa/demo/basic-auth/htpasswd
 
 log() {
   echo "[demo-deploy] $1"
+}
+
+bucket_region() {
+  local bucket_name="$1"
+  local location
+
+  location="$(aws s3api get-bucket-location --bucket "$bucket_name" --query 'LocationConstraint' --output text 2>/dev/null || true)"
+  if [[ -z "$location" || "$location" == "None" || "$location" == "null" ]]; then
+    echo "us-east-1"
+    return 0
+  fi
+
+  if [[ "$location" == "EU" ]]; then
+    echo "eu-west-1"
+    return 0
+  fi
+
+  echo "$location"
 }
 
 require_tool() {
@@ -89,6 +107,18 @@ BACKEND_IMAGE_URI="${BACKEND_IMAGE_URI:-${ECR_REGISTRY}/aasmaa-backend:demo}"
 FRONTEND_IMAGE_URI="${FRONTEND_IMAGE_URI:-${ECR_REGISTRY}/aasmaa-frontend:demo}"
 
 log "Deployment mode: ${DEPLOYMENT_BACKEND}"
+ORIGINAL_S3_BUCKET="$S3_BUCKET"
+if aws s3api head-bucket --bucket "$S3_BUCKET" >/dev/null 2>&1; then
+  EXISTING_BUCKET_REGION="$(bucket_region "$S3_BUCKET")"
+  if [[ "$EXISTING_BUCKET_REGION" != "$AWS_REGION" ]]; then
+    S3_BUCKET="${S3_BUCKET}-${AWS_REGION}"
+    if [[ "$CUR_BUCKET" == "$ORIGINAL_S3_BUCKET" ]]; then
+      CUR_BUCKET="$S3_BUCKET"
+    fi
+    log "S3 bucket ${ORIGINAL_S3_BUCKET} is in ${EXISTING_BUCKET_REGION}; switching to ${S3_BUCKET} for Athena/results in ${AWS_REGION}"
+  fi
+fi
+
 log "Ensuring S3 bucket exists: ${S3_BUCKET}"
 aws s3api head-bucket --bucket "$S3_BUCKET" >/dev/null 2>&1 || aws s3 mb "s3://${S3_BUCKET}" --region "$AWS_REGION"
 

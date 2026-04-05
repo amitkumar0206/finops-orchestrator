@@ -37,18 +37,18 @@ const flowCards = [
         icon: <InsightsOutlinedIcon sx={{ fontSize: 26 }} />,
     },
     {
-        key: '/cur-analysis',
-        title: 'CUR Analysis',
-        subtitle: 'Mine your AWS billing export',
-        description: 'Upload a CUR CSV or run live Athena detectors to surface idle resources, commitment gaps, and savings.',
-        icon: <ReceiptLongOutlinedIcon sx={{ fontSize: 26 }} />,
-    },
-    {
         key: '/generate',
         title: 'Generate',
         subtitle: 'Create cloud blueprints with AI',
         description: 'Generate Terraform or CloudFormation templates from a plain-English description.',
         icon: <AutoFixHighOutlinedIcon sx={{ fontSize: 26 }} />,
+    },
+    {
+        key: '/cur-analysis',
+        title: 'CUR Analysis',
+        subtitle: 'Mine your AWS billing export',
+        description: 'Upload a CUR CSV or run live Athena detectors to surface idle resources, commitment gaps, and savings.',
+        icon: <ReceiptLongOutlinedIcon sx={{ fontSize: 26 }} />,
     },
 ] as const;
 

@@ -270,6 +270,8 @@ Resources:
                   - athena:GetQueryResults
                   - athena:StopQueryExecution
                   - athena:GetWorkGroup
+                  - ce:GetAnomalies
+                  - ce:GetAnomalyMonitors
                   - ce:GetCostAndUsage
                   - ce:GetUsageReport
                   - ce:GetRightsizingRecommendation
