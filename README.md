@@ -4,173 +4,134 @@ AI-assisted AWS FinOps platform for cost analysis, optimization discovery, CUR m
 
 ## Current Status
 
-- As of 3 April 2026, the core product is implemented and actively maintained.
+- As of 7 April 2026, the core product is implemented and actively maintained.
 - The application can run locally and can also be deployed as an AWS-hosted stack for organization use.
 - End-to-end shipped areas include AI cost analysis chat, optimization opportunities, CUR deep analysis, multi-tenant scoping, authentication, demo admin controls, IaC analysis, and IaC blueprint generation.
 - Recent security fixes are documented and verified in the security docs and test suite.
-- Some Phase 3 enterprise surfaces are still partial or scaffolded, especially scheduled reports, dashboards, and parts of the reporting layer. Those areas should be treated as work in progress unless you validate them directly in code.
+- Some enterprise surfaces are still partial or scaffolded: report generation endpoints are currently mock-only, and the custom dashboard builder is not yet implemented. Treat those areas as work in progress unless you validate them directly in code.
 
 ## Key Features
 
-### AI FinOps Analysis
-- **Multi-agent orchestration**: LangGraph-style routing with specialized paths for cost analysis, optimization, and infrastructure workflows.
-- **Universal Parameter Schema (UPS)**: Hybrid LLM and heuristic extraction for intent, entities, filters, and follow-up context.
-- **Context-aware chat**: Multi-turn conversations with time-range inheritance and conversation persistence.
-- **Athena-backed cost analysis**: CUR-driven SQL generation and async query execution with optimized templates.
-- **Visual responses**: Charts, markdown summaries, follow-up suggestions, and optional Athena query exposure in chat responses.
-- **Deep drill-downs**: Service, usage type, operation, and comparative breakdowns with automatic dimension inference.
+### AI FinOps Chat
+- **Multi-agent orchestration**: Supervisor routes queries to a cost-analysis agent, an optimization agent, or a comparison flow based on intent signals and embedded query classification.
+- **LLM text-to-SQL**: The LLM (AWS Bedrock) generates Athena SQL directly from natural language — no rigid parameter schema. A library of 15+ optimized CUR SQL templates backs the execution.
+- **Embedding-based intent router**: A SentenceTransformer model validates and adjusts intent classification using semantic similarity against canonical exemplars per intent category.
+- **Context-aware multi-turn chat**: Time-range inheritance from prior turns, follow-up shorthand (`"break down by region"` inherits the prior query's intent and time window), and conversation persistence backed by PostgreSQL.
+- **Streaming responses**: Server-Sent Events (SSE) for progressive response delivery.
+- **Visual responses**: Chart.js visualizations (bar, stacked bar, line, pie) rendered inline with the assistant response. Charts export as PNG, PDF, or CSV. AWS service labels are abbreviated automatically.
+- **Follow-up suggestions**: The assistant returns suggested next queries after each response.
+- **Token quota enforcement** (demo mode): Per-user and per-department monthly token budgets, with usage tracking.
 
-### Optimization & Opportunity Management
-- **AWS optimization signals**: Ingestion from Cost Explorer, Trusted Advisor, Compute Optimizer, and other signal services.
-- **Opportunities workspace**: Filterable recommendations with savings analytics, evidence views, status updates, bulk actions, and export support.
-- **CUR pattern mining, connected mode**: Athena-based mining for unused RI/SP coverage, idle resources, cross-region transfer, and steady-state spend patterns.
-- **CUR pattern mining, advisory mode**: Upload CUR CSV or CSV.GZ files and run the same detector family without live AWS API access.
-- **Tenant-level controls**: Thresholds and upload limits are configurable through `CUR_MINING_*` and `CUR_UPLOAD_*` settings.
+### Optimization Opportunities
+- **AWS signal ingestion**: Cost Explorer (rightsizing, RI/SP purchase recommendations, anomalies), Trusted Advisor checks, and Compute Optimizer recommendations for EC2 and Lambda.
+- **CloudWatch-based waste detection**: Idle EC2 instances (CPU P95 < 5%), idle RDS instances (zero connections), idle load balancers (zero requests), idle Lambda functions (zero invocations), and underutilized EC2 candidates — works at all AWS Support tiers.
+- **RI/SP coverage analysis**: Cost Explorer coverage, utilization, expiry (< 90 days), and purchase recommendations for both Reserved Instances and Savings Plans.
+- **Storage lifecycle signals**: Unattached EBS volumes, orphaned snapshots, deregistered AMIs with retained snapshots, S3 buckets missing lifecycle policies, and gp2→gp3 migration candidates.
+- **CUR pattern mining, connected mode**: Athena + Cost Explorer detectors for unused RI/SP coverage, idle and scheduling candidates, cross-region data transfer, steady-state spend, month-over-month cost spikes, and CE anomalies.
+- **CUR pattern mining, advisory mode**: Upload a CUR CSV or CSV.GZ export and run the same detector family with pandas — no live AWS credentials required.
+- **Opportunities workspace**: Filterable and paginated recommendations list with savings estimates, evidence detail, status updates (open / in progress / resolved / dismissed), bulk status actions, and CSV export.
+- **Configurable thresholds**: All detection thresholds are tunable through `CUR_MINING_*` and `CUR_UPLOAD_*` environment variables.
 
 ### Multi-Tenant Access & Governance
-- **Organization-scoped access**: Request context enforces organization and AWS account isolation for chat and query flows.
-- **Saved views and active scope**: Users can save scoped account views, set active views, and reuse time ranges and filters.
-- **Organization management**: Organization switching, member management, and scoped permissions are implemented in the API layer.
-- **Admin console with quotas**: Demo admin workflows support organization budgets, departments, per-user token overrides, and feature access controls.
-- **Role-aware access control**: JWT auth, org roles, platform admin privileges, audit logging, and rate limiting are built into the platform.
+- **Organization-scoped access**: Every request carries an organization context (org ID + allowed AWS account IDs). All Athena queries, Cost Explorer calls, and opportunity lookups are filtered to the caller's tenant scope.
+- **Organization management**: Create organizations, switch between them, invite and remove members, and update member roles (owner / admin / member).
+- **Saved views**: Name and save a scoped set of AWS account IDs with optional time range and filter defaults. Set a view as the active scope for all subsequent requests.
+- **Effective scope API**: A `/scope/current` endpoint returns the caller's resolved organization, allowed accounts, active view, and effective time range and filters.
+- **Platform admin**: Users with `is_admin=true` can manage rate limits across any organization.
+
+### Demo Admin Console
+- **Organization token budget**: Set and track a monthly token budget at the organization level.
+- **Department CRUD**: Create, update, and delete departments. Each department has its own monthly token limit. Deletion is blocked if users are still assigned.
+- **User management**: Create and update users with per-user token overrides, department assignment, feature access flags, org role, and one-time token top-ups.
+- **Feature access gates**: Per-user flags for chat, analyze (IaC + opportunities), generate (blueprints), cur_analysis, and admin_console. Enforced at the middleware layer.
+- **Token quota summary**: Full hierarchy view — organization total → departments → users — with live usage statistics.
 
 ### Infrastructure Design Workflows
-- **IaC workbench**: Upload one or more infrastructure files for AI review, explanation, pros and cons, cost analysis, and improvement suggestions.
-- **IaC follow-up chat**: Continue a conversation against a previously analyzed template.
-- **Optimized template generation**: Produce a revised version from an analyzed template plus user goals.
-- **Blueprint generation**: Generate Terraform or CloudFormation from text requirements, selected services, or uploaded diagrams.
+- **IaC workbench**: Upload one or more Terraform (`.tf`, `.hcl`, `.tfvars`) or CloudFormation (`.yaml`, `.yml`, `.json`) files. The LLM returns: summary, explanation, pros and cons, estimated cost impacts, improvement suggestions, and an improved template.
+- **Multi-file cross-file analysis**: When multiple files are uploaded together, the analysis covers cross-file dependencies and interactions.
+- **IaC follow-up chat**: Continue a conversation against a previously analyzed template session.
+- **Optimized template generation**: Produce a revised version of an analyzed template incorporating user-supplied goals.
+- **Blueprint generation**: Generate a Terraform or CloudFormation starter template (plus an alternate format) from text requirements, a selected list of AWS services, or an uploaded architecture diagram description.
 
 ### Security & Operations
-- **JWT authentication** with refresh tokens, blacklisting, password-hash migration, and demo identity support.
-- **Health and readiness endpoints** for operational checks.
-- **Security hardening** for recent critical and high findings, including SSRF, command injection, PII masking, and auth protections.
-- **Operational deployment support** with local Docker workflows, AWS deployment scripts, migrations, and setup guides.
+- **JWT authentication**: Access and refresh tokens; token blacklisting via Valkey; constant-time comparison; PBKDF2-HMAC-SHA256 (600,000 iterations, OWASP 2023 compliant); automatic transparent migration from legacy 100k-iteration hashes on login.
+- **Login brute-force protection**: Valkey-backed per-IP and per-email throttle with progressive lockout (15 min → 30 min → 1 hr → ... → 24 hr cap), trusted-proxy XFF parsing.
+- **Rate limiting**: Sliding-window rate limiter scoped per user and per organization. Configurable defaults per subscription tier (Enterprise / Standard / Free) with admin-managed overrides.
+- **Security headers**: Content Security Policy, HSTS, X-Frame-Options (DENY), X-Content-Type-Options (nosniff).
+- **SQL injection prevention**: Parameterized queries throughout; a centralized validation layer for date, account ID, service code, instance type, tag key/value, and resource ID inputs.
+- **SSRF protection**: Webhook URLs in scheduled reports are validated against blocked private CIDR ranges (RFC 1918, loopback, link-local) and enforced HTTPS-only.
+- **SSTI prevention**: Report template content is validated against a blocked-pattern list before storage.
+- **PII masking**: Email addresses are masked in all authentication and audit logs; identifiers are hashed for correlation.
+- **Audit logging**: User actions written to a PostgreSQL `audit_logs` table (requires database mode).
+- **Health endpoints**: `/health` (public), `/health/liveness`, `/health/readiness`, and `/health/detailed` (authenticated, returns full service status).
+- **Prometheus metrics**: Request count and duration exported at `/metrics`.
 
 ## 🏗️ Architecture Overview
 
-### Universal Parameter Schema (UPS) Pipeline
+### Chat Query Pipeline
 
 ```
-User Query: "Show EC2 cost by region for last month"
+User Message
     ↓
-UPS Extractor (ups_extractor.py):
-  1. LLM extraction (Pydantic-validated JSON) → intent + entities + operations
-  2. Heuristic fallback (regex + keyword scoring) if LLM fails
-  3. JSON repair layer validates and auto-fixes malformed output
+Multi-Agent Workflow (multi_agent_workflow.py)
     ↓
-Intent Classifier (intent_classifier.py):
-  4. Map UPS output → legacy parameter format (compatibility)
-  5. Follow-up time range inheritance (if context exists)
-  6. Embedding intent router → semantic validation + confidence boost
-  7. Clarification threshold check (intent_thresholds.json)
+Intent Routing:
+  - Embedding intent router (SentenceTransformer) classifies the query
+  - Signals compared: optimization markers, comparison markers, cost/drill-down terms
+  - Follow-up context from prior turn is merged (time range, intent inheritance)
     ↓
-SQL: WHERE line_item_product_code = 'AmazonEC2' AND ...
+    ┌──────────────────────┬──────────────────────┐
+    ↓                      ↓                      ↓
+Cost Analysis          Optimization            Comparison
+  (Athena SQL)           Agent               (Athena SQL,
+                                            two periods)
+    ↓                      ↓                      ↓
+Athena Executor    Opportunity signals       Athena Executor
+    ↓                      ↓                      ↓
+Response Formatter ← Chart Data Builder ← LLM Insight Generation
+    ↓
+JSON response: markdown summary + chart specs + follow-up suggestions
 ```
 
-**Key Components**:
-- **UPS Extractor**: Single extraction call produces intent + all parameters
-- **Repair Layer**: Auto-fix malformed LLM JSON via re-prompting
-- **Embedding Router**: SentenceTransformer similarity validates/overrides intent
-- **Calibrated Thresholds**: Per-intent confidence minimums from evaluation runs
-- **Evaluation Harness**: Confusion matrix, precision/recall, confidence stats
-- **Drift Monitoring**: Track accuracy over time, detect degradation
+**Key components:**
+- **Multi-agent workflow** (`agents/multi_agent_workflow.py`): Entry point; routing logic using keyword signals and the embedding router.
+- **Embedding intent router** (`services/embedding/embedding_intent_router.py`): SentenceTransformer semantic similarity against per-intent canonical examples. Adjusts confidence or overrides classification.
+- **Athena CUR templates** (`services/athena_cur_templates.py`): 15+ optimized SQL templates for cost breakdown, top-N, trend, comparison, drill-down, and CUR pattern mining.
+- **Athena executor** (`services/athena_executor.py`): Async Athena client with polling, result parsing, and partition-pruned query execution.
+- **LLM service** (`services/llm_service.py`): AWS Bedrock integration (Amazon Nova Pro by default) for insight generation and IaC analysis.
+- **Response formatter** (`services/response_formatter.py`): Structured aasmaa response template: summary → scope → results → insights → charts → next steps.
+- **Chart data builder** (`services/chart_data_builder.py`): Converts query results + chart specifications into Chart.js-ready data structures.
+- **Time range module** (`aasmaa/time_range.py`): Parses natural language time expressions and merges with conversation context. Supports rolling periods, calendar periods, comparisons, and explicit date ranges.
+- **Optimization agent** (`agents/optimization_agent.py`): Handles optimization-intent queries by aggregating signals from Cost Explorer, CloudWatch, RI/SP analysis, storage, and CUR mining services.
 
-**See [UPS Architecture](./docs/UPS_ARCHITECTURE.md) for full technical details.**
+### Optimization Signal Sources
 
-### Multi-Agent Workflow
-```
-User Query → Supervisor → Route Decision
-                ↓
-    ┌───────────┼───────────┐
-    ↓           ↓           ↓
-Cost       Optimization  Infrastructure
-Analysis      Engine       Analyzer
-    ↓           ↓           ↓
-Response ← Formatter ← Chart Engine
-```
+| Service | Signals |
+|---------|---------|
+| `aws_optimization_signals.py` | CE rightsizing, RI/SP purchase recommendations, Trusted Advisor checks, Compute Optimizer |
+| `cloudwatch_optimization_signals.py` | Idle EC2/RDS/ELB/Lambda by CloudWatch metrics |
+| `ri_savings_plans_signals.py` | RI/SP coverage, utilization, expiry, purchase recommendations |
+| `storage_optimization_signals.py` | Unattached EBS, old snapshots, S3 lifecycle gaps, gp2→gp3 |
+| `cur_pattern_mining_signals.py` | Connected-mode Athena + CE anomaly/trend detectors |
+| `cur_csv_analyzer.py` | Advisory-mode pandas detectors on uploaded CUR CSV/GZ |
+
+### Deployment Modes
+
+| Mode | When to use |
+|------|-------------|
+| **Local (Docker Compose)** | Development; Postgres + Valkey run in containers, backend and frontend on host |
+| **AWS demo stack** | Low-cost demo; single ECS task, no RDS, no Valkey, no NAT Gateway |
+| **AWS production stack** | Full ECS Fargate, ALB, RDS PostgreSQL, ElastiCache Valkey, S3, CloudWatch |
+
 
 ## 🚀 Quick Start
-
-### Prerequisites
-- AWS Account with Cost and Usage Report (CUR) configured
-- Docker installed locally
-- AWS CLI configured with appropriate credentials
-- Python 3.11+ (for local development)
-
-### AWS Deployment
-
-**Complete deployment guide:** [docs/AWS_DEPLOYMENT_GUIDE.md](./docs/AWS_DEPLOYMENT_GUIDE.md)
-
-```bash
-# Clone repository
-git clone <repository-url>
-cd aasmaa
-
-# Make deploy script executable
-chmod +x deploy.sh
-
-# Run automated deployment with pre-flight validation
-./deploy.sh deploy
-
-# The deployment script includes comprehensive pre-flight validation:
-# [1/7] Validating required tools (AWS CLI, Docker, jq)
-# [2/7] Validating AWS credentials and permissions
-# [3/7] Validating AWS region configuration
-# [4/7] Validating IAM permissions (CloudFormation, ECS, RDS, S3, etc.)
-# [5/7] Validating Bedrock model access
-# [6/7] Validating disk space for Docker builds
-# [7/7] Validating deployment configuration
-
-# After validation, the script will:
-# ✓ Detect existing infrastructure (if any)
-# ✓ Prompt for deployment mode (fresh install, update, or rebuild)
-# ✓ Set up one-time components (S3, Glue, Athena)
-# ✓ Deploy CloudFormation stack (10-15 min)
-# ✓ Build and push Docker images to ECR (5-10 min)
-# ✓ Deploy ECS services (5 min)
-# ✓ Run database migrations with validation
-# ✓ Validate deployment health
-# ✓ Save configuration to deployment.env
-# ✓ Provide application URL and next steps
-
-# Total time: ~25-35 minutes (first-time installation)
-
-# Note: Platform works immediately with Cost Explorer API (13 months).
-# Data export setup is OPTIONAL and only needed for 13+ month history.
-```
-
-**Deployment Modes:**
-
-- **Fresh Install**: Complete setup from scratch (all infrastructure including CUR)
-- **Update Deployment**: Update existing infrastructure with new code/configuration
-- **Partial Cleanup**: Destroy infrastructure but keep data exports and S3 buckets
-- **Complete Cleanup**: Destroy EVERYTHING including all historical data (⚠️ DATA LOSS WARNING)
-
-**For faster service-only updates:**
-
-```bash
-# Update only Docker images and ECS services (no infrastructure changes)
-./deploy.sh update
-```
-
-**To remove infrastructure:**
-
-```bash
-# Partial removal (keeps CUR/Data Exports, S3 buckets, Glue, Athena)
-./deploy.sh destroy
-
-# Complete removal (deletes EVERYTHING including all data - requires typing "DELETE EVERYTHING")
-./deploy.sh destroyAll
-```
-
-**📖 For detailed instructions, see [AWS Deployment Guide](./docs/AWS_DEPLOYMENT_GUIDE.md)**
 
 ### Prerequisites
 - Python 3.11+
 - Node.js 18+ (frontend only)
 - Docker & Docker Compose
 - AWS CLI configured with appropriate IAM permissions
-- **AWS Athena and S3** with CUR data configured (optional - works with Cost Explorer API)
+- AWS Athena and S3 with CUR data configured (optional — works with Cost Explorer API without Athena)
 - AWS Bedrock access for LLM (Amazon Nova Pro recommended)
 
 ### Local Development Setup
@@ -180,316 +141,145 @@ chmod +x deploy.sh
 git clone <repository-url>
 cd aasmaa
 
-# Backend setup
+# Use the local-run script to start everything (postgres + valkey via Docker, backend + frontend on host)
+./local-run.sh start
+
+# Or manually:
+# Start postgres + valkey
+docker-compose up -d postgres valkey
+
+# Backend
 cd backend
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
+uvicorn main:app --reload  # runs on :8000
 
-# Configure environment (for local development only)
-# Note: Production uses deployment.env created by deploy.sh
-cp backend/.env.example backend/.env  # If example exists
-# Edit backend/.env with local AWS credentials for testing
-
-# Frontend setup  
+# Frontend
 cd ../frontend
 npm install
-npm run build  # Validates TypeScript + Vite production build
-
-# Start development servers
-docker-compose up -d  # Database and supporting services
-cd backend && uvicorn main:app --reload  # Backend on :8000
-cd frontend && npm start  # Frontend on :3000
+npm run dev  # runs on :3000
 ```
 
-### Testing the New Pipeline
+`local-run.sh` supports `start`, `stop`, `restart`, `status`, and `logs`. It auto-loads `deployment.env` and `backend/.env` if they exist, and installs dependencies on first run by default.
+
+### Testing
 
 ```bash
-# Test intent classification
-curl -X POST http://localhost:8000/api/v1/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Show me EC2 costs by instance type for last month"}'
+# All backend tests (run from project root)
+pytest
 
-# Test follow-up context
-curl -X POST http://localhost:8000/api/v1/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Now exclude t2.micro", "conversation_id": "your-conv-id"}'
+# Unit tests only
+pytest tests/unit/
 
-# See QUICK_START.md for 15+ example queries
+# Specific area
+pytest tests/unit/api/          # API sanitization & health
+pytest tests/unit/middleware/   # Auth, rate-limiting, security headers
+pytest tests/unit/services/     # Cache, DB-SSL, IAM migration
+pytest tests/test_token_quota_and_departments.py -v
+
+# Frontend type-check and lint
+cd frontend && npm run type-check && npm run lint
 ```
+
+### API Explorer
+
+Once running:
+- **Backend Swagger UI**: http://localhost:8000/docs
+- **Frontend UI**: http://localhost:3000
 
 ## Deployment
 
-### Production Deployment to AWS
+### AWS Deployment
 
-For complete AWS deployment instructions, see **[AWS Deployment Guide](./AWS_DEPLOYMENT_GUIDE.md)**
+Two CloudFormation pathways are provided under `infrastructure/cloudformation/`:
 
-Quick deployment commands:
+| Template | Purpose |
+|----------|---------|
+| `main-stack.yaml` | Full production stack: ECS Fargate, ALB, RDS PostgreSQL, ElastiCache Valkey, S3, CloudWatch |
+| `main-stack-demo.yaml` | Low-cost demo: ECS, ALB, S3 — no RDS, no Valkey, no NAT Gateway |
+| `main-stack-demo-ec2.yaml` | EC2-based demo variant |
+| `ecs-services.yaml` | ECS task and service definitions (imported by main stacks) |
+| `glue-crawler.yaml` | Glue crawler for CUR table setup |
+
+Deploy scripts are in `scripts/deployment/`:
+- `deploy-demo-barebones.sh` — Deploy the low-cost demo stack
+- `deploy-demo-only.sh` — Alternative demo deployment
+- `redeploy-backend.sh` — Rebuild and push backend image only
+- `update-prod-full.sh` — Update the full production stack
 
 ```bash
-# Fresh installation or update existing deployment
-./deploy.sh deploy
+# Example: deploy the demo stack
+cd scripts/deployment
+./deploy-demo-barebones.sh
 
-# Service-only update (faster)
-./deploy.sh update
-
-# Partial infrastructure removal (keeps CUR, S3, Glue, Athena)
-./deploy.sh destroy
-
-# Complete infrastructure removal (deletes EVERYTHING)
-./deploy.sh destroyAll
+# Example: redeploy only the backend service (faster; no infra changes)
+./redeploy-backend.sh
 ```
 
-The deployment script automatically:
-
-- Detects existing infrastructure
-- Sets up one-time components (CUR, Glue, Athena) for fresh installs
-- Deploys/updates CloudFormation stacks
-- Builds and pushes Docker images
-- Deploys/updates ECS services
-- Provides application URL
-
-### Verify Deployment
-
 ```bash
-# After deployment, verify CUR setup (optional - for 13+ months historical data)
+# After deployment, verify CUR setup (needed for 13+ months of history)
 ./scripts/setup/verify-cur-setup.sh
 
-# Set up CUR for extended historical data beyond 13 months (optional)
+# Set up the Athena CUR view
 ./scripts/setup/setup-cur.sh
 ```
 
-**📖 Read More:**
-- [AWS Deployment Guide](./docs/AWS_DEPLOYMENT_GUIDE.md) - Complete AWS setup instructions
-- [Quick Start Guide](./docs/QUICK_START.md) - Developer guide with examples
-- [UPS Architecture](./docs/UPS_ARCHITECTURE.md) - Universal Parameter Schema technical guide
-- [Phase 2: Advanced Filters](./docs/PHASE_2_ADVANCED_FILTERS.md) - Charge types, tags, purchase options filtering
-- [Backend Architecture](./docs/BACKEND_ARCHITECTURE.md) - System design and component documentation
-- [Troubleshooting Guide](./docs/TROUBLESHOOTING.md) - Common issues and solutions
-- [CUR Setup Guide](./docs/SETUP_CUR.md) - Configure AWS Cost and Usage Reports
+**📖 See [docs/AWS_DEPLOYMENT_GUIDE.md](./docs/AWS_DEPLOYMENT_GUIDE.md) for complete setup instructions.**
 
-## Architecture
-
-### LangGraph Orchestration Pipeline
-
-The platform uses a **LangGraph state machine** with **Pydantic structured outputs** for all LLM interactions:
-
-1. **Query Analysis**: LLM classifies intent into structured `UserQueryAnalysis` with confidence scoring
-2. **Semantic Routing**: Enum-based conditional routing (NO string matching) with confidence thresholds
-3. **Query Rewriting**: Context-aware query enhancement for follow-up queries (resolves pronouns, expands relative time)
-4. **Data Retrieval**: Structured `aasmaaQueryPlan` generation and execution via Athena
-5. **Response Synthesis**: Structured `ConversationalResponse` with insights, recommendations, and chart specifications
-6. **Message History**: PostgreSQL-backed conversation tracking with `RunnableWithMessageHistory`
-
-**Key Principles:**
-- ✅ All LLM outputs use `with_structured_output()` with Pydantic models
-- ✅ Routing uses enum comparisons (`intent == "cost_analysis"`) NOT string matching
-- ✅ Query rewriting resolves conversational context before data retrieval
-- ✅ Agent working state separated from conversation messages
-- ✅ Confidence thresholds trigger clarification flows
-
-### Intent Types (10)
-
-- **cost_analysis**: Service/account/region distribution analysis
-- **anomaly_detection**: Spike detection and anomaly investigation
-- **optimization**: Savings recommendations (RI, SP, rightsizing)
-- **forecasting**: Cost projection and trend forecasting
-- **budget_tracking**: Budget monitoring and variance analysis
-- **resource_analysis**: Resource utilization and efficiency
-- **trend_analysis**: Time series trends and patterns
-- **comparative_analysis**: Period-over-period comparisons
-- **drill_down**: Detailed breakdowns and drill-downs
-- **general_inquiry**: Greetings, help, clarification-needed queries
-
-### Backend Components
-
-- **Universal Parameter Schema (UPS)** (`services/ups_extractor.py`, `agents/intent_classifier.py`):
-  - LLM + heuristic hybrid extraction of intent + parameters
-  - JSON repair layer with schema validation
-  - Embedding-based intent validation (`services/embedding/embedding_intent_router.py`)
-  - Calibrated clarification thresholds (`config/intent_thresholds.json`)
-- **Evaluation & Monitoring** (`evaluation/`):
-  - `ups_evaluator.py`: Confusion matrix, precision/recall, confidence stats
-  - `calibrate_thresholds.py`: Generate per-intent confidence minimums
-  - `drift_monitor.py`: Track accuracy over time, detect degradation
-- **Pydantic Models** (`models/aasmaa_schemas.py`): Structured schemas for all LLM interactions
-  - `UserQueryAnalysis`: Intent classification output
-  - `aasmaaQueryPlan`: Athena query specification
-  - `ConversationalResponse`: Final structured response
-- **LangGraph Nodes** (`nodes/`): Processing pipeline nodes
-  - `analyzer.py`: Intent analysis with structured output
-  - `query_rewriter.py`: Conversational query enhancement
-  - `retriever.py`: Data retrieval with structured query plans
-- **Orchestration** (`orchestrator/router.py`, `graph_workflow.py`):
-  - Enum-based semantic routing (NO string matching)
-  - LangGraph state machine with message history
-- **State Management** (`state/agent_state.py`): Separated working state and conversation memory
-- **Athena Templates** (`services/athena_cur_templates.py`): 15+ optimized SQL templates
-- **Query Executor** (`services/athena_executor.py`): Async Athena client with result parsing
-- **Response Formatter** (`services/response_formatter.py`): Structured aasmaa templates
-- **Chart Engine** (`services/chart_recommendation.py`): Cardinality-based visualization selection
-- **LLM Service** (`services/llm_service.py`): AWS Bedrock integration for insights generation
-
-### Frontend (React + TypeScript)
-- Chat interface with markdown rendering and responsive two-column assistant responses when charts are returned
-- Chart.js visualizations (column, line, stacked bar, clustered bar, pie) with styled axes, compact legends, and AWS service label abbreviations
-- Export capabilities (PNG, PDF, CSV)
-- Context-aware follow-up support
-
-> **Tip:** Service label abbreviations (for example, `Amazon Elastic Compute Cloud` → `EC2`) are managed in `frontend/src/components/Chat/ChatInterface.tsx` via the `SERVICE_LABEL_MAP`. Update this map if you need to customize how AWS services are displayed in chart labels or legends.
-
-### Data Layer
-- **Primary Source**: AWS Athena querying CUR data in S3
-- **Vector Store**: ChromaDB for semantic search (optional)
-- **Metadata**: PostgreSQL for conversation history, organizations, saved views, opportunities, and audit-oriented application data when database-backed mode is enabled
-- **Cache**: Valkey for login throttling, token blacklisting, and cache-backed runtime protections where configured
-
-## API Documentation
-
-Once running, visit:
-- **Backend API**: http://localhost:8000/docs
-- **Frontend UI**: http://localhost:3000
-
-## Project Structure
-
-```
-aasmaa/
-├── backend/                       # FastAPI backend
-│   ├── agents/                   # Multi-agent orchestration
-│   │   ├── multi_agent_workflow.py       # LangGraph supervisor (entry point)
-│   │   ├── intent_classifier.py         # UPS intent → legacy param mapping
-│   │   ├── execute_query_v2.py          # Athena query execution agent
-│   │   └── optimization_agent.py        # Cost-optimization recommendations
-│   ├── api/                      # FastAPI route handlers
-│   │   ├── chat.py                       # Main chat endpoint + SSE streaming
-│   │   ├── health.py                     # Liveness / readiness / detailed checks
-│   │   ├── analytics.py                  # Cost-Explorer analytics
-│   │   ├── athena_queries.py             # Query generation, execution, export
-│   │   ├── auth.py                       # Login, token, password management
-│   │   ├── organizations.py              # Multi-tenant org management
-│   │   ├── saved_views.py                # Saved account-scope views
-│   │   ├── phase3_enterprise.py          # Scheduled reports, RBAC, dashboards
-│   │   ├── opportunities.py              # Optimization opportunities
-│   │   ├── cur_analysis.py               # CUR pattern mining (upload / mine / capabilities)
-│   │   ├── scope.py                      # Account-scope switching
-│   │   ├── demo_admin.py                 # Demo admin console (dept/token quota mgmt)
-│   │   └── reports.py                    # Report endpoints
-│   ├── middleware/               # Request-level middleware
-│   │   ├── authentication.py            # JWT-only auth (no header fallback)
-│   │   ├── account_scoping.py           # Multi-tenant context injection
-│   │   ├── rate_limiting.py             # Sliding-window rate limits
-│   │   └── security_headers.py          # CSP, HSTS, X-Frame-Options
-│   ├── models/                   # Data models
-│   │   ├── aasmaa_schemas.py            # Pydantic schemas for LLM I/O
-│   │   ├── database_models.py           # SQLAlchemy ORM models
-│   │   ├── opportunities.py             # Optimization opportunity models
-│   │   └── schemas.py                   # Request/response schemas
-│   ├── services/                 # Core business logic (~40 modules)
-│   │   ├── athena_cur_templates.py      # 15+ optimized SQL templates (+ CURPatternMiningTemplates)
-│   │   ├── athena_executor.py           # Async Athena client
-│   │   ├── cur_csv_analyzer.py          # Advisory-Mode CUR CSV pattern miner (pandas)
-│   │   ├── cur_pattern_mining_signals.py # Connected-Mode CUR miner (Athena + CE anomalies/trend)
-│   │   ├── athena_query_service.py      # Query generation + validation
-│   │   ├── cache_service.py             # Valkey cache + fail-closed blacklist
-│   │   ├── conversation_manager.py      # Postgres-backed chat history
-│   │   ├── llm_service.py               # AWS Bedrock integration
-│   │   ├── optimization_engine.py       # Savings-opportunity analysis
-│   │   ├── rbac_service.py              # Role-based access control
-│   │   ├── organization_service.py      # Multi-tenant org logic
-│   │   ├── saved_views_service.py       # Account-scope view persistence
-│   │   ├── request_context.py           # Per-request tenant context
-│   │   ├── audit_log_service.py         # Compliance audit trail
-│   │   ├── demo_identity_store.py       # JSON-backed identity store (demo mode) — users, departments, token quotas
-│   │   └── ...                          # + 25 additional service modules
-│   ├── config/                   # Configuration
-│   │   └── settings.py                  # Pydantic env-based settings
-│   ├── utils/                    # Shared utilities
-│   │   ├── aws_session.py               # IAM-role session factory
-│   │   ├── aws_constants.py             # AWS service/region constants
-│   │   ├── sql_validation.py            # SQL injection prevention
-│   │   ├── sql_constants.py             # Centralised SQL string literals
-│   │   ├── errors.py                    # Centralised error codes + helpers
-│   │   ├── pii_masking.py               # Email/PII masking
-│   │   ├── auth.py                      # Auth helpers (password hashing, JWT)
-│   │   ├── date_parser.py               # Date parsing utilities
-│   │   └── logging.py                   # Structlog configuration
-│   ├── evaluation/               # Model-evaluation harness
-│   │   ├── ups_evaluator.py             # Confusion matrix, precision/recall
-│   │   ├── calibrate_thresholds.py      # Per-intent confidence calibration
-│   │   └── drift_monitor.py             # Accuracy drift detection
-│   ├── scripts/                  # Database seed & migration scripts
-│   │   ├── init_database.sh             # Orchestrator (seed + migrate)
-│   │   └── seed_all_32_recommendations.sql  # Optimization-recommendation seed
-│   ├── alembic/                  # Schema migrations (12 versions)
-│   └── main.py                   # FastAPI application entry point
-├── frontend/                     # React + TypeScript frontend
-│   └── src/
-│       ├── components/           # Chat, Opportunities, SavedViews, Scope
-│       └── utils/                # Export helpers
-├── infrastructure/               # AWS IaC
-│   ├── cloudformation/          # CloudFormation templates (3)
-│   ├── config/                  # Task definitions, bucket policies, dashboards
-│   └── sql/                     # CUR table definitions
-├── scripts/                     # Operational scripts
-│   ├── deployment/              # Deployment helpers
-│   ├── setup/                   # CUR setup & verification
-│   └── utilities/               # Athena-results cleanup
-├── tests/                       # Test suite (664 tests)
-│   ├── unit/                    # Unit tests (organised by layer)
-│   │   ├── api/                 #   API sanitisation & health tests
-│   │   ├── config/              #   Settings-security tests
-│   │   ├── aasmaa/              #   Time-range logic tests
-│   │   ├── middleware/          #   Auth, rate-limit, security-header tests
-│   │   ├── opportunities/       #   Opportunities API & agent tests
-│   │   ├── services/            #   Cache, DB-SSL, IAM-migration tests
-│   │   └── utils/               #   Auth, AWS-session, SQL, PII, error tests
-│   ├── test_token_quota_and_departments.py  # Token quota & dept management (33 tests)
-│   └── (integration & e2e)     # 20 cross-layer test files
-├── docs/                        # Project documentation
-├── pytest.ini                   # pytest + asyncio configuration
-├── deploy.sh                    # Main deployment script
-├── docker-compose.yml           # Local development environment
-├── SECURITY_AUDIT_REPORT.md     # Security-audit findings & status
-├── DEVELOPER_GUIDE.md           # Developer onboarding guide
-└── README.md                    # This file
-```
+### AWS Infrastructure Components (Production Stack)
+- **ECS Fargate**: Container orchestration for backend services
+- **ALB**: Load balancing and HTTPS termination
+- **RDS PostgreSQL**: Primary database (conversation history, orgs, opportunities, audit logs)
+- **ElastiCache Valkey**: Cache for login throttle, token blacklisting, and rate-limit storage
+- **S3**: CUR data storage and Athena query results
+- **CloudWatch**: Logs and metrics
+- **AWS Athena + Glue**: CUR query execution
 
 ## Configuration
 
-### Required Environment Variables
+### Key Environment Variables
 
 ```bash
-# AWS Configuration
+# AWS
 AWS_REGION=us-east-1
-# Note: AWS credentials are handled via IAM roles (recommended for production)
-# or the default credential chain (environment vars, ~/.aws/credentials for local dev)
+# Credentials come from the IAM role chain (recommended) or ~/.aws/credentials for local dev
 
-# AWS Bedrock (for LLM insights)
+# AWS Bedrock (LLM)
 BEDROCK_MODEL_ID=us.amazon.nova-pro-v1:0
 BEDROCK_REGION=us-east-1
 
-# Athena Configuration (REQUIRED)
+# Athena / CUR
 ATHENA_WORKGROUP=primary
-ATHENA_OUTPUT_LOCATION=s3://aasmaa-data-${AWS_ACCOUNT_ID}/athena-results/
-ATHENA_DATABASE=cur_database              # Your CUR database name
-ATHENA_TABLE=cur_table                    # Your CUR table name
+ATHENA_OUTPUT_LOCATION=s3://your-bucket/athena-results/
+ATHENA_DATABASE=cur_database
+ATHENA_TABLE=cur_table
 ATHENA_CATALOG=AwsDataCatalog
 
-# Optional: Database for conversation persistence
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/aasmaa
+# Database (optional — enables conversation history, orgs, opportunities, audit logs)
+DATABASE_ENABLED=true
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=aasmaa
+POSTGRES_USER=aasmaa
+POSTGRES_PASSWORD=...
 
-# Optional: Vector store for semantic search
-CHROMA_DB_PATH=./data/chroma
+# Valkey / Redis (optional — enables login throttle, token blacklist, distributed rate limiting)
+VALKEY_HOST=localhost
+VALKEY_PORT=6379
+VALKEY_PASSWORD=...
 
-# Application
-LOG_LEVEL=INFO
-ENVIRONMENT=development
+# Auth
+SECRET_KEY=<long-random-string>   # required; no default
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
+JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
 
-# LLM-based conversation understanding (enabled by default)
-# Set to 'false' to use rule-based parameter extraction instead
-# USE_LLM_CONVERSATION_UNDERSTANDING=false
+# Demo mode (single-tenant, no DB or Valkey required)
+DEMO_MODE=false
+CONFIG_DEMO_AUTH_ENABLED=false
+DEMO_IDENTITY_STORE_PATH=backend/data/demo_identity_store.json
 
-# CUR / Billing Export Deep Analysis (all optional — defaults shown)
+# CUR pattern mining (all optional — shown with defaults)
 CUR_PATTERN_MINING_ENABLED=true
 CUR_UPLOAD_MAX_SIZE_MB=200
 CUR_UPLOAD_MAX_ROWS=2000000
@@ -498,244 +288,235 @@ CUR_MINING_MIN_IDLE_COST_USD=5.0
 CUR_MINING_MIN_DATA_TRANSFER_USD=10.0
 CUR_MINING_MIN_RI_UNUSED_USD=1.0
 CUR_MINING_MIN_SP_UNUSED_USD=1.0
-CUR_MINING_STEADY_STATE_HOURS_PER_DAY=20.0
 CUR_MINING_MIN_STEADY_STATE_COST_USD=50.0
-CUR_MINING_SCHEDULING_OFF_HOURS_SHARE=0.40
 CUR_MINING_MOM_INCREASE_THRESHOLD_PCT=40.0
 CUR_MINING_MAX_FINDINGS_PER_DETECTOR=25
+
+# Logging & observability
+LOG_LEVEL=INFO
+ENVIRONMENT=development
 ```
 
-### Athena Setup Requirements
+### Athena / CUR Setup
 
-Your CUR data must be configured in AWS:
-1. Enable Cost and Usage Reports in AWS Billing Console
-2. Configure report to deliver to S3 bucket (must be globally unique, e.g. aasmaa-data-${AWS_ACCOUNT_ID})
-3. Set up Athena database and table (see `scripts/setup/setup-cur.sh`)
-4. Grant appropriate IAM permissions for Athena and S3 access
+1. Enable Cost and Usage Reports in the AWS Billing Console.
+2. Configure delivery to an S3 bucket (e.g. `your-account-cur-data`).
+3. Run the Glue crawler or use `scripts/setup/setup-cur.sh` to create the Athena database and table.
+4. Grant the ECS task role (or local IAM user) read access to Athena, S3, and Glue.
 
-See [AWS Deployment Guide](./docs/AWS_DEPLOYMENT_GUIDE.md) for detailed setup.
+See [docs/SETUP_CUR.md](./docs/SETUP_CUR.md) for step-by-step instructions.
+
+## Project Structure
+
+```
+finops-orchestrator/
+├── backend/                          # FastAPI backend
+│   ├── agents/                       # Multi-agent orchestration
+│   │   ├── multi_agent_workflow.py   # Entry point: intent routing + query execution
+│   │   ├── execute_query_v2.py       # Athena query execution and routing helpers
+│   │   ├── intent_classifier.py      # Intent type definitions + embedding router wrapper
+│   │   └── optimization_agent.py     # Aggregates optimization signals
+│   ├── api/                          # FastAPI routers
+│   │   ├── chat.py                   # Chat endpoint + SSE streaming
+│   │   ├── health.py                 # /health, /health/liveness, /health/readiness, /health/detailed
+│   │   ├── analytics.py              # Cost Explorer analytics (tenant-scoped)
+│   │   ├── athena_queries.py         # Athena SQL generation, execution, and export
+│   │   ├── auth.py                   # Login, token refresh, logout, current-user
+│   │   ├── organizations.py          # Org creation, switching, member management
+│   │   ├── saved_views.py            # Saved account-scope views
+│   │   ├── scope.py                  # Effective scope for current user
+│   │   ├── opportunities.py          # Optimization opportunities CRUD, bulk actions, export
+│   │   ├── cur_analysis.py           # CUR deep analysis (upload / mine / capabilities)
+│   │   ├── iac_workbench.py          # IaC upload, analysis, chat, and template generation
+│   │   ├── iac_generate_workflow.py  # Greenfield blueprint generation
+│   │   ├── demo_admin.py             # Demo admin console (users, departments, token quotas)
+│   │   ├── phase3_enterprise.py      # Scheduled reports, multi-account, RBAC (partial)
+│   │   ├── reports.py                # Report endpoints (currently mock-only)
+│   │   └── admin/rate_limits.py      # Platform admin rate-limit management
+│   ├── middleware/                   # Request-level middleware
+│   │   ├── authentication.py         # JWT verification; attaches AuthenticatedUser to request
+│   │   ├── account_scoping.py        # Resolves org + allowed accounts into RequestContext
+│   │   ├── feature_access.py         # Per-feature gates and token quota enforcement (demo mode)
+│   │   ├── login_throttle.py         # Per-IP + per-email progressive login rate limiting
+│   │   ├── rate_limiting.py          # Sliding-window endpoint rate limits
+│   │   └── security_headers.py       # CSP, HSTS, X-Frame-Options, X-Content-Type-Options
+│   ├── models/                       # Data models
+│   │   ├── database_models.py        # SQLAlchemy ORM models
+│   │   ├── opportunities.py          # Opportunity Pydantic models
+│   │   └── schemas.py                # Request/response schemas
+│   ├── services/                     # Core business logic (50+ modules)
+│   │   ├── athena_cur_templates.py   # 15+ optimized SQL templates + CURPatternMiningTemplates
+│   │   ├── athena_executor.py        # Async Athena client
+│   │   ├── athena_query_service.py   # Query generation + validation
+│   │   ├── aws_optimization_signals.py # CE, Trusted Advisor, Compute Optimizer signals
+│   │   ├── cloudwatch_optimization_signals.py # Idle resource detection via CloudWatch
+│   │   ├── ri_savings_plans_signals.py  # RI/SP coverage, utilization, expiry
+│   │   ├── storage_optimization_signals.py  # EBS, snapshot, S3 lifecycle signals
+│   │   ├── cur_pattern_mining_signals.py # Connected-mode Athena + CE detectors
+│   │   ├── cur_csv_analyzer.py       # Advisory-mode pandas CUR CSV detectors
+│   │   ├── opportunities_service.py  # Opportunity CRUD and tenant scoping
+│   │   ├── optimization_engine.py    # DB-backed recommendation templates
+│   │   ├── iac_analysis_service.py   # IaC file analysis sessions
+│   │   ├── iac_blueprint_generator.py # Greenfield template generation
+│   │   ├── conversation_manager.py   # PostgreSQL-backed conversation threads
+│   │   ├── llm_service.py            # AWS Bedrock integration (Nova Pro default)
+│   │   ├── response_formatter.py     # Structured response template
+│   │   ├── chart_data_builder.py     # Chart.js-compatible chart data builder
+│   │   ├── chart_recommendation.py   # Chart type selection
+│   │   ├── cache_service.py          # Valkey cache + fail-closed token blacklist
+│   │   ├── organization_service.py   # Org CRUD and member management
+│   │   ├── saved_views_service.py    # Saved view persistence
+│   │   ├── request_context.py        # Per-request tenant context dataclass
+│   │   ├── rbac_service.py           # Role-based access control
+│   │   ├── audit_log_service.py      # Audit log writes
+│   │   ├── demo_identity_store.py    # File-backed identity store (users, depts, quotas)
+│   │   ├── scheduled_report_service.py # Report scheduling service (scaffolded)
+│   │   ├── multi_account_service.py  # Cross-account registration and aggregation
+│   │   ├── email_service.py          # Email delivery
+│   │   ├── s3_service.py             # S3 operations
+│   │   ├── vector_store.py           # ChromaDB vector store (optional)
+│   │   ├── embedding/
+│   │   │   └── embedding_intent_router.py  # SentenceTransformer intent classifier
+│   │   └── ...                       # Additional utility services
+│   ├── aasmaa/
+│   │   └── time_range.py             # Time range parsing and merge (natural language → dates)
+│   ├── config/
+│   │   └── settings.py               # Pydantic settings (all env vars)
+│   ├── utils/                        # Shared utilities
+│   │   ├── aws_session.py            # IAM role-based session factory
+│   │   ├── aws_constants.py          # AWS service/region constants
+│   │   ├── sql_validation.py         # SQL injection prevention
+│   │   ├── sql_constants.py          # Centralized SQL string literals
+│   │   ├── pii_masking.py            # Email and identifier masking for logs
+│   │   ├── auth.py                   # JWT + password hashing helpers
+│   │   ├── encryption.py             # Field-level encryption for sensitive DB columns
+│   │   ├── client_ip.py              # Trusted-proxy XFF parsing
+│   │   ├── errors.py                 # Error codes and helpers
+│   │   └── logging.py                # Structlog configuration
+│   ├── evaluation/                   # Intent classification evaluation harness
+│   │   ├── ups_evaluator.py          # Confusion matrix, precision/recall
+│   │   ├── calibrate_thresholds.py   # Per-intent confidence calibration
+│   │   └── drift_monitor.py          # Accuracy drift detection
+│   ├── alembic/                      # Database schema migrations (18 versions)
+│   ├── scripts/                      # DB seed scripts
+│   │   └── seed_all_32_recommendations.sql
+│   └── main.py                       # FastAPI app entry point with lifespan, middleware, routers
+├── frontend/                         # React 18 + TypeScript + Vite frontend
+│   └── src/
+│       ├── App.tsx                   # App shell, routing, sidebar nav (Material UI)
+│       ├── components/
+│       │   ├── Chat/                 # Chat interface + markdown renderer
+│       │   ├── Opportunities/        # Opportunities workspace
+│       │   ├── SavedViews/           # Saved view management
+│       │   └── Scope/                # Active scope indicator
+│       ├── pages/
+│       │   ├── IacWorkbenchPage.tsx  # IaC upload and analysis
+│       │   ├── CurAnalysisPage.tsx   # CUR deep analysis (upload + mine)
+│       │   ├── GenerateBlueprintPage.tsx # IaC blueprint generation
+│       │   ├── AdminConsolePage.tsx  # Demo admin console
+│       │   ├── LoginPage.tsx
+│       │   ├── ProfilePage.tsx
+│       │   └── SettingsPage.tsx
+│       ├── context/AuthContext.tsx   # Auth state + feature access checks
+│       └── lib/api.ts                # Axios-based API client
+├── infrastructure/                   # AWS IaC
+│   ├── cloudformation/               # CloudFormation templates (5)
+│   ├── config/                       # ECS task definitions, bucket policies
+│   └── sql/                          # CUR table DDL
+├── scripts/                          # Operational scripts
+│   ├── deployment/                   # AWS deployment and update scripts
+│   ├── setup/                        # CUR and Athena setup and verification
+│   └── utilities/                    # Athena result cleanup utilities
+├── tests/                            # Test suite (86 test files)
+│   ├── unit/                         # Unit tests organized by layer
+│   │   ├── api/
+│   │   ├── config/
+│   │   ├── aasmaa/
+│   │   ├── middleware/
+│   │   ├── opportunities/
+│   │   ├── services/
+│   │   └── utils/
+│   └── (integration and e2e test files)
+├── docs/                             # Project documentation
+├── local-run.sh                      # Convenience script: start/stop/status local dev env
+├── docker-compose.yml                # PostgreSQL (with pgvector) + Valkey for local dev
+├── pytest.ini                        # pytest configuration
+├── SECURITY_AUDIT_REPORT.md          # Security audit findings and remediation status
+├── DEVELOPER_GUIDE.md                # Developer onboarding guide
+└── README.md                         # This file
+```
 
 ## Security & Access Control
 
-### Authentication & Authorization
+### Authentication
+- JWT access and refresh tokens; configurable expiration
+- PBKDF2-HMAC-SHA256, 600,000 iterations (OWASP 2023+ compliant)
+- Automatic transparent hash migration from legacy 100k iterations on login
+- Constant-time password comparison via `secrets.compare_digest()`
+- Token blacklisting (Valkey-backed; fail-closed — a cache outage keeps revoked tokens revoked)
+- Login brute-force protection: per-IP (20 attempts / 15 min) + per-email (5 attempts / 15 min) with progressive lockout; trusted-proxy XFF parsing
 
-**JWT-Based Authentication**
-- Secure password hashing with PBKDF2-HMAC-SHA256 (600,000 iterations - OWASP 2023+ compliant)
-- Automatic password hash migration from legacy (100k) to current (600k) iterations on login
-- Constant-time comparison to prevent timing attacks
-- Access and refresh tokens with configurable expiration
-- Token blacklisting for secure logout
-
-**Role-Based Access Control (RBAC)**
-- Platform admin (`is_admin` flag) - Full system access
-- Organization roles: `owner`, `admin`, `member` - Per-organization permissions
-- Configuration-based permissions (no hardcoded role checks)
-- Multi-tenant organization isolation
+### Authorization
+- Organization roles: `owner`, `admin`, `member`; platform admin flag (`is_admin`)
+- Per-request tenant context injected by `AccountScopingMiddleware` — all data access is scoped to the caller's `organization_id` and `allowed_account_ids`
+- Feature access flags in demo mode enforced at middleware layer before any handler runs
 
 ### Rate Limiting
 
-**Multi-Layer Rate Limiting with Per-User Fairness**
+Sliding-window rate limiter with user → organization priority hierarchy:
 
-Prevents resource hogging through 3-tier rate limiting system:
+| Priority | Source |
+|---------|--------|
+| 1 (highest) | User-specific override |
+| 2 | Organization role override |
+| 3 | Subscription tier default |
+| 4 (lowest) | Conservative fallback (10 req/hr) |
 
-```
-Layer 1: Per-User Limits (prevents single user from consuming all resources)
-         ↓
-Layer 2: Organization Limits (enforces subscription tier quotas)
-         ↓
-Request Allowed
-```
+Default tier limits (Athena export):
 
-**Priority Hierarchy:**
-1. **User-specific override** (highest) - Custom limit for specific user
-2. **Organization role override** - Custom limit for role within organization
-3. **System tier default** - Default limit based on subscription tier
-4. **Conservative fallback** (lowest) - 10 requests/hour if all else fails
+| Tier | Org limit | owner/admin | member |
+|------|-----------|-------------|--------|
+| Enterprise | 200 req/hr | 100 | 50 |
+| Standard | 50 req/hr | 30 | 15 |
+| Free | 10 req/hr | 5 | 3 |
 
-**Default Limits by Tier:**
-- **Enterprise** (200 req/hour org): owner/admin=100, member=50 per user
-- **Standard** (50 req/hour org): owner/admin=30, member=15 per user
-- **Free** (10 req/hour org): owner/admin=5, member=3 per user
+Platform admins can manage rate-limit overrides via `/api/admin/rate-limits/organizations/...`; organization admins can manage their own org via `/api/organizations/{org_id}/rate-limits/...`.
 
-**Configuration:**
-```bash
-# Organization limits (by subscription tier)
-ATHENA_EXPORT_LIMIT_ENTERPRISE=200
-ATHENA_EXPORT_LIMIT_STANDARD=50
-ATHENA_EXPORT_LIMIT_FREE=10
+### Demo Admin Console API
 
-# Per-user limits (Enterprise tier)
-ATHENA_EXPORT_PER_USER_LIMIT_ENTERPRISE_OWNER=100
-ATHENA_EXPORT_PER_USER_LIMIT_ENTERPRISE_ADMIN=100
-ATHENA_EXPORT_PER_USER_LIMIT_ENTERPRISE_MEMBER=50
+Available when `CONFIG_DEMO_AUTH_ENABLED=true`. Requires `is_admin=true`.
 
-# Per-user limits (Standard tier)
-ATHENA_EXPORT_PER_USER_LIMIT_STANDARD_OWNER=30
-ATHENA_EXPORT_PER_USER_LIMIT_STANDARD_ADMIN=30
-ATHENA_EXPORT_PER_USER_LIMIT_STANDARD_MEMBER=15
-
-# Per-user limits (Free tier)
-ATHENA_EXPORT_PER_USER_LIMIT_FREE_OWNER=5
-ATHENA_EXPORT_PER_USER_LIMIT_FREE_ADMIN=5
-ATHENA_EXPORT_PER_USER_LIMIT_FREE_MEMBER=3
-```
-
-### Admin API for Rate Limit Management
-
-**Platform Admin Endpoints** (requires `is_admin=true`):
 ```http
-# View organization's rate limits
-GET /api/admin/rate-limits/organizations/{org_id}/{endpoint}
+# Organization token budget
+GET  /api/demo/admin/org-settings
+PATCH /api/demo/admin/org-settings    { "monthly_token_budget": 3000000 }
 
-# Set role-based limits
-PUT /api/admin/rate-limits/organizations/{org_id}/roles
-Body: {
-  "endpoint": "athena_export",
-  "role_limits": [{"role": "member", "requests_per_hour": 75}]
-}
-
-# Set user-specific limit
-PUT /api/admin/rate-limits/organizations/{org_id}/users/{user_id}
-Body: {
-  "endpoint": "athena_export",
-  "user_id": "uuid",
-  "requests_per_hour": 200,
-  "notes": "Power user - data analyst"
-}
-
-# Reset role to system default
-DELETE /api/admin/rate-limits/organizations/{org_id}/roles/{role}
-
-# Reset user to role default
-DELETE /api/admin/rate-limits/organizations/{org_id}/users/{user_id}
-```
-
-**Organization Admin Endpoints** (requires organization owner/admin role):
-```http
-# Same endpoints with different prefix
-GET    /api/organizations/{org_id}/rate-limits/{endpoint}
-PUT    /api/organizations/{org_id}/rate-limits/roles
-PUT    /api/organizations/{org_id}/rate-limits/users/{user_id}
-DELETE /api/organizations/{org_id}/rate-limits/roles/{role}
-DELETE /api/organizations/{org_id}/rate-limits/users/{user_id}
-```
-
-### Demo Admin Console API (Token Quota & Department Management)
-
-**Admin-only endpoints** (requires `is_admin=true`, demo mode):
-```http
-# Organization settings & token budget
-GET  /api/demo/admin/org-settings                    # Get org budget + live usage stats
-PATCH /api/demo/admin/org-settings                   # Update monthly_token_budget (admin only)
-  Body: { "monthly_token_budget": 3000000 }
-
-# Token quota summary (full hierarchy)
-GET  /api/demo/admin/token-summary                   # Org → depts → users with usage
+# Token quota summary
+GET  /api/demo/admin/token-summary
 
 # Department CRUD
-GET    /api/demo/admin/departments                   # List all depts with usage stats
-POST   /api/demo/admin/departments                   # Create department
-  Body: { "name": "Engineering", "description": "...", "monthly_token_limit": 500000 }
-PATCH  /api/demo/admin/departments/{dept_id}         # Update dept name/limit/description
-DELETE /api/demo/admin/departments/{dept_id}         # Delete (fails if users assigned)
+GET    /api/demo/admin/departments
+POST   /api/demo/admin/departments    { "name": "Engineering", "monthly_token_limit": 500000 }
+PATCH  /api/demo/admin/departments/{dept_id}
+DELETE /api/demo/admin/departments/{dept_id}
 
-# User management (extended with dept and token override)
-GET    /api/demo/admin/summary                       # Admin summary with departments array
-POST   /api/demo/admin/users                         # Create user (department_id required)
-  Body: { "email": "...", "department_id": "dept-xxx", "token_limit_override": false, ... }
-PATCH  /api/demo/admin/users/{user_id}               # Update user, incl. dept reassignment
-  Body: { "department_id": "dept-yyy", "token_limit_override": true, "monthly_token_limit": 200000 }
+# User management
+GET    /api/demo/admin/summary
+POST   /api/demo/admin/users
+PATCH  /api/demo/admin/users/{user_id}
 ```
 
-**Use Cases:**
-- **Set role overrides**: Increase member limit from 50/hour to 75/hour for entire organization
-- **Give power user custom limit**: Data analyst needs 200/hour instead of default 50/hour
-- **Restrict intern access**: Admin intern gets only 25/hour instead of default 100/hour
+See [SECURITY_AUDIT_REPORT.md](./SECURITY_AUDIT_REPORT.md) for complete audit findings and remediation status.
 
-**Database Tables:**
-- `organization_rate_limits` - Role-based overrides per organization
-- `user_rate_limits` - User-specific overrides
+## Documentation
 
-**Access Control:**
-- Platform admins can manage any organization's limits
-- Organization admins can only manage their own organization
-- Regular members cannot access rate limit management
-
-### Security Features
-
-**Password Security (HIGH-NEW-2 Fix)**
-- PBKDF2-HMAC-SHA256 with 600,000 iterations (OWASP 2023+ compliant)
-- Version tracking for password hashes (v1=100k legacy, v2=600k current)
-- Automatic transparent migration on login (no password resets required)
-- Constant-time comparison using `secrets.compare_digest()`
-
-**PII Protection (HIGH-6 Fix)**
-- Email masking in authentication logs (`u***@example.com`)
-- No sensitive data in error messages or logs
-
-**CSRF Protection**
-- Secure cookie configuration with SameSite policies
-- Token-based authentication (JWT in Authorization header)
-
-**Security Headers**
-- Content Security Policy (CSP) with strict directives
-- HTTP Strict Transport Security (HSTS)
-- X-Frame-Options: DENY (clickjacking protection)
-- X-Content-Type-Options: nosniff
-
-**SQL Injection Prevention**
-- Parameterized queries throughout
-- No string concatenation for SQL generation
-- Centralized SQL constants
-
-See [SECURITY_AUDIT_REPORT.md](./SECURITY_AUDIT_REPORT.md) for complete security audit findings and remediation status.
-
-## Development
-
-### Running Tests
-```bash
-# All backend tests (664 tests — run from project root)
-pytest
-
-# Unit tests only
-pytest tests/unit/
-
-# Specific layer
-pytest tests/unit/api/          # API sanitisation & health
-pytest tests/unit/middleware/   # Auth, rate-limiting, security headers
-pytest tests/unit/services/     # Cache, DB-SSL, IAM migration
-
-# Token quota & department management tests (33 tests)
-pytest tests/test_token_quota_and_departments.py -v
-
-# Frontend tests
-cd frontend && npm test
-```
-
-### Code Quality
-```bash
-# Backend formatting
-cd backend && black . && isort .
-
-# Frontend formatting
-cd frontend && npm run lint:fix
-```
-
-## Deployment
-
-### AWS Infrastructure Components
-- **ECS Fargate**: Container orchestration
-- **ALB**: Load balancing and SSL termination
-- **RDS PostgreSQL**: Primary database
-- **ElastiCache Valkey**: Caching layer
-- **S3**: Static assets and CUR data storage
-- **CloudWatch**: Monitoring and logging
-- **Cognito**: Authentication and authorization
-
-### CI/CD Pipeline
-- GitHub Actions for automated testing and deployment
-- Automated infrastructure provisioning
-- Blue/green deployments for zero downtime
+- **[AWS Deployment Guide](./docs/AWS_DEPLOYMENT_GUIDE.md)** — Complete AWS deployment instructions
+- **[Demo Deployment Guide](./docs/DEMO_DEPLOYMENT.md)** — Low-cost demo stack setup
+- **[Quick Start Guide](./docs/QUICK_START.md)** — Developer onboarding with example queries
+- **[CUR Setup Guide](./docs/SETUP_CUR.md)** — Configure AWS Cost and Usage Reports
+- **[Multi-Tenant Implementation](./docs/MULTI_TENANT_IMPLEMENTATION.md)** — Org and scope design
+- **[RBAC System](./docs/RBAC_SYSTEM.md)** — Role and permission design
+- **[Troubleshooting](./docs/TROUBLESHOOTING.md)** — Common issues and solutions
 
 ## Contributing
 
@@ -744,7 +525,6 @@ This repository is private and not offered for public use or open-source contrib
 If you want to evaluate, modify, deploy, or contribute to this codebase, obtain prior written permission from the copyright owner first.
 
 For approved internal or private collaboration:
-
 1. Create an authorized branch in the private repository.
 2. Make and test your changes.
 3. Open a private pull request for review.
@@ -753,99 +533,4 @@ For approved internal or private collaboration:
 
 See [LICENSE](./LICENSE).
 
-This codebase is proprietary and confidential. No license is granted to use, copy, modify, distribute, deploy, sublicense, sell, or create derivative works from any part of this repository for personal, internal, evaluation, educational, or commercial purposes without prior written permission from the copyright owner.
-
-## Documentation
-
-### Active Documentation
-- **[AWS Deployment Guide](./docs/AWS_DEPLOYMENT_GUIDE.md)** - Complete AWS deployment instructions
-- **[Quick Start Guide](./docs/QUICK_START.md)** - Developer onboarding with code examples
-- **[UPS Architecture](./docs/UPS_ARCHITECTURE.md)** - Universal Parameter Schema technical documentation
-- **[Phase 2: Advanced Filters](./docs/PHASE_2_ADVANCED_FILTERS.md)** - Filter implementation guide
-- **[Backend Architecture](./docs/BACKEND_ARCHITECTURE.md)** - System design and components
-- **[CUR Setup Guide](./docs/SETUP_CUR.md)** - AWS Cost and Usage Reports configuration
-- **[Troubleshooting](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
-
-### Recently Removed (December 2025 Cleanup)
-- ~~OPTIMIZATION_IMPLEMENTATION_PLAN.md~~ - Completed, archived
-- ~~CONTEXT_AWARE_ROUTING.md~~ - Superseded by UPS Architecture
-- ~~ADVANCED_MULTI_AGENT.md~~ - Superseded by Backend Architecture
-- ~~LEGACY_CUR_MODE.md~~ - Obsolete CUR documentation
-- ~~PHASE_1_IMPLEMENTATION.md~~ - Completed planning document
-- ~~LLM_ARCHITECTURE_PROPOSAL.md~~ - Implemented in Phase 1
-
-## Support
-
-For technical support and questions:
-- **Technical Lead**: aasmaa Platform Team
-- **Architecture Questions**: Cloud Architecture Team
-- **Deployment Issues**: Performance Engineering Team
-
-## Roadmap
-
-### Phase 1: Foundation ✅ COMPLETED
-
-**Core Intelligence & Query Processing**
-- ✅ Universal Parameter Schema (UPS) with LLM + heuristic hybrid extraction
-- ✅ JSON repair layer with schema validation
-- ✅ Embedding-based intent validation and confidence boosting
-- ✅ Calibrated clarification thresholds from evaluation runs
-- ✅ Evaluation harness (confusion matrix, precision/recall, confidence stats)
-- ✅ Drift monitoring for accuracy tracking over time
-- ✅ Follow-up time range inheritance for multi-turn conversations
-
-**LangGraph Orchestration**
-- ✅ LangGraph state machine with structured outputs
-- ✅ Pydantic models for all LLM interactions
-- ✅ Conversational query rewriting with context resolution
-- ✅ Enum-based semantic routing (no string matching)
-- ✅ Separated agent state from conversation memory
-- ✅ PostgreSQL-backed message history with RunnableWithMessageHistory
-
-**Data Layer & Visualization**
-- ✅ 15+ Athena SQL templates with partition optimization
-- ✅ Async query execution with result parsing
-- ✅ Structured aasmaa response formatting
-- ✅ Intent-based chart recommendations
-
-### Phase 2: Advanced Filter Support ✅ COMPLETED
-
-**Query Filtering Capabilities**
-- ✅ Charge type filtering (exclude taxes, credits, fees, support charges)
-- ✅ Purchase option filtering (On-Demand, Reserved, Spot, Savings Plans)
-- ✅ Tag-based filtering (Environment, CostCenter, custom tags)
-- ✅ Platform filtering (Linux, Windows, RHEL, SUSE, Ubuntu)
-- ✅ Database engine filtering (MySQL, PostgreSQL, Aurora, etc.)
-- ✅ Multi-filter combinations with proper SQL AND/OR logic
-- ✅ Centralized synonym mappings (200+ entries, zero hardcoding)
-- ✅ AWS Cost Explorer API filter integration
-- ✅ 56 test cases (25 unit + 31 E2E tests)
-
-**See:** [Phase 2 Documentation](./docs/PHASE_2_ADVANCED_FILTERS.md) for complete technical details.
-
-### Phase 3: Enterprise Features 🔄 IN PROGRESS
-
-**Completed**
-- ✅ Multi-account cost management (consolidated billing, linked accounts)
-- ✅ Advanced RBAC (role-based access control, permission management)
-- ✅ Audit logging (comprehensive activity tracking for compliance)
-
-**In Development**
-- 🔄 Custom dashboard builder (drag-and-drop widgets, personalized views)
-- 🔄 Scheduled report generation (CRON, PDF/CSV/Excel, email/S3 delivery)
-- 🔄 Integration with ticketing systems (Jira, ServiceNow, GitHub, Linear)
-- 🔄 Cost allocation and chargeback (department/team attribution)
-
-### Phase 4: Advanced Analytics 🔄 IN PROGRESS
-
-**Cost Intelligence**
-- ⏳ ML-based cost forecasting with trend prediction
-- ✅ Automated anomaly detection with root cause analysis (`ce:GetAnomalies` → Opportunities)
-- ✅ Advanced optimization recommendations — RI/SP coverage & utilisation, unused-commitment mining, on-demand→RI candidates, cross-region data-transfer, idle-resource & scheduling detection (Connected + Advisory Mode)
-- ⏳ Budget management and alerting (threshold-based notifications)
-
-**Platform Expansion**
-- ⏳ Real-time streaming responses (WebSocket-based progressive results)
-- ⏳ Query result caching with Valkey (sub-second repeat query performance)
-- ⏳ Multi-cloud support (Azure Cost Management, GCP Billing)
-- ⏳ Reserved Instance and Savings Plan portfolio optimization
+This codebase is proprietary and confidential. No license is granted to use, copy, modify, distribute, deploy, sublicense, sell, or create derivative works from any part of this repository without prior written permission from the copyright owner.
