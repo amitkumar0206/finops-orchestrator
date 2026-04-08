@@ -27,6 +27,24 @@ All deployment scripts pass bash syntax validation:
 - `infrastructure/cloudformation/main-stack-demo.yaml`: Secret name scoped to stack name
 - `infrastructure/cloudformation/ecs-services.yaml`: Use `Fn::ImportValue` for secret ARN reference
 
+## F-001 Feature Deployment Notes
+
+### Scope now present in the application
+- Backend router: `/api/v1/data-sources`
+- Frontend route: `/data-sources`
+- Database migration: `backend/alembic/versions/018_create_data_sources_f001.py`
+- New settings: `F001_DATA_SOURCES_ENABLED`, `F001_UPLOAD_MAX_SIZE_MB`, `F001_UPLOAD_MAX_ROWS`
+
+### Deployment requirements
+1. Run the newest Alembic migration before exercising the Data Sources UI or API.
+2. Keep `DATABASE_ENABLED=true`; F-001 persists source definitions, file lineage, run history, and normalized partitions in Postgres.
+3. Ensure the frontend is rebuilt so the sidebar includes the Data Sources page.
+
+### Current operational status
+- Advisory upload ingestion is implemented for AWS CUR, Azure export, GCP billing export, and generic CSV feeds.
+- Connected-mode ingestion is not yet enabled in this deployment. The API returns a deterministic not-enabled response for manual connected ingest requests.
+- Infrastructure follow-up for normalized object storage, Athena/Glue publication, and scheduled connected-mode pulls remains future work.
+
 ## Deployment Status
 
 ### Recent Deployment Attempt

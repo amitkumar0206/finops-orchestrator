@@ -321,6 +321,25 @@ class Settings(BaseSettings):
         description="Cap on opportunities emitted by any single CUR detector per run.",
     )
 
+    # ------------------------------------------------------------------
+    # F-001 Multi-cloud ingestion and FOCUS normalization
+    # ------------------------------------------------------------------
+    f001_data_sources_enabled: bool = Field(
+        default=True,
+        env="F001_DATA_SOURCES_ENABLED",
+        description="Enable multi-cloud data source registry and normalization APIs.",
+    )
+    f001_upload_max_size_mb: int = Field(
+        default=250,
+        env="F001_UPLOAD_MAX_SIZE_MB",
+        description="Maximum uploaded data-source file size (MB).",
+    )
+    f001_upload_max_rows: int = Field(
+        default=2_000_000,
+        env="F001_UPLOAD_MAX_ROWS",
+        description="Maximum rows parsed from an uploaded data-source file.",
+    )
+
     # AWS Bedrock Configuration
     bedrock_model_id: str = Field(
         default="us.amazon.nova-pro-v1:0",

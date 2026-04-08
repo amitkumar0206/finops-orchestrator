@@ -26,6 +26,8 @@ class FeatureAccessMiddleware(BaseHTTPMiddleware):
             return "generate"
         if path.startswith("/api/v1/cur-analysis"):
             return "cur_analysis"
+        if path.startswith("/api/v1/data-sources"):
+            return "cur_analysis"
         if path.startswith("/api/v1/iac/") or path.startswith("/api/v1/opportunities"):
             return "analyze"
         return None

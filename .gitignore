@@ -5,7 +5,7 @@ __pycache__/
 
 # Local development runtime artifacts
 .local-run/
-data/
+/data/
 
 # Database migration tracking (instance-specific)
 backend/scripts/completed/
@@ -22,8 +22,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/

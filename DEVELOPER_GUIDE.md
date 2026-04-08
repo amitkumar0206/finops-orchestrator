@@ -1,6 +1,6 @@
 # aasmaa AI Cost Intelligence Platform - Developer Guide
 
-**Last Updated:** December 4, 2025  
+**Last Updated:** April 8, 2026  
 **Version:** 1.0  
 **Target Audience:** Developers new to AI/NLP systems
 
@@ -27,9 +27,13 @@
 
 ### What is aasmaa Orchestrator?
 
-aasmaa Orchestrator is an **AI-powered AWS cost analysis platform** that lets users query their cloud costs using natural language. Instead of writing SQL queries or navigating complex dashboards, users simply ask questions like:
+aasmaa Orchestrator is an **AI-powered FinOps platform** that combines AWS-first conversational cost analysis with multi-cloud billing ingestion and normalization. Instead of writing SQL queries or navigating complex dashboards, users can query spend, upload billing exports, and manage scoped data sources through guided workflows.
+
+Representative workflows include:
 
 - "Show me my AWS costs for the last 30 days"
+- "Upload this Azure export and normalize it into the shared spend model"
+- "Show unified spend by provider and month"
 - "What are my top 5 most expensive services?"
 - "How can I optimize my EC2 costs?"
 
@@ -40,6 +44,7 @@ The system uses **Large Language Models (LLMs)** to understand these questions, 
 This guide explains the system from first principles, assuming **no prior knowledge of AI or NLP systems**. You'll learn:
 
 - How natural language gets transformed into SQL queries
+- How billing exports become normalized multi-cloud cost records
 - How the LLM understands context and intent
 - How data flows from user query to visual response
 - How to extend and maintain the system
@@ -62,8 +67,9 @@ This guide explains the system from first principles, assuming **no prior knowle
 │  • Chat Interface                           │
 │  • Chart Rendering                          │
 │  • Conversation History                     │
+│  • Data Sources workflow                     │
 └──────┬──────────────────────────────────────┘
-       │ HTTP POST /api/v1/chat
+  │ HTTP API calls (/api/v1/chat, /api/v1/data-sources)
        ▼
 ┌─────────────────────────────────────────────┐
 │       FastAPI Backend (Port 8000)           │
@@ -72,6 +78,13 @@ This guide explains the system from first principles, assuming **no prior knowle
 │  │   Chat API (chat.py)                │  │
 │  │   • Receives user message           │  │
 │  │   • Manages conversation context    │  │
+│  └───────────┬─────────────────────────┘  │
+│              ▼                              │
+│  ┌─────────────────────────────────────┐  │
+│  │   Data Sources API                  │  │
+│  │   • Registers scoped sources        │  │
+│  │   • Validates uploads               │  │
+│  │   • Tracks normalization runs       │  │
 │  └───────────┬─────────────────────────┘  │
 │              ▼                              │
 │  ┌─────────────────────────────────────┐  │
@@ -100,8 +113,20 @@ This guide explains the system from first principles, assuming **no prior knowle
 │  • AWS Bedrock (LLM)                       │
 │  • AWS Athena (SQL Query Engine)           │
 │  • PostgreSQL (Conversation Storage)       │
+│  • AWS/Azure/GCP billing export files      │
 └─────────────────────────────────────────────┘
 ```
+
+### Multi-cloud ingestion at a glance
+
+The F-001 implementation adds a separate ingestion path alongside chat and CUR analysis:
+
+- `backend/api/data_sources.py` exposes organization-scoped endpoints for capabilities, draft creation, upload ingestion, and run history.
+- `backend/services/data_source_registry.py` manages source metadata, checksum-based idempotency, run lifecycle, and unified spend preview queries.
+- `backend/services/focus_normalizer.py` converts AWS CUR, Azure exports, GCP exports, and generic CSV feeds into a shared provider/service/month schema.
+- `frontend/src/pages/DataSourcesPage.tsx` and the `DataSources` component set provide the wizard, freshness indicators, and run-history UI.
+
+Current deployment note: advisory upload mode is implemented and supported. Connected-mode provider pulls are not yet enabled and return a clear failure response rather than silently pretending to work.
 
 ### Technology Stack
 

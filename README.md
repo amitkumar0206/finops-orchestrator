@@ -1,14 +1,15 @@
 # aasmaa AI Cost Intelligence Platform
 
-AI-assisted AWS FinOps platform for cost analysis, optimization discovery, CUR mining, governed multi-tenant access, and infrastructure design workflows.
+AI-assisted FinOps platform for AWS-first cost analysis, multi-cloud cost ingestion, optimization discovery, governed multi-tenant access, and infrastructure design workflows.
 
 ## Current Status
 
-- As of 7 April 2026, the core product is implemented and actively maintained.
+- As of 8 April 2026, the core product is implemented and actively maintained.
 - The application can run locally and can also be deployed as an AWS-hosted stack for organization use.
-- End-to-end shipped areas include AI cost analysis chat, optimization opportunities, CUR deep analysis, multi-tenant scoping, authentication, demo admin controls, IaC analysis, and IaC blueprint generation.
+- End-to-end shipped areas include AI cost analysis chat, optimization opportunities, CUR deep analysis, multi-tenant scoping, authentication, demo admin controls, IaC analysis, IaC blueprint generation, and F-001 multi-cloud ingestion with FOCUS-style normalization.
 - Recent security fixes are documented and verified in the security docs and test suite.
 - Some enterprise surfaces are still partial or scaffolded: report generation endpoints are currently mock-only, and the custom dashboard builder is not yet implemented. Treat those areas as work in progress unless you validate them directly in code.
+- The shipped F-001 scope is the data-source registry, advisory upload ingestion, source run history, idempotent file tracking, and unified normalized spend preview. Connected-mode provider pulls remain a follow-up and currently return a clear not-enabled response.
 
 ## Key Features
 
@@ -31,6 +32,15 @@ AI-assisted AWS FinOps platform for cost analysis, optimization discovery, CUR m
 - **CUR pattern mining, advisory mode**: Upload a CUR CSV or CSV.GZ export and run the same detector family with pandas — no live AWS credentials required.
 - **Opportunities workspace**: Filterable and paginated recommendations list with savings estimates, evidence detail, status updates (open / in progress / resolved / dismissed), bulk status actions, and CSV export.
 - **Configurable thresholds**: All detection thresholds are tunable through `CUR_MINING_*` and `CUR_UPLOAD_*` environment variables.
+
+### Multi-Cloud Data Sources
+- **Data source registry**: Organization-scoped registry for AWS CUR, Azure Cost Management exports, GCP billing exports, and generic cost CSV feeds.
+- **FOCUS-style normalization**: Uploaded billing files are normalized into a unified provider/service/month dataset that can be queried consistently across clouds.
+- **Advisory upload workflow**: FinOps teams can ingest billing exports without live cloud credentials and immediately inspect normalized run status, validation feedback, and freshness.
+- **Idempotent ingestion tracking**: Source file checksum registry prevents duplicate uploads from being processed twice.
+- **Run history and freshness**: Each source records validation status, rows read, rows normalized, and the latest freshness timestamp exposed in the UI.
+- **Scoped API surface**: `/api/v1/data-sources` endpoints preserve organization scoping and reuse existing auth and feature-access controls.
+- **Deployment note**: Connected-mode ingestion is intentionally not enabled yet in this deployment; advisory upload is the supported production path.
 
 ### Multi-Tenant Access & Governance
 - **Organization-scoped access**: Every request carries an organization context (org ID + allowed AWS account IDs). All Athena queries, Cost Explorer calls, and opportunity lookups are filtered to the caller's tenant scope.
@@ -163,23 +173,37 @@ npm run dev  # runs on :3000
 
 `local-run.sh` supports `start`, `stop`, `restart`, `status`, and `logs`. It auto-loads `deployment.env` and `backend/.env` if they exist, and installs dependencies on first run by default.
 
+If you are using the new Data Sources capability with database-backed mode, run the latest Alembic migration before testing the feature:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
 ### Testing
 
 ```bash
 # All backend tests (run from project root)
-pytest
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest
 
 # Unit tests only
-pytest tests/unit/
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/unit/
 
 # Specific area
-pytest tests/unit/api/          # API sanitization & health
-pytest tests/unit/middleware/   # Auth, rate-limiting, security headers
-pytest tests/unit/services/     # Cache, DB-SSL, IAM migration
-pytest tests/test_token_quota_and_departments.py -v
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/unit/api/          # API routers incl. data-sources
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/unit/middleware/   # Auth, rate-limiting, security headers
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/unit/services/     # Service-layer logic incl. FOCUS normalization
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_token_quota_and_departments.py -v
 
 # Frontend type-check and lint
 cd frontend && npm run type-check && npm run lint
+```
+
+Targeted F-001 validation:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q tests/unit/services/test_focus_normalizer.py tests/unit/api/test_data_sources_api.py
+cd frontend && npm run type-check
 ```
 
 ### API Explorer
@@ -292,6 +316,11 @@ CUR_MINING_MIN_STEADY_STATE_COST_USD=50.0
 CUR_MINING_MOM_INCREASE_THRESHOLD_PCT=40.0
 CUR_MINING_MAX_FINDINGS_PER_DETECTOR=25
 
+# F-001 multi-cloud data sources
+F001_DATA_SOURCES_ENABLED=true
+F001_UPLOAD_MAX_SIZE_MB=250
+F001_UPLOAD_MAX_ROWS=2000000
+
 # Logging & observability
 LOG_LEVEL=INFO
 ENVIRONMENT=development
@@ -327,6 +356,7 @@ finops-orchestrator/
 │   │   ├── scope.py                  # Effective scope for current user
 │   │   ├── opportunities.py          # Optimization opportunities CRUD, bulk actions, export
 │   │   ├── cur_analysis.py           # CUR deep analysis (upload / mine / capabilities)
+│   │   ├── data_sources.py           # Multi-cloud data source registry and upload ingestion
 │   │   ├── iac_workbench.py          # IaC upload, analysis, chat, and template generation
 │   │   ├── iac_generate_workflow.py  # Greenfield blueprint generation
 │   │   ├── demo_admin.py             # Demo admin console (users, departments, token quotas)
@@ -343,6 +373,7 @@ finops-orchestrator/
 │   ├── models/                       # Data models
 │   │   ├── database_models.py        # SQLAlchemy ORM models
 │   │   ├── opportunities.py          # Opportunity Pydantic models
+│   │   ├── data_sources.py           # Data source, run, and normalized-cost schemas
 │   │   └── schemas.py                # Request/response schemas
 │   ├── services/                     # Core business logic (50+ modules)
 │   │   ├── athena_cur_templates.py   # 15+ optimized SQL templates + CURPatternMiningTemplates
@@ -354,6 +385,8 @@ finops-orchestrator/
 │   │   ├── storage_optimization_signals.py  # EBS, snapshot, S3 lifecycle signals
 │   │   ├── cur_pattern_mining_signals.py # Connected-mode Athena + CE detectors
 │   │   ├── cur_csv_analyzer.py       # Advisory-mode pandas CUR CSV detectors
+│   │   ├── data_source_registry.py   # Data source orchestration, run tracking, unified spend
+│   │   ├── focus_normalizer.py       # FOCUS-style normalization for AWS/Azure/GCP/generic feeds
 │   │   ├── opportunities_service.py  # Opportunity CRUD and tenant scoping
 │   │   ├── optimization_engine.py    # DB-backed recommendation templates
 │   │   ├── iac_analysis_service.py   # IaC file analysis sessions
@@ -375,6 +408,7 @@ finops-orchestrator/
 │   │   ├── email_service.py          # Email delivery
 │   │   ├── s3_service.py             # S3 operations
 │   │   ├── vector_store.py           # ChromaDB vector store (optional)
+│   │   ├── provider_connectors/      # AWS/Azure/GCP/generic billing file adapters
 │   │   ├── embedding/
 │   │   │   └── embedding_intent_router.py  # SentenceTransformer intent classifier
 │   │   └── ...                       # Additional utility services
@@ -406,12 +440,14 @@ finops-orchestrator/
 │       ├── App.tsx                   # App shell, routing, sidebar nav (Material UI)
 │       ├── components/
 │       │   ├── Chat/                 # Chat interface + markdown renderer
+│       │   ├── DataSources/          # Data source wizard, freshness, run history
 │       │   ├── Opportunities/        # Opportunities workspace
 │       │   ├── SavedViews/           # Saved view management
 │       │   └── Scope/                # Active scope indicator
 │       ├── pages/
 │       │   ├── IacWorkbenchPage.tsx  # IaC upload and analysis
 │       │   ├── CurAnalysisPage.tsx   # CUR deep analysis (upload + mine)
+│       │   ├── DataSourcesPage.tsx   # Multi-cloud ingestion and source management
 │       │   ├── GenerateBlueprintPage.tsx # IaC blueprint generation
 │       │   ├── AdminConsolePage.tsx  # Demo admin console
 │       │   ├── LoginPage.tsx
