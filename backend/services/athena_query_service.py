@@ -10,7 +10,7 @@ import json
 import io
 import re
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import structlog
 
 from backend.config.settings import get_settings
@@ -123,9 +123,55 @@ class AthenaQueryService:
         """
         try:
             query_lower = user_query.lower()
+
+            # Intent-first routing for fallback Athena generation.
+            # This ensures "compare" and "trend" requests do not collapse
+            # into the generic comprehensive summary query.
+            is_comparison = any(token in query_lower for token in [
+                "compare", "comparison", "vs", "versus", "month over month", "mom", "yoy", "qoq"
+            ])
+            is_trend = any(token in query_lower for token in [
+                "trend", "over time", "timeline", "time series"
+            ])
+            has_region_breakdown = "region" in query_lower
+
+            previous_days_match = re.search(r"previous\s+(\d+)\s+days?", query_lower)
+            compare_days_match = re.search(r"compare\s+with\s+previous\s+(\d+)\s+days?", query_lower)
+            rolling_compare_days = None
+            if compare_days_match:
+                rolling_compare_days = int(compare_days_match.group(1))
+            elif previous_days_match:
+                rolling_compare_days = int(previous_days_match.group(1))
+
+            if is_comparison:
+                if rolling_compare_days is not None:
+                    sql_query = self._generate_rolling_period_comparison_query(
+                        time_range=time_range,
+                        days=rolling_compare_days,
+                        services=services,
+                    )
+                    description = f"Rolling {rolling_compare_days}-day comparison by service"
+                elif "month" in query_lower:
+                    sql_query = self._generate_monthly_comparison_query(time_range, services)
+                    description = "Month-over-month cost comparison by service"
+                else:
+                    sql_query = self._generate_rolling_period_comparison_query(
+                        time_range=time_range,
+                        days=30,
+                        services=services,
+                    )
+                    description = "Rolling 30-day comparison by service"
+
+            elif is_trend and has_region_breakdown:
+                sql_query = self._generate_monthly_trend_by_region_query(time_range, services)
+                description = "Monthly cost trend by region"
+
+            elif is_trend:
+                sql_query = self._generate_monthly_trend_query(time_range, services)
+                description = "Monthly cost trend"
             
             # Determine query type and generate appropriate SQL
-            if "top" in query_lower and "service" in query_lower:
+            elif "top" in query_lower and "service" in query_lower:
                 # Top services by cost
                 limit = self._extract_top_n(query_lower)
                 sql_query = self._generate_top_services_query(time_range, limit)
@@ -225,6 +271,102 @@ GROUP BY
 ORDER BY 
     total_cost DESC
 LIMIT {limit};
+"""
+        return query.strip()
+
+    def _generate_monthly_trend_by_region_query(
+        self,
+        time_range: Dict[str, Any],
+        services: Optional[List[str]] = None
+    ) -> str:
+        """Generate SQL for monthly trend broken down by region."""
+        start_date = _validate_date_param(time_range.get("start_date"), "start_date")
+        end_date = _validate_date_param(time_range.get("end_date"), "end_date")
+
+        service_filter = ""
+        if services:
+            validated_services = self._validate_services(services)
+            if validated_services:
+                service_list = build_sql_in_list(validated_services)
+                service_filter = f"AND line_item_product_code IN ({service_list})"
+
+        query = f"""
+SELECT
+    CAST(DATE_TRUNC('month', line_item_usage_start_date) AS DATE) as month,
+    product_region_code as region,
+    SUM(line_item_unblended_cost) as cost
+FROM
+    {settings.aws_cur_table or 'cur_table'}
+WHERE
+    line_item_usage_start_date >= DATE '{start_date}'
+    AND line_item_usage_start_date <= DATE '{end_date}'
+    AND product_region_code IS NOT NULL
+    AND product_region_code != ''
+    {service_filter}
+GROUP BY
+    DATE_TRUNC('month', line_item_usage_start_date),
+    product_region_code
+ORDER BY
+    month ASC,
+    cost DESC;
+"""
+        return query.strip()
+
+    def _generate_rolling_period_comparison_query(
+        self,
+        time_range: Dict[str, Any],
+        days: int,
+        services: Optional[List[str]] = None
+    ) -> str:
+        """Generate SQL for rolling current-vs-previous period comparison by service."""
+        if days < 1:
+            days = 30
+
+        end_date = date.fromisoformat(_validate_date_param(time_range.get("end_date"), "end_date"))
+        current_start = end_date - timedelta(days=days - 1)
+        previous_end = current_start - timedelta(days=1)
+        previous_start = previous_end - timedelta(days=days - 1)
+
+        service_filter = ""
+        if services:
+            validated_services = self._validate_services(services)
+            if validated_services:
+                service_list = build_sql_in_list(validated_services)
+                service_filter = f"AND line_item_product_code IN ({service_list})"
+
+        query = f"""
+SELECT
+    line_item_product_code as service,
+    SUM(CASE
+        WHEN DATE(line_item_usage_start_date) BETWEEN DATE '{current_start.isoformat()}' AND DATE '{end_date.isoformat()}'
+        THEN line_item_unblended_cost ELSE 0
+    END) as current_period_cost,
+    SUM(CASE
+        WHEN DATE(line_item_usage_start_date) BETWEEN DATE '{previous_start.isoformat()}' AND DATE '{previous_end.isoformat()}'
+        THEN line_item_unblended_cost ELSE 0
+    END) as previous_period_cost,
+    DATE '{current_start.isoformat()}' as current_start_date,
+    DATE '{end_date.isoformat()}' as current_end_date,
+    DATE '{previous_start.isoformat()}' as previous_start_date,
+    DATE '{previous_end.isoformat()}' as previous_end_date
+FROM
+    {settings.aws_cur_table or 'cur_table'}
+WHERE
+    DATE(line_item_usage_start_date) BETWEEN DATE '{previous_start.isoformat()}' AND DATE '{end_date.isoformat()}'
+    {service_filter}
+GROUP BY
+    line_item_product_code
+HAVING
+    SUM(CASE
+        WHEN DATE(line_item_usage_start_date) BETWEEN DATE '{current_start.isoformat()}' AND DATE '{end_date.isoformat()}'
+        THEN line_item_unblended_cost ELSE 0
+    END) > 0
+    OR SUM(CASE
+        WHEN DATE(line_item_usage_start_date) BETWEEN DATE '{previous_start.isoformat()}' AND DATE '{previous_end.isoformat()}'
+        THEN line_item_unblended_cost ELSE 0
+    END) > 0
+ORDER BY
+    current_period_cost DESC;
 """
         return query.strip()
     
@@ -360,7 +502,7 @@ ORDER BY
         time_range: Dict[str, Any],
         services: Optional[List[str]] = None
     ) -> str:
-        """Generate comprehensive SQL query"""
+        """Generate comprehensive SQL query aggregated for the full selected period."""
         # SECURITY (CRIT-12): validate dates before f-string interpolation
         start_date = _validate_date_param(time_range.get("start_date"), "start_date")
         end_date = _validate_date_param(time_range.get("end_date"), "end_date")
@@ -375,11 +517,8 @@ ORDER BY
 
         query = f"""
 SELECT
-    DATE(line_item_usage_start_date) as usage_date,
     line_item_product_code as service_name,
-    product_region_code as region,
-    SUM(line_item_unblended_cost) as cost,
-    SUM(line_item_usage_amount) as usage_amount
+    SUM(line_item_unblended_cost) as cost
 FROM
     {settings.aws_cur_table or 'cur_table'}
 WHERE
@@ -387,12 +526,106 @@ WHERE
     AND line_item_usage_start_date <= DATE '{end_date}'
     {service_filter}
 GROUP BY
-    DATE(line_item_usage_start_date),
-    line_item_product_code,
-    product_region_code
+    line_item_product_code
 ORDER BY
-    usage_date DESC,
     cost DESC;
+"""
+        return query.strip()
+
+    def _generate_monthly_trend_query(
+        self,
+        time_range: Dict[str, Any],
+        services: Optional[List[str]] = None
+    ) -> str:
+        """Generate SQL for monthly trend by service (or for a filtered service set)."""
+        start_date = _validate_date_param(time_range.get("start_date"), "start_date")
+        end_date = _validate_date_param(time_range.get("end_date"), "end_date")
+
+        service_filter = ""
+        if services:
+            validated_services = self._validate_services(services)
+            if validated_services:
+                service_list = build_sql_in_list(validated_services)
+                service_filter = f"AND line_item_product_code IN ({service_list})"
+
+        query = f"""
+SELECT
+    CAST(DATE_TRUNC('month', line_item_usage_start_date) AS DATE) as month,
+    line_item_product_code as service_name,
+    SUM(line_item_unblended_cost) as cost
+FROM
+    {settings.aws_cur_table or 'cur_table'}
+WHERE
+    line_item_usage_start_date >= DATE '{start_date}'
+    AND line_item_usage_start_date <= DATE '{end_date}'
+    {service_filter}
+GROUP BY
+    DATE_TRUNC('month', line_item_usage_start_date),
+    line_item_product_code
+ORDER BY
+    month ASC,
+    cost DESC;
+"""
+        return query.strip()
+
+    def _generate_monthly_comparison_query(
+        self,
+        time_range: Dict[str, Any],
+        services: Optional[List[str]] = None
+    ) -> str:
+        """Generate SQL for current vs previous month comparison by service."""
+        start_date_str = _validate_date_param(time_range.get("start_date"), "start_date")
+        end_date_str = _validate_date_param(time_range.get("end_date"), "end_date")
+
+        # Anchor comparison to the month containing end_date.
+        end_date_obj = date.fromisoformat(end_date_str)
+        current_month_start = end_date_obj.replace(day=1)
+        if current_month_start.month == 1:
+            previous_month_start = current_month_start.replace(year=current_month_start.year - 1, month=12)
+        else:
+            previous_month_start = current_month_start.replace(month=current_month_start.month - 1)
+
+        service_filter = ""
+        if services:
+            validated_services = self._validate_services(services)
+            if validated_services:
+                service_list = build_sql_in_list(validated_services)
+                service_filter = f"AND line_item_product_code IN ({service_list})"
+
+        query = f"""
+SELECT
+    line_item_product_code as service,
+    SUM(CASE
+        WHEN CAST(DATE_TRUNC('month', line_item_usage_start_date) AS DATE) = DATE '{current_month_start.isoformat()}'
+        THEN line_item_unblended_cost ELSE 0
+    END) as current_period_cost,
+    SUM(CASE
+        WHEN CAST(DATE_TRUNC('month', line_item_usage_start_date) AS DATE) = DATE '{previous_month_start.isoformat()}'
+        THEN line_item_unblended_cost ELSE 0
+    END) as previous_period_cost,
+    DATE '{current_month_start.isoformat()}' as current_start_date,
+    DATE_ADD('day', -1, DATE_ADD('month', 1, DATE '{current_month_start.isoformat()}')) as current_end_date,
+    DATE '{previous_month_start.isoformat()}' as previous_start_date,
+    DATE_ADD('day', -1, DATE '{current_month_start.isoformat()}') as previous_end_date
+FROM
+    {settings.aws_cur_table or 'cur_table'}
+WHERE
+    line_item_usage_start_date >= DATE '{previous_month_start.isoformat()}'
+    AND line_item_usage_start_date < DATE_ADD('month', 1, DATE '{current_month_start.isoformat()}')
+    {service_filter}
+GROUP BY
+    line_item_product_code
+HAVING
+    SUM(CASE
+        WHEN CAST(DATE_TRUNC('month', line_item_usage_start_date) AS DATE) = DATE '{current_month_start.isoformat()}'
+        THEN line_item_unblended_cost ELSE 0
+    END) > 0
+    OR SUM(CASE
+        WHEN CAST(DATE_TRUNC('month', line_item_usage_start_date) AS DATE) = DATE '{previous_month_start.isoformat()}'
+        THEN line_item_unblended_cost ELSE 0
+    END) > 0
+ORDER BY
+    current_period_cost DESC;
 """
         return query.strip()
     

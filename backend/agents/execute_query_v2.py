@@ -35,6 +35,24 @@ from backend.utils.sql_validation import (
 logger = structlog.get_logger(__name__)
 settings = get_settings()
 COST_EXPLORER_REGION = "us-east-1"
+CUR_DATABASE = settings.aws_cur_database or "cost_usage_db"
+CUR_TABLE = settings.aws_cur_table or "cur_data"
+CUR_TABLE_REF = f"{CUR_DATABASE}.{CUR_TABLE}"
+DEMO_FALLBACK_CUR_TABLE_REF = "cost_and_usage_db.costandusagereport"
+
+
+def _rewrite_legacy_cur_ref(sql_query: str) -> str:
+    """Rewrite legacy demo CUR table reference to the active demo view."""
+    return re.sub(
+        r"(?i)\bcost_usage_db\.cur_data\b",
+        DEMO_FALLBACK_CUR_TABLE_REF,
+        sql_query,
+    )
+
+
+def _uses_legacy_cur_ref(sql_query: str) -> bool:
+    """Return True when SQL references legacy demo CUR table."""
+    return bool(re.search(r"(?i)\bcost_usage_db\.cur_data\b", sql_query or ""))
 
 
 def _fallback_chart_intent(results: List[Dict[str, Any]]) -> str:
@@ -56,6 +74,60 @@ def _fallback_chart_intent(results: List[Dict[str, Any]]) -> str:
     if "service" in keys or "service_name" in keys or "line_item_product_code" in keys:
         return "top_services"
     return "breakdown"
+
+
+def _chart_specs_from_llm_metadata(metadata: Dict[str, Any], results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Build chart specs from LLM-provided chart suggestions when available."""
+    if not results:
+        return []
+
+    raw_specs = metadata.get("chart_suggestions")
+    if not isinstance(raw_specs, list) or not raw_specs:
+        return []
+
+    first_row = results[0]
+    available_fields = {str(k) for k in first_row.keys()}
+    allowed_types = {"bar", "column", "line", "area", "pie", "scatter", "stacked_bar", "clustered_bar"}
+
+    # For period comparison datasets, force a known-good rendering shape.
+    if {"service", "current_period_cost", "previous_period_cost"}.issubset(available_fields):
+        return [{
+            "type": "clustered_bar",
+            "x": "service",
+            "y": "current_period_cost",
+            "title": "Current vs Previous Cost by Service",
+        }]
+
+    chart_specs: List[Dict[str, Any]] = []
+    for raw in raw_specs[:3]:
+        if not isinstance(raw, dict):
+            continue
+
+        chart_type = str(raw.get("type") or raw.get("chart_type") or "").strip().lower()
+        if chart_type not in allowed_types:
+            continue
+
+        x_field = raw.get("x") or raw.get("x_field")
+        y_field = raw.get("y") or raw.get("y_field")
+        series_field = raw.get("series") or raw.get("series_field")
+
+        if x_field not in available_fields or y_field not in available_fields:
+            continue
+        if series_field and series_field not in available_fields:
+            series_field = None
+
+        chart_spec: Dict[str, Any] = {
+            "type": chart_type,
+            "x": x_field,
+            "y": y_field,
+            "title": str(raw.get("title") or f"{y_field} by {x_field}"),
+        }
+        if series_field:
+            chart_spec["series"] = series_field
+
+        chart_specs.append(chart_spec)
+
+    return chart_specs
 
 
 def _is_period_comparison_query(query: str, previous_context: Optional[Dict[str, Any]]) -> bool:
@@ -107,7 +179,7 @@ SELECT
             ELSE 0
         END
     ), 2) AS previous_period_cost
-FROM cost_usage_db.cur_data
+FROM {CUR_TABLE_REF}
 WHERE (
     CAST(line_item_usage_start_date AS DATE) >= DATE '{previous_start}'
     AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_end}'
@@ -147,6 +219,14 @@ LIMIT 20
         ),
         "result_columns": ["service", "current_period_cost", "previous_period_cost"],
         "query_type": "comparison",
+        "chart_suggestions": [
+            {
+                "type": "clustered_bar",
+                "x": "service",
+                "y": "current_period_cost",
+                "title": "Current vs Previous Cost by Service",
+            }
+        ],
         "generated_via": "deterministic_period_comparison",
         "status": "ok",
     }
@@ -158,6 +238,7 @@ class AthenaExecutor:
     
     def __init__(self):
         self.athena_client = create_aws_session().client(AwsService.ATHENA)
+        self.database = CUR_DATABASE
         # Extract bucket from athena_output_location setting
         output_loc = settings.athena_output_location
         if not output_loc.endswith('/'):
@@ -185,7 +266,7 @@ class AthenaExecutor:
             response = self.athena_client.start_query_execution(
                 QueryString=sql_query,
                 QueryExecutionContext={
-                    'Database': 'cost_usage_db'
+                    'Database': self.database
                 },
                 ResultConfiguration={
                     'OutputLocation': self.output_location
@@ -416,32 +497,57 @@ async def execute_query_simple(
                 "The S3 location provided to save your query results is invalid",
             ]
             if any(marker in error_text for marker in fallback_markers):
-                logger.warning(
-                    "Athena execution failed, using Cost Explorer fallback",
-                    error=error_text,
-                )
-                results = await _fetch_cost_explorer_fallback(previous_context)
+                # First retry: legacy demo reference can still exist in runtime env.
+                # If so, rewrite to the current demo view and retry Athena directly.
+                if _uses_legacy_cur_ref(sql_query):
+                    rewritten_sql = _rewrite_legacy_cur_ref(sql_query)
+                    if rewritten_sql != sql_query:
+                        try:
+                            logger.warning(
+                                "Retrying Athena query with demo CUR table rewrite",
+                                from_table="cost_usage_db.cur_data",
+                                to_table=DEMO_FALLBACK_CUR_TABLE_REF,
+                            )
+                            sql_query = rewritten_sql
+                            results = await executor.execute_sql(sql_query)
+                        except Exception as rewrite_error:
+                            logger.warning(
+                                "Athena retry with rewritten CUR table failed",
+                                error=str(rewrite_error),
+                            )
+                            results = []
+                        else:
+                            metadata["rewritten_cur_source"] = True
+                            metadata["cur_table_ref"] = DEMO_FALLBACK_CUR_TABLE_REF
+
                 if results:
-                    metadata["generated_via"] = "cost_explorer_fallback"
-                    metadata["status"] = "ok"
-                    metadata["fallback_reason"] = error_text
-                    metadata["query_type"] = "top_services"
-                    metadata["explanation"] = (
-                        "**Cost Explorer Fallback**\n\n"
-                        "Athena results were temporarily unavailable for this account, so I used AWS Cost Explorer "
-                        "to provide a service-level cost breakdown for the requested period."
-                    )
+                    pass
                 else:
-                    raise
+                    logger.warning(
+                        "Athena execution failed, using Cost Explorer fallback",
+                        error=error_text,
+                    )
+                    results = await _fetch_cost_explorer_fallback(previous_context)
+                    if results:
+                        metadata["generated_via"] = "cost_explorer_fallback"
+                        metadata["status"] = "ok"
+                        metadata["fallback_reason"] = error_text
+                        metadata["query_type"] = "top_services"
+                        metadata["explanation"] = (
+                            "**Cost Explorer Fallback**\n\n"
+                            "Athena results were temporarily unavailable for this account, so I used AWS Cost Explorer "
+                            "to provide a service-level cost breakdown for the requested period."
+                        )
             else:
                 raise
         
-        # Auto-drill-down: If single service/resource result, fetch breakdown by usage_type
-        should_drill_down = False
+        # Auto-drill-down is opt-in only. Default behavior should follow LLM query_type
+        # and return the exact result set produced by SQL.
+        should_drill_down = bool(metadata.get("enable_auto_drilldown"))
         original_service_name = None
         original_resource_id = None
         
-        if results and len(results) == 1:
+        if should_drill_down and results and len(results) == 1:
             # Check if this is a service-level or resource-level query
             first_row = results[0]
             columns = list(first_row.keys())
@@ -450,21 +556,19 @@ async def execute_query_simple(
             if 'service' in columns or 'product_code' in columns or 'line_item_product_code' in columns:
                 service_col = next((c for c in ['service', 'product_code', 'line_item_product_code'] if c in columns), None)
                 original_service_name = first_row.get(service_col)
-                should_drill_down = True
                 logger.info(f"Single service result detected: {original_service_name}, drilling down to usage types")
             
             # Detect if we have a resource_id column
             elif 'resource_id' in columns or 'line_item_resource_id' in columns:
                 resource_col = next((c for c in ['resource_id', 'line_item_resource_id'] if c in columns), None)
                 original_resource_id = first_row.get(resource_col)
-                should_drill_down = True
                 logger.info(f"Single resource result detected: {original_resource_id}, drilling down to usage types")
         
         # Execute drill-down query if needed
         if should_drill_down:
             try:
                 # Build drill-down SQL to get usage_type breakdown
-                drill_down_sql = """
+                drill_down_sql = f"""
 SELECT 
     line_item_usage_type AS usage_type,
     ROUND(SUM(
@@ -475,7 +579,7 @@ SELECT
             ELSE 0
         END
     ), 2) AS cost_usd
-FROM cost_usage_db.cur_data
+FROM {CUR_TABLE_REF}
 WHERE 1=1
 """
                 # Add service filter if we have it - VALIDATE to prevent SQL injection
@@ -555,6 +659,29 @@ LIMIT 20
                 # Continue with original results
                 pass
         
+        # Secondary retry path: some legacy queries can return empty rows even
+        # when data exists in the modern demo view. Retry once with rewritten SQL.
+        if (not results or len(results) == 0) and _uses_legacy_cur_ref(sql_query):
+            rewritten_sql = _rewrite_legacy_cur_ref(sql_query)
+            if rewritten_sql != sql_query:
+                try:
+                    logger.warning(
+                        "No rows from legacy CUR table, retrying with demo CUR view",
+                        from_table="cost_usage_db.cur_data",
+                        to_table=DEMO_FALLBACK_CUR_TABLE_REF,
+                    )
+                    retry_results = await executor.execute_sql(rewritten_sql)
+                    if retry_results:
+                        results = retry_results
+                        sql_query = rewritten_sql
+                        metadata["rewritten_cur_source"] = True
+                        metadata["cur_table_ref"] = DEMO_FALLBACK_CUR_TABLE_REF
+                except Exception as retry_error:
+                    logger.warning(
+                        "Retry after no-row legacy query failed",
+                        error=str(retry_error),
+                    )
+
         if not results or len(results) == 0:
             # Use metadata from SQL generation for context-aware messaging
             filters = metadata.get('filters', {})
@@ -593,34 +720,58 @@ LIMIT 20
             }
         
         # Step 3: Generate charts from results
-        # Force comparison chart intent for dual-period result sets so UI renders side-by-side bars.
-        chart_intent = metadata.get("query_type", "unknown")
-        if results and all(
-            col in results[0] for col in ["current_period_cost", "previous_period_cost"]
-        ):
-            chart_intent = "comparison"
+        # Prefer explicit chart suggestions from LLM metadata; fallback to heuristics if absent/invalid.
+        chart_specs = _chart_specs_from_llm_metadata(metadata, results)
 
-        if chart_intent in ["unknown", None, ""]:
-            chart_intent = _fallback_chart_intent(results)
+        if not chart_specs:
+            # Force comparison chart intent for dual-period result sets so UI renders side-by-side bars.
+            chart_intent = metadata.get("query_type", "unknown")
+            if results and all(
+                col in results[0] for col in ["current_period_cost", "previous_period_cost"]
+            ):
+                chart_intent = "comparison"
 
-        chart_specs = chart_engine.recommend_charts(
-            intent=chart_intent,
-            data_results=results,
-            extracted_params={}
-        )
+            if chart_intent in ["unknown", None, ""]:
+                chart_intent = _fallback_chart_intent(results)
 
-        if not chart_specs and results:
             chart_specs = chart_engine.recommend_charts(
-                intent=_fallback_chart_intent(results),
+                intent=chart_intent,
                 data_results=results,
                 extracted_params={}
             )
-        
+
+            if not chart_specs and results:
+                chart_specs = chart_engine.recommend_charts(
+                    intent=_fallback_chart_intent(results),
+                    data_results=results,
+                    extracted_params={}
+                )
+
         charts_with_data = chart_data_builder.build_chart_data(
             chart_specs=chart_specs,
             data_results=results,
             conv_context=None
         )
+
+        # Last safety net: if LLM-directed specs produced no renderable charts, use heuristic recommendations.
+        if not charts_with_data and results:
+            fallback_intent = metadata.get("query_type") or _fallback_chart_intent(results)
+            fallback_specs = chart_engine.recommend_charts(
+                intent=fallback_intent,
+                data_results=results,
+                extracted_params={}
+            )
+            if not fallback_specs:
+                fallback_specs = chart_engine.recommend_charts(
+                    intent=_fallback_chart_intent(results),
+                    data_results=results,
+                    extracted_params={}
+                )
+            charts_with_data = chart_data_builder.build_chart_data(
+                chart_specs=fallback_specs,
+                data_results=results,
+                conv_context=None
+            )
         
         # Step 4: Use LLM's explanation as the response
         # The LLM already provides rich analysis, insights, and recommendations in the explanation

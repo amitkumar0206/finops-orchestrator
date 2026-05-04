@@ -211,6 +211,13 @@ if command -v dig >/dev/null 2>&1; then
   fi
 fi
 
+log "Syntax-checking backend Python files before build"
+if ! find "$ROOT_DIR/backend" -name '*.py' -print0 | xargs -0 python3 -m py_compile 2>&1; then
+  echo "[demo-update] Python syntax check failed — aborting deployment." >&2
+  exit 1
+fi
+log "Python syntax check passed"
+
 log "Building and pushing latest backend/frontend images"
 ecr_login_for_image "$BACKEND_IMAGE_URI"
 if [[ "$FRONTEND_IMAGE_URI" != "$BACKEND_IMAGE_URI" ]]; then

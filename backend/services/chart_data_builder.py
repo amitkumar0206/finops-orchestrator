@@ -315,16 +315,16 @@ class ChartDataBuilder:
                     )
                     continue  # Skip this row
                 
-                # Format date/month labels for better readability
-                x_val_str = self._format_chart_label(x_val, x_field)
-                if x_val_str in aggregated:
-                    aggregated[x_val_str] += y_val
+                # Keep raw x values for accurate chronological sorting.
+                raw_x = str(x_val)
+                if raw_x in aggregated:
+                    aggregated[raw_x] += y_val
                 else:
-                    aggregated[x_val_str] = y_val
+                    aggregated[raw_x] = y_val
             
             # Sort by x_field (important for time series)
             sorted_items = sorted(aggregated.items(), key=lambda x: x[0])
-            labels = [item[0] for item in sorted_items]
+            labels = [self._format_chart_label(item[0], x_field) for item in sorted_items]
             values = [item[1] for item in sorted_items]
             
             # Add buffer labels before and after for better chart display
@@ -653,8 +653,14 @@ class ChartDataBuilder:
         
         for row in data:
             service = row.get("service", "Unknown")
-            current_cost = row.get("current_period_cost", 0)
-            previous_cost = row.get("previous_period_cost", 0)
+            try:
+                current_cost = float(row.get("current_period_cost", 0) or 0)
+            except (TypeError, ValueError):
+                current_cost = 0.0
+            try:
+                previous_cost = float(row.get("previous_period_cost", 0) or 0)
+            except (TypeError, ValueError):
+                previous_cost = 0.0
             
             services.append(service)
             current_costs.append(current_cost)
@@ -699,8 +705,7 @@ class ChartDataBuilder:
                         "callbacks": {
                             "afterLabel": "(context) => { const idx = context.dataIndex; const change = " + 
                                           str([round((c - p) / p * 100, 1) if p > 0 else 0 
-                                               for c, p in zip([row.get("current_period_cost", 0) for row in data],
-                                                             [row.get("previous_period_cost", 0) for row in data])]) +
+                                              for c, p in zip(current_costs, previous_costs)]) +
                                           "[idx]; return `Change: ${change}%`; }"
                         }
                     }

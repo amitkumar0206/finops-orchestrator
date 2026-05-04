@@ -996,6 +996,19 @@ class OptimizationAgent:
             }
         except Exception as e:
             logger.warning("Failed to fetch billing context for optimization fallback", error=sanitize_exception(e))
+            try:
+                ce_rows = self._fetch_cost_explorer_context(end_date - timedelta(days=30), end_date)
+                if ce_rows:
+                    return {
+                        "period": f"{one_month_ago} to {end_date.isoformat()}",
+                        "top_services": ce_rows,
+                        "ec2_instances": [],
+                    }
+            except Exception as ce_error:
+                logger.warning(
+                    "Cost Explorer fallback also failed for optimization context",
+                    error=sanitize_exception(ce_error),
+                )
             return None
 
     def _fetch_cost_explorer_context(self, start_date, end_date) -> list:

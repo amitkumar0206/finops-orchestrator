@@ -37,8 +37,8 @@ services:
       ATHENA_OUTPUT_LOCATION: "s3://${S3_BUCKET:-aasmaa-demo-data-152924644003}/athena-results/"
 
       # Glue Database config for Athena queries
-      AWS_CUR_DATABASE: "${AWS_CUR_DATABASE:-cost_usage_db}"
-      AWS_CUR_TABLE: "${AWS_CUR_TABLE:-cur_data}"
+      AWS_CUR_DATABASE: "${AWS_CUR_DATABASE:-cost_and_usage_db}"
+      AWS_CUR_TABLE: "${AWS_CUR_TABLE:-costandusagereport}"
 
       # ============================================================
       # LLM Model Selection (Nova Lite = cheapest for demo)

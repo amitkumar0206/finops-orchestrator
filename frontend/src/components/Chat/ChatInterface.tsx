@@ -520,6 +520,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
       // Fallback path: if chat orchestration fails to parse SQL, try direct Athena generation.
       if (data?.metadata?.status === 'llm_error') {
         try {
+          const lastAssistantWithResults = [...messages]
+            .reverse()
+            .find((m) => m.role === 'assistant' && Array.isArray(m.results) && m.results.length > 0);
+
+          const topRow = (lastAssistantWithResults?.results && lastAssistantWithResults.results[0]) || null;
+          const inferredTopService = topRow && typeof topRow === 'object'
+            ? (topRow.service_name || topRow.service || topRow.dimension_value || null)
+            : null;
+
           const fallbackResp = await apiFetch('/api/v1/athena/generate', {
             method: 'POST',
             headers: {
@@ -527,6 +536,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
             },
             body: JSON.stringify({
               user_query: messageToSend,
+              context: {
+                ...conversationContext,
+                last_assistant_top_service: inferredTopService
+              },
               execute_query: true,
             })
           });
@@ -536,6 +549,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
             if (Array.isArray(fallbackData.results) && fallbackData.results.length > 0) {
               data.message = fallbackData.description || 'Here are your requested cost results.';
               data.results = fallbackData.results;
+              data.charts = normalizeCharts(fallbackData.charts || []);
               data.athena_query = fallbackData.sql_query || data.athena_query;
               data.metadata = {
                 ...(data.metadata || {}),
@@ -1174,6 +1188,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
             const hasCharts = charts.length > 0;
             const chartCount = charts.length;
 
+
             return (
               <Fade in={true} key={message.id} timeout={600}>
                 <Box sx={{ mb: 3.5 }}>
@@ -1441,10 +1456,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                                       border: '1px solid rgba(0,0,0,0.08)',
                                       boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
                                       maxHeight: 400,
-                                      overflow: 'auto'
+                                      overflow: 'auto',
+                                      '& .MuiTableCell-stickyHeader': {
+                                        backgroundColor: '#e8f1fb',
+                                        zIndex: 3,
+                                      }
                                     }}
                                   >
-                                    <Table stickyHeader size="small" sx={{ minWidth: 300 }}>
+                                    <Table stickyHeader size="small" sx={{ minWidth: 300, borderCollapse: 'separate' }}>
                                       <TableHead>
                                         <TableRow>
                                           {Object.keys(message.results[0] || {}).map((key) => (
@@ -1455,7 +1474,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                                                 bgcolor: 'rgba(21, 101, 192, 0.08)',
                                                 color: '#1565C0',
                                                 textTransform: 'capitalize',
-                                                fontSize: '0.85rem'
+                                                fontSize: '0.85rem',
+                                                position: 'sticky',
+                                                top: 0,
+                                                zIndex: 3
                                               }}
                                             >
                                               {key.replace(/_/g, ' ')}
@@ -1650,10 +1672,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                                       border: '1px solid rgba(0,0,0,0.08)',
                                       boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
                                       maxHeight: 360,
-                                      overflow: 'auto'
+                                      overflow: 'auto',
+                                      '& .MuiTableCell-stickyHeader': {
+                                        backgroundColor: '#e8f1fb',
+                                        zIndex: 3,
+                                      }
                                     }}
                                   >
-                                    <Table stickyHeader size="small" sx={{ minWidth: 300 }}>
+                                    <Table stickyHeader size="small" sx={{ minWidth: 300, borderCollapse: 'separate' }}>
                                       <TableHead>
                                         <TableRow>
                                           {Object.keys(message.results[0] || {}).map((key) => (
@@ -1664,7 +1690,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage }) => {
                                                 bgcolor: 'rgba(21, 101, 192, 0.08)',
                                                 color: '#1565C0',
                                                 textTransform: 'capitalize',
-                                                fontSize: '0.85rem'
+                                                fontSize: '0.85rem',
+                                                position: 'sticky',
+                                                top: 0,
+                                                zIndex: 3
                                               }}
                                             >
                                               {key.replace(/_/g, ' ')}

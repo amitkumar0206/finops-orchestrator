@@ -410,7 +410,16 @@ CRITICAL FORMATTING RULES:
 - For optimization queries, add numbered recommendations with specific actions
 - Use exact format shown above - UI parses this structure",
   "result_columns": ["service", "cost_usd"],
-  "query_type": "top_services | breakdown | time_series | regional"
+  "query_type": "top_services | breakdown | time_series | regional | comparison",
+  "chart_suggestions": [
+    {{
+      "type": "bar | column | line | area | pie | scatter | stacked_bar | clustered_bar",
+      "x": "column_name_for_x_axis",
+      "y": "column_name_for_numeric_axis",
+      "series": "optional_grouping_column",
+      "title": "Short chart title"
+    }}
+  ]
 }}
 
 **IMPORTANT - Query Type Selection**: 
@@ -419,6 +428,13 @@ CRITICAL FORMATTING RULES:
 - For "breakdown X" queries, use query_type="breakdown"
 - For "costs over time" queries, use query_type="time_series"
 - For "costs by region" queries, use query_type="regional"
+
+**IMPORTANT - Chart Suggestions**:
+- If sql is non-empty, return at least one chart suggestion.
+- Use `line`/`area` for time-series trends.
+- Use `bar`/`column` for ranking or categorical breakdown.
+- Use `clustered_bar` for current-vs-previous comparisons.
+- Ensure `x`, `y`, and optional `series` fields match names in `result_columns`.
 
 **CRITICAL - Writing Great Explanations**:
 
@@ -586,6 +602,17 @@ Now generate the query for the user's request. Return ONLY the JSON, no markdown
 class TextToSQLService:
     """Pure LLM-based text-to-SQL service for AWS CUR queries."""
 
+    _ALLOWED_CHART_TYPES = {
+        "bar",
+        "column",
+        "line",
+        "area",
+        "pie",
+        "scatter",
+        "stacked_bar",
+        "clustered_bar",
+    }
+
     _DATE_BETWEEN_PATTERN = re.compile(
         r"(?P<prefix>CAST\(line_item_usage_start_date AS DATE\)\s+BETWEEN\s+DATE\s+')"
         r"(?P<start>\d{4}-\d{2}-\d{2})"
@@ -606,6 +633,99 @@ class TextToSQLService:
         r"(?P<suffix>')",
         re.IGNORECASE,
     )
+
+    def _normalize_chart_suggestions(
+        self,
+        chart_suggestions: Any,
+        result_columns: List[str],
+        query_type: str,
+    ) -> List[Dict[str, Any]]:
+        """Validate and normalize chart suggestions returned by the LLM."""
+        if not isinstance(chart_suggestions, list) or not chart_suggestions:
+            return []
+
+        result_col_set = {str(col) for col in result_columns if isinstance(col, str)}
+        normalized: List[Dict[str, Any]] = []
+
+        time_candidates = ["date", "usage_date", "month", "week", "day", "period"]
+        cost_candidates = [
+            "cost_usd",
+            "cost",
+            "total_cost_usd",
+            "daily_cost_usd",
+            "monthly_cost_usd",
+            "current_period_cost",
+            "previous_period_cost",
+        ]
+        dim_candidates = [
+            "service",
+            "service_name",
+            "dimension_value",
+            "region",
+            "resource_id",
+            "instance_type",
+            "usage_type",
+        ]
+
+        def _first_existing(candidates: List[str]) -> Optional[str]:
+            for candidate in candidates:
+                if candidate in result_col_set:
+                    return candidate
+            return None
+
+        default_y = _first_existing(cost_candidates)
+        default_time_x = _first_existing(time_candidates)
+        default_dim_x = _first_existing(dim_candidates)
+
+        for raw in chart_suggestions[:3]:
+            if not isinstance(raw, dict):
+                continue
+
+            chart_type = str(raw.get("type") or raw.get("chart_type") or "").strip().lower()
+            if chart_type not in self._ALLOWED_CHART_TYPES:
+                continue
+
+            x_field = raw.get("x") or raw.get("x_field")
+            y_field = raw.get("y") or raw.get("y_field")
+            series_field = raw.get("series") or raw.get("series_field")
+
+            if x_field and x_field not in result_col_set:
+                x_field = None
+            if y_field and y_field not in result_col_set:
+                y_field = None
+            if series_field and series_field not in result_col_set:
+                series_field = None
+
+            if not y_field:
+                y_field = default_y
+            if not x_field:
+                if chart_type in ["line", "area"]:
+                    x_field = default_time_x or default_dim_x
+                else:
+                    x_field = default_dim_x or default_time_x
+
+            # Force known-good comparison shape when these columns are present.
+            if query_type == "comparison" and {"service", "current_period_cost", "previous_period_cost"}.issubset(result_col_set):
+                chart_type = "clustered_bar"
+                x_field = "service"
+                y_field = "current_period_cost"
+                series_field = None
+
+            if not x_field or not y_field:
+                continue
+
+            chart = {
+                "type": chart_type,
+                "x": x_field,
+                "y": y_field,
+                "title": str(raw.get("title") or raw.get("name") or f"{y_field} by {x_field}").strip(),
+            }
+            if series_field:
+                chart["series"] = series_field
+
+            normalized.append(chart)
+
+        return normalized
     
     async def generate_sql(
         self,
@@ -685,7 +805,7 @@ class TextToSQLService:
                     "Generate complete, executable Athena SQL queries. "
                     "Return ONLY valid JSON. CRITICAL: Escape all newlines in strings as \\n (not literal line breaks). "
                     "DO NOT double-escape percent signs - use single % for percentages (e.g., '25% of total', NOT '25%% of total'). "
-                    "JSON must have: sql, explanation, result_columns, and query_type fields."
+                    "JSON must have: sql, explanation, result_columns, query_type, and chart_suggestions fields."
                 ),
               max_tokens=12000,  # Increased limit to reduce JSON truncation for complex prompts
               context={"expect_json": True}
@@ -714,6 +834,44 @@ class TextToSQLService:
               except json.JSONDecodeError as err:
                 return None, err
 
+            def _extract_first_json_object(payload: str) -> Optional[str]:
+              """Extract the first balanced JSON object from mixed LLM text."""
+              if not payload:
+                return None
+
+              start = payload.find("{")
+              if start == -1:
+                return None
+
+              depth = 0
+              in_string = False
+              escape = False
+
+              for idx in range(start, len(payload)):
+                ch = payload[idx]
+
+                if in_string:
+                  if escape:
+                    escape = False
+                  elif ch == "\\":
+                    escape = True
+                  elif ch == '"':
+                    in_string = False
+                  continue
+
+                if ch == '"':
+                  in_string = True
+                  continue
+
+                if ch == "{":
+                  depth += 1
+                elif ch == "}":
+                  depth -= 1
+                  if depth == 0:
+                    return payload[start:idx + 1]
+
+              return None
+
             response_data, parse_err = _safe_json_parse(cleaned)
             if parse_err:
               # Second pass: strip control characters and code-fence artifacts
@@ -728,6 +886,13 @@ class TextToSQLService:
                   [ln for ln in sanitized.splitlines() if not ln.strip().startswith("```")]
                 ).strip()
               response_data, parse_err2 = _safe_json_parse(sanitized)
+
+              # Third pass: extract first JSON object from surrounding prose/fences
+              if parse_err2:
+                extracted_json = _extract_first_json_object(sanitized)
+                if extracted_json:
+                  response_data, parse_err2 = _safe_json_parse(extracted_json)
+
               if parse_err2:
                 logger.error(
                   "JSON parsing failed",
@@ -780,7 +945,8 @@ class TextToSQLService:
                     "generated_via": "text_to_sql_llm_partial",
                     "status": "ok",
                     "explanation": explanation,
-                    "result_columns": result_columns
+                    "result_columns": result_columns,
+                    "chart_suggestions": []
                   }
                   resolved_time_range = self._resolve_requested_time_range(user_query, previous_context)
                   sql_query = self._apply_resolved_time_range(sql_query, resolved_time_range)
@@ -825,6 +991,11 @@ class TextToSQLService:
             time_period_info = self._extract_time_period_from_sql(sql_query)
             scope_info = self._extract_scope_from_sql(sql_query, user_query)
             filters_info = self._extract_filters_from_sql(sql_query)
+            normalized_chart_suggestions = self._normalize_chart_suggestions(
+                response_data.get("chart_suggestions", []),
+                response_data.get("result_columns", []),
+                response_data.get("query_type", "unknown"),
+            )
             
             metadata = {
                 "explanation": self._normalize_explanation_time_range(
@@ -833,6 +1004,7 @@ class TextToSQLService:
                 ),
                 "result_columns": response_data.get("result_columns", []),
                 "query_type": response_data.get("query_type", "unknown"),
+                "chart_suggestions": normalized_chart_suggestions,
                 "generated_via": "text_to_sql_llm",
                 "time_period": time_period_info,
                 "scope": scope_info,

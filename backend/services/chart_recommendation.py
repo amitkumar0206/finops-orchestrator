@@ -160,31 +160,6 @@ class ChartRecommendationEngine:
                 "description": "Distribution of costs across resource types"
             }]
         
-        # Auto-detect drill-down scenario: if we have usage_type as dimension, prefer PIE chart
-        if len(data_results) >= 2:
-            columns = list(data_results[0].keys())
-            # Check if this is a usage_type breakdown (drill-down scenario)
-            if 'usage_type' in columns or 'line_item_usage_type' in columns:
-                logger.info("Detected usage_type breakdown - recommending PIE chart")
-                pie_chart = self._generate_pie_chart_for_usage_breakdown(data_results)
-                if pie_chart:
-                    return [pie_chart]
-        
-        # Check for top service breakdown - use pie chart to show how cost is accumulated
-        top_service_breakdown = metadata.get("top_service_breakdown")
-        if top_service_breakdown:
-            logger.info(
-                "Detected top service breakdown - using pie chart",
-                service=top_service_breakdown.get("service")
-            )
-            # For single service breakdown showing cost drivers, pie chart is most intuitive
-            pie_chart = self._generate_pie_chart_for_breakdown(
-                data_results,
-                top_service_breakdown
-            )
-            if pie_chart:
-                return [pie_chart]
-        
         # Normalize intent - handle both string literals and IntentType enums
         normalized_intent = self._normalize_intent(intent)
         
@@ -366,15 +341,14 @@ class ChartRecommendationEngine:
                     # Check for series grouping when we truly have time series
                     if data_structure.get("has_multiple_series"):
                         series_field = self._find_series_field(data_results)
-                        # CRITICAL FIX: If we have time-series with many services, switch to stacked area or limit data
                         if series_field:
                             unique_series = set(r.get(series_field) for r in data_results)
                             if len(unique_series) > 10:
-                                if chart_type == ChartType.AREA:
-                                    logger.info(f"Time-series with {len(unique_series)} series - limiting to top 10 for stacked area")
-                                else:
-                                    logger.info(f"Time-series with {len(unique_series)} series - disabling series grouping for line chart")
-                                    series_field = None
+                                logger.info(
+                                    "Time-series with high series cardinality - preserving grouped lines for follow-up analysis",
+                                    series_count=len(unique_series),
+                                    series_field=series_field,
+                                )
         
         # Ranking/breakdown charts
         elif chart_type in [ChartType.BAR, ChartType.COLUMN]:
@@ -470,7 +444,8 @@ class ChartRecommendationEngine:
         
         # Prioritized list of potential series fields
         series_candidates = [
-            "env", "environment", "service", "region", "account",
+            "service_name", "service", "dimension_value",
+            "env", "environment", "region", "account",
             "tag_value", "instance_type", "driver", "category"
         ]
         
@@ -479,8 +454,12 @@ class ChartRecommendationEngine:
                 return candidate
         
         # Fallback: first non-metric column
+        time_like_tokens = ["date", "month", "week", "day", "year", "period", "time"]
         for key in sample.keys():
-            if not any(m in key.lower() for m in ["cost", "amount", "count", "total", "pct"]):
+            key_lower = key.lower()
+            if any(token in key_lower for token in time_like_tokens):
+                continue
+            if not any(m in key_lower for m in ["cost", "amount", "count", "total", "pct"]):
                 return key
         
         return None
