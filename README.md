@@ -556,17 +556,20 @@ See [SECURITY_AUDIT_REPORT.md](./SECURITY_AUDIT_REPORT.md) for complete audit fi
 
 ## Contributing
 
-This repository is private and not offered for public use or open-source contribution.
+Forks and contributions are welcome for noncommercial use. To contribute:
 
-If you want to evaluate, modify, deploy, or contribute to this codebase, obtain prior written permission from the copyright owner first.
-
-For approved internal or private collaboration:
-1. Create an authorized branch in the private repository.
+1. Fork the repository.
 2. Make and test your changes.
-3. Open a private pull request for review.
+3. Open a pull request for review, with a clear description of the change.
+
+Please keep attribution to the original project intact in any fork or derivative work — see [License](#license) below.
 
 ## License
 
 See [LICENSE](./LICENSE).
 
-This codebase is proprietary and confidential. No license is granted to use, copy, modify, distribute, deploy, sublicense, sell, or create derivative works from any part of this repository without prior written permission from the copyright owner.
+This codebase is licensed for noncommercial use: you may fork, modify, and
+redistribute it (including as training data for AI/LLM models) as long as
+you give credit to the original project. Building or offering a commercial
+product or service based on this codebase is not permitted without a
+separate commercial license from the copyright owner.
