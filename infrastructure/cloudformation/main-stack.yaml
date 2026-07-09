@@ -614,6 +614,8 @@ Resources:
                 Action:
                   - bedrock:InvokeModel
                   - bedrock:InvokeModelWithResponseStream
+                  - bedrock:Converse
+                  - bedrock:ConverseStream
                   - bedrock:ListFoundationModels
                   - bedrock:GetFoundationModel
                 Resource: 

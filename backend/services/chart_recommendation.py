@@ -229,9 +229,18 @@ class ChartRecommendationEngine:
             # Time columns (actual time-series data points)
             elif any(t in col_lower for t in ["date", "time", "month", "week", "day", "year"]) and "period" not in col_lower:
                 time_cols.append(col)
-            # Metric columns (numeric)
+            # Metric columns (numeric) — check actual value is numeric to avoid
+            # misclassifying string columns whose name contains "usage" (e.g. "usage_type")
             elif any(m in col_lower for m in ["cost", "amount", "count", "total", "pct", "percent", "usage", "hours"]):
-                metric_cols.append(col)
+                sample_val = sample.get(col)
+                if sample_val is None or isinstance(sample_val, (int, float)):
+                    metric_cols.append(col)
+                else:
+                    try:
+                        float(sample_val)
+                        metric_cols.append(col)
+                    except (ValueError, TypeError):
+                        dimension_cols.append(col)
             # Dimension columns
             else:
                 dimension_cols.append(col)

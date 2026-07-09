@@ -38,21 +38,18 @@ COST_EXPLORER_REGION = "us-east-1"
 CUR_DATABASE = settings.aws_cur_database or "cost_usage_db"
 CUR_TABLE = settings.aws_cur_table or "cur_data"
 CUR_TABLE_REF = f"{CUR_DATABASE}.{CUR_TABLE}"
-DEMO_FALLBACK_CUR_TABLE_REF = "cost_and_usage_db.costandusagereport"
+# Kept for backward compatibility — points to same table so retries are no-ops
+DEMO_FALLBACK_CUR_TABLE_REF = CUR_TABLE_REF
 
 
 def _rewrite_legacy_cur_ref(sql_query: str) -> str:
-    """Rewrite legacy demo CUR table reference to the active demo view."""
-    return re.sub(
-        r"(?i)\bcost_usage_db\.cur_data\b",
-        DEMO_FALLBACK_CUR_TABLE_REF,
-        sql_query,
-    )
+    """No-op: primary and fallback table are the same in current deployments."""
+    return sql_query
 
 
 def _uses_legacy_cur_ref(sql_query: str) -> bool:
-    """Return True when SQL references legacy demo CUR table."""
-    return bool(re.search(r"(?i)\bcost_usage_db\.cur_data\b", sql_query or ""))
+    """Always returns False — legacy retry path is disabled."""
+    return False
 
 
 def _fallback_chart_intent(results: List[Dict[str, Any]]) -> str:
@@ -115,6 +112,19 @@ def _chart_specs_from_llm_metadata(metadata: Dict[str, Any], results: List[Dict[
             continue
         if series_field and series_field not in available_fields:
             series_field = None
+
+        # Reject specs where y_field is non-numeric (e.g. LLM picks "usage_type" instead of "cost")
+        sample_y = first_row.get(y_field)
+        if sample_y is not None:
+            try:
+                float(sample_y)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "LLM chart spec y_field is non-numeric, skipping spec",
+                    y_field=y_field,
+                    sample_value=sample_y,
+                )
+                continue
 
         chart_spec: Dict[str, Any] = {
             "type": chart_type,
@@ -685,6 +695,8 @@ LIMIT 20
         if not results or len(results) == 0:
             # Use metadata from SQL generation for context-aware messaging
             filters = metadata.get('filters', {})
+            if not isinstance(filters, dict):
+                filters = {}
             service_filter = filters.get('service', '')
             time_period = metadata.get('time_period', 'the requested period')
             scope = metadata.get('scope', 'Overall')

@@ -87,10 +87,11 @@ Some AWS services don't appear as line_item_product_code because they don't bill
   * AmazonECR (container registry)
   * Example: "Show me ECS costs" → Query EC2 + Fargate usage types + ECR
 
-- **EKS (Elastic Kubernetes Service)**: Control plane has minimal cost. Query for:
-  * AmazonEC2 (for node groups)
-  * Fargate (for Fargate profiles)
-  * AmazonEKS (control plane - minor cost)
+- **EKS (Elastic Kubernetes Service)**: Control plane billed as AmazonEKS; Fargate profiles as Fargate usage types. Query for:
+  * AmazonEKS (control plane)
+  * Fargate (for Fargate profiles: line_item_usage_type LIKE '%Fargate%')
+  * AmazonEC2 (for EC2 node groups — only include if user explicitly asks for node/compute costs)
+  * **IMPORTANT**: When breaking down by region/dimension, use `WHERE (line_item_product_code = 'AmazonEKS' OR line_item_usage_type LIKE '%Fargate%')` and GROUP BY the dimension ONLY — do NOT add service_name to SELECT or GROUP BY
 
 - **VPC Endpoints**: Query AmazonVPC with usage_type filters for endpoint-related charges
 
@@ -303,7 +304,8 @@ Your task: Generate a COMPLETE, EXECUTABLE Athena SQL query that answers the use
 4. **Map service names correctly** (CloudWatch → AmazonCloudWatch, EC2 → AmazonEC2, RDS → AmazonRDS)
    - **IMPORTANT**: For services that don't generate direct costs (ECS, EKS), query their underlying cost-generating services:
      * "ECS costs" → Query line_item_product_code IN ('AmazonEC2', 'AmazonECR') OR line_item_usage_type LIKE '%Fargate%'
-     * "EKS costs" → Query line_item_product_code IN ('AmazonEC2', 'AmazonEKS') OR line_item_usage_type LIKE '%Fargate%'
+     * "EKS costs" → Query `line_item_product_code = 'AmazonEKS' OR line_item_usage_type LIKE '%Fargate%'` (add AmazonEC2 only if user explicitly asks for node/worker costs)
+     * "break down EKS by region" → `WHERE (line_item_product_code = 'AmazonEKS' OR line_item_usage_type LIKE '%Fargate%') GROUP BY product_region_code` — never GROUP BY service AND region together
      * Include a note in the explanation that you're showing costs for the underlying resources
    - **ARN-based queries**:
      * For billable resources (S3 buckets, RDS instances, EC2 instances): Use exact match `WHERE line_item_resource_id = 'arn:...'`
@@ -338,7 +340,27 @@ Your task: Generate a COMPLETE, EXECUTABLE Athena SQL query that answers the use
    - "breakdown X" → drill down one level deeper
    - **For CASE expressions, CAST, or functions**: Always use position numbers (GROUP BY 1, 2, 3...)
    - **Never use column aliases in GROUP BY** - use position numbers instead
-  - **For single-value totals**: Do not include any GROUP BY clause
+   - **For single-value totals**: Do not include any GROUP BY clause
+
+   **CRITICAL — "break down X by Y" pattern (e.g., "break down EKS by region"):**
+   - Filter to service X in the WHERE clause
+   - GROUP BY dimension Y ONLY — do NOT include the service column in SELECT or GROUP BY
+   - Result must have exactly two columns: the dimension and the cost
+   - WRONG (creates duplicate dimension labels in chart):
+     ```sql
+     SELECT region, service_name, SUM(cost) ... GROUP BY region, service_name
+     ```
+   - CORRECT (one row per region, EKS costs summed):
+     ```sql
+     SELECT product_region_code AS region, ROUND(SUM(...cost...), 2) AS cost_usd
+     FROM ...
+     WHERE (line_item_product_code = 'AmazonEKS' OR line_item_usage_type LIKE '%Fargate%')
+       AND CAST(line_item_usage_start_date AS DATE) >= DATE '...'
+       AND CAST(line_item_usage_start_date AS DATE) <= DATE '...'
+     GROUP BY product_region_code
+     ORDER BY cost_usd DESC
+     ```
+   - Apply this pattern for any "break down [service/resource] by [dimension]" phrasing
 
 7. **Service Comparison Queries** (e.g., "Compare EC2 vs CloudFront"):
    - **DO NOT** try to pivot data or create separate columns for each service
@@ -523,76 +545,46 @@ Example for monthly time-series:
 User: "Show me my AWS costs for the last 30 days"
 {{
   "sql": "SELECT line_item_product_code AS service, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd FROM {database_name}.{table_name} WHERE CAST(line_item_usage_start_date AS DATE) >= DATE '{start_date_30d}' AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_date}' GROUP BY line_item_product_code ORDER BY cost_usd DESC LIMIT 10",
-  "explanation": "**Summary:** Your total AWS spend is ${{TotalCost}} across ${{NumItems}} services for the last 30 days.
-
-**Insights:**
-
-- **Cost concentration**: Your top 2 services account for ${{Top2Pct}} of total costs
-- **Leading driver**: ${{TopItem}} is your highest cost service at ${{TopCost}} (${{TopPct}} of total)
-- **Optimization focus**: Focus on the top 3 services for maximum cost reduction impact",
+  "explanation": "**Summary:** Your total AWS spend is ${{TotalCost}} across ${{NumItems}} services for the last 30 days.\n\n**Insights:**\n\n- **Cost concentration**: Your top 2 services account for ${{Top2Pct}} of total costs\n- **Leading driver**: ${{TopItem}} is your highest cost service at ${{TopCost}} (${{TopPct}} of total)\n- **Optimization focus**: Focus on the top 3 services for maximum cost reduction impact",
   "result_columns": ["service", "cost_usd"],
-  "query_type": "top_services"
+  "query_type": "top_services",
+  "chart_suggestions": [{{"type": "bar", "x": "service", "y": "cost_usd", "title": "AWS Cost by Service (Last 30 Days)"}}]
 }}
 
 User: "How can I optimize my EC2 costs?"
 {{
   "sql": "SELECT line_item_usage_type AS instance_type, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd FROM {database_name}.{table_name} WHERE line_item_product_code = 'AmazonEC2' AND CAST(line_item_usage_start_date AS DATE) >= DATE '{start_date_30d}' AND CAST(line_item_usage_start_date AS DATE) <= DATE '{current_date}' GROUP BY line_item_usage_type ORDER BY cost_usd DESC",
-  "explanation": "**Summary:** Your EC2 costs total $92.26 for the last 30 days, with t4g.medium representing your largest cost driver at $45.77.
-
-  "explanation": "**Summary:** Your EC2 costs total $92.26 for the last 30 days, with t4g.medium representing your largest cost driver at $45.77.
-
-**Insights:**
-
-- **High concentration**: Your top 2 instance types account for 86% of EC2 costs
-- **Graviton usage**: You're already using cost-efficient ARM-based t4g instances
-- **Optimization opportunity**: t4g.medium usage presents the highest savings potential
-
-**Recommendations:**ces**: Purchase 1-year Reserved Instances for t4g.medium to save 30-40% (~$15-18/month)
-2. **Rightsizing analysis**: Review if t4g.medium instances can be downsized to t4g.small for similar workloads
-3. **Savings Plans**: Consider Compute Savings Plans for flexibility across instance families (20-30% savings)
-4. **Spot Instances**: Evaluate if any workloads can run on Spot to save up to 90%
-5. **Scheduling**: Use Instance Scheduler to stop dev/test instances during off-hours",
+  "explanation": "**Summary:** Your EC2 costs total $92.26 for the last 30 days, with t4g.medium representing your largest cost driver at $45.77.\n\n**Insights:**\n\n- **High concentration**: Your top 2 instance types account for 86% of EC2 costs\n- **Graviton usage**: You're already using cost-efficient ARM-based t4g instances\n- **Optimization opportunity**: t4g.medium usage presents the highest savings potential\n\n**Recommendations:**\n\n1. **Reserved Instances**: Purchase 1-year Reserved Instances for t4g.medium to save 30-40% (~$15-18/month)\n2. **Rightsizing analysis**: Review if t4g.medium instances can be downsized to t4g.small for similar workloads\n3. **Savings Plans**: Consider Compute Savings Plans for flexibility across instance families (20-30% savings)",
   "result_columns": ["instance_type", "cost_usd"],
-  "query_type": "breakdown"
+  "query_type": "breakdown",
+  "chart_suggestions": [{{"type": "bar", "x": "instance_type", "y": "cost_usd", "title": "EC2 Cost by Instance Type"}}]
 }}
 
 User: "show me monthly cost for last 4 months"
 {{
   "sql": "SELECT DATE_TRUNC('month', CAST(line_item_usage_start_date AS DATE)) AS month, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS total_cost_usd FROM {database_name}.{table_name} WHERE CAST(line_item_usage_start_date AS DATE) >= DATE_ADD('month', -4, CURRENT_DATE) GROUP BY DATE_TRUNC('month', CAST(line_item_usage_start_date AS DATE)) ORDER BY month",
-  "explanation": "**Summary:** Your costs decreased by $409.34 (72.9%) from $561.22 to $151.88 over the last 4 months.
-
-**Insights:**
-
-- **Cost reduction**: Your costs are declining at 10.4% per period - your optimization efforts are working",
+  "explanation": "**Summary:** Your costs decreased by $409.34 (72.9%) from $561.22 to $151.88 over the last 4 months.\n\n**Insights:**\n\n- **Cost reduction**: Your costs are declining at 10.4% per period - your optimization efforts are working",
   "result_columns": ["month", "total_cost_usd"],
-  "query_type": "time_series"
+  "query_type": "time_series",
+  "chart_suggestions": [{{"type": "line", "x": "month", "y": "total_cost_usd", "title": "Monthly AWS Costs"}}]
 }}
 
 User: "Compare current vs previous period"
 {{
   "sql": "...",
-  "explanation": "**Summary:** Your costs increased by $45.34 (8.0%) from $567.31 (Sept 23 - Oct 24) to $612.65 (Oct 25 - Nov 25).
-
-**Insights:**
-
-- **Growth trend**: Your spending increased across 5 services
-- **Primary driver**: EC2 costs grew 134%, adding $77.63 to your total spend",
+  "explanation": "**Summary:** Your costs increased by $45.34 (8.0%) from $567.31 (Sept 23 - Oct 24) to $612.65 (Oct 25 - Nov 25).\n\n**Insights:**\n\n- **Growth trend**: Your spending increased across 5 services\n- **Primary driver**: EC2 costs grew 134%, adding $77.63 to your total spend",
   "result_columns": ["service", "current_period_cost", "previous_period_cost"],
-  "query_type": "top_services"
+  "query_type": "top_services",
+  "chart_suggestions": [{{"type": "clustered_bar", "x": "service", "y": "current_period_cost", "series": "service", "title": "Period Comparison by Service"}}]
 }}
 
 User: "show me RDS costs for September 2025 per resource"
 {{
   "sql": "SELECT line_item_resource_id AS resource_id, ROUND(SUM(COALESCE(NULLIF(savings_plan_savings_plan_effective_cost, 0), NULLIF(reservation_effective_cost, 0), line_item_unblended_cost)), 2) AS cost_usd FROM {database_name}.{table_name} WHERE line_item_product_code = 'AmazonRDS' AND CAST(line_item_usage_start_date AS DATE) >= DATE '2025-09-01' AND CAST(line_item_usage_start_date AS DATE) <= DATE '2025-09-30' AND line_item_resource_id IS NOT NULL AND line_item_resource_id != '' GROUP BY line_item_resource_id ORDER BY cost_usd DESC",
-  "explanation": "**Summary:** Your RDS costs for September 2025 broken down by individual database instance.
-
-**Insights:**
-
-- **Resource count**: Shows costs for each RDS database instance
-- **Cost distribution**: Identifies which specific databases are driving your RDS spend
-- **Optimization target**: Focus on the highest-cost instances for optimization",
+  "explanation": "**Summary:** Your RDS costs for September 2025 broken down by individual database instance.\n\n**Insights:**\n\n- **Resource count**: Shows costs for each RDS database instance\n- **Cost distribution**: Identifies which specific databases are driving your RDS spend\n- **Optimization target**: Focus on the highest-cost instances for optimization",
   "result_columns": ["resource_id", "cost_usd"],
-  "query_type": "breakdown"
+  "query_type": "breakdown",
+  "chart_suggestions": [{{"type": "bar", "x": "resource_id", "y": "cost_usd", "title": "RDS Cost by Resource"}}]
 }}
 
 Now generate the query for the user's request. Return ONLY the JSON, no markdown formatting.
@@ -893,6 +885,39 @@ class TextToSQLService:
                 if extracted_json:
                   response_data, parse_err2 = _safe_json_parse(extracted_json)
 
+              # Fourth pass: escape literal newlines inside JSON strings (LLM sometimes emits them)
+              if parse_err2:
+                def _escape_newlines_in_strings(payload: str) -> str:
+                  result = []
+                  in_str = False
+                  escape = False
+                  for ch in payload:
+                    if escape:
+                      result.append(ch)
+                      escape = False
+                    elif ch == '\\' and in_str:
+                      result.append(ch)
+                      escape = True
+                    elif ch == '"':
+                      in_str = not in_str
+                      result.append(ch)
+                    elif ch == '\n' and in_str:
+                      result.append('\\n')
+                    elif ch == '\r' and in_str:
+                      result.append('\\r')
+                    elif ch == '\t' and in_str:
+                      result.append('\\t')
+                    else:
+                      result.append(ch)
+                  return ''.join(result)
+                newline_fixed = _escape_newlines_in_strings(sanitized)
+                if newline_fixed != sanitized:
+                  response_data, parse_err2 = _safe_json_parse(newline_fixed)
+                  if parse_err2:
+                    extracted_json2 = _extract_first_json_object(newline_fixed)
+                    if extracted_json2:
+                      response_data, parse_err2 = _safe_json_parse(extracted_json2)
+
               if parse_err2:
                 logger.error(
                   "JSON parsing failed",
@@ -1055,21 +1080,26 @@ class TextToSQLService:
             return sql_query, metadata
             
         except Exception as e:
+            error_type = type(e).__name__
+            error_str = str(e)
             logger.error(
                 "Text-to-SQL generation failed",
-                error=str(e),
-                error_type=type(e).__name__,
+                error=error_str,
+                error_type=error_type,
                 query=user_query
             )
-            # Do not produce unrelated results; surface a structured error
+            is_access_denied = "AccessDeniedException" in error_type or "AccessDeniedException" in error_str
+            clarification = (
+                "The AI model is currently unavailable. Please contact your administrator to verify Bedrock model access is enabled."
+                if is_access_denied
+                else "I couldn't generate a reliable SQL for this request. Please rephrase or specify a time period (e.g., 'November 2025')."
+            )
             metadata = {
                 "query_type": "unknown",
                 "generated_via": "text_to_sql_llm",
                 "status": "llm_error",
-                "clarification": [
-                    "I couldn't generate a reliable SQL for this request. Please rephrase or specify a time period (e.g., 'November 2025')."
-                ],
-                "error": str(e)
+                "clarification": [clarification],
+                "error": error_str
             }
             return "", metadata
 
@@ -1199,29 +1229,26 @@ class TextToSQLService:
         
         return "Overall"
     
-    def _extract_filters_from_sql(self, sql: str) -> str:
-        """Extract filters from SQL WHERE clause"""
+    def _extract_filters_from_sql(self, sql: str) -> dict:
+        """Extract filters from SQL WHERE clause, returned as a dict."""
         import re
-        
-        filters = []
+
+        result = {}
         sql_upper = sql.upper()
-        
-        # Check for specific service filter
+
         service_match = re.search(r"LINE_ITEM_PRODUCT_CODE\s*=\s*'([^']+)'", sql_upper)
         if service_match:
-            filters.append(f"Service: {service_match.group(1)}")
-        
-        # Check for region filter
+            result["service"] = service_match.group(1)
+
         region_match = re.search(r"PRODUCT_REGION\s*=\s*'([^']+)'", sql_upper)
         if region_match:
-            filters.append(f"Region: {region_match.group(1)}")
-        
-        # Check for account filter
+            result["region"] = region_match.group(1)
+
         account_match = re.search(r"LINE_ITEM_USAGE_ACCOUNT_ID\s*=\s*'([^']+)'", sql_upper)
         if account_match:
-            filters.append(f"Account: {account_match.group(1)}")
-        
-        return ", ".join(filters) if filters else "None"
+            result["account"] = account_match.group(1)
+
+        return result
 
 
     async def generate_sql_with_scoping(

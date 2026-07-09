@@ -136,9 +136,14 @@ class BedrockLLMService:
             True if model should use Converse API, False for legacy InvokeModel API
         """
         converse_api_models = [
-            "us.amazon.nova",        # Nova 2.0 models
+            "us.amazon.nova",        # Nova 2.0 models (US cross-region)
             "amazon.nova",           # Nova models without region prefix
-            "anthropic.claude-3",    # Claude 3 and newer
+            "us.anthropic.claude",   # Claude US cross-region inference profiles
+            "apac.anthropic.claude", # Claude APAC cross-region inference profiles
+            "eu.anthropic.claude",   # Claude EU cross-region inference profiles
+            "global.anthropic.claude", # Claude global inference profiles
+            "anthropic.claude-3",    # Claude 3 and newer (single-region)
+            "anthropic.claude-",     # Claude 4+ single-region models
             "meta.llama3",           # Llama 3 models
             "mistral.mistral-large", # Newer Mistral models
         ]
@@ -254,9 +259,15 @@ class BedrockLLMService:
         """Build inference configuration suitable for Bedrock Converse API."""
         config: Dict[str, Any] = {}
         model_id_lower = (self.model_id or "").lower()
-        max_model_tokens = 4096
         if model_id_lower.startswith("meta.llama"):
             max_model_tokens = 2048
+        elif "anthropic.claude-3-5" in model_id_lower or "anthropic.claude-3-7" in model_id_lower:
+            max_model_tokens = 8192
+        elif "anthropic.claude-" in model_id_lower and not "anthropic.claude-3-" in model_id_lower:
+            # Claude 4.x and Sonnet 4.5+ models support higher output
+            max_model_tokens = 16000
+        else:
+            max_model_tokens = 4096
 
         max_tokens = self.model_kwargs.get("max_tokens", self.settings.max_tokens)
         if max_tokens:
@@ -445,6 +456,13 @@ class BedrockLLMService:
 
             return await loop.run_in_executor(None, _do_call)
 
+        # Cross-region inference profiles (apac.*, us.*, eu.*, global.*) only work
+        # with the Converse API — InvokeModel does not support them.
+        is_cross_region_profile = any(
+            self.model_id.startswith(prefix)
+            for prefix in ("apac.", "us.", "eu.", "global.")
+        )
+
         if self.use_converse_api:
             try:
                 response = await _call_converse()
@@ -452,16 +470,35 @@ class BedrockLLMService:
                 if text:
                     logger.info("Bedrock converse call succeeded for model %s", self.model_id)
                     return text
-                logger.warning("Bedrock Converse response contained no text, falling back to legacy InvokeModel")
+                if not is_cross_region_profile:
+                    logger.warning("Bedrock Converse response contained no text, falling back to legacy InvokeModel")
+                else:
+                    logger.warning("Bedrock Converse response contained no text for cross-region profile %s", self.model_id)
+                    return ""
             except ClientError as converse_error:
                 error_code = converse_error.response["Error"].get("Code")
+                error_msg = converse_error.response["Error"].get("Message", "")
+                if is_cross_region_profile:
+                    logger.error(
+                        "Bedrock converse call failed for cross-region inference profile (InvokeModel fallback not supported)",
+                        model_id=self.model_id,
+                        error=error_code,
+                        message=error_msg,
+                    )
+                    raise
                 logger.warning(
                     "Bedrock converse call failed, attempting legacy invoke_model",
                     error=error_code,
-                    message=converse_error.response["Error"].get("Message")
+                    message=error_msg,
                 )
             except Exception as converse_exception:
+                if is_cross_region_profile:
+                    logger.error(f"Unexpected converse error for cross-region profile {self.model_id}: {converse_exception}")
+                    raise
                 logger.warning(f"Unexpected converse error: {converse_exception}")
+
+        if is_cross_region_profile:
+            return ""
 
         response = await _call_invoke()
         text = self._extract_text_from_invoke(response)
@@ -921,10 +958,10 @@ Format your response beautifully with markdown for optimal readability."""
                 return "I'm currently experiencing high demand. Please try again in a moment."
             elif error_code == 'ModelNotReadyException':
                 return "The AI model is currently loading. Please try again in a few moments."
-            elif error_code == 'AccessDeniedException':
-                return "I don't have permission to access the AI model. Please check AWS Bedrock permissions."
-            elif error_code == 'ResourceNotFoundException':
-                return "The AI model was not found. Please verify the Bedrock model configuration."
+            elif error_code in ('AccessDeniedException', 'ResourceNotFoundException'):
+                # Re-raise so callers can surface a meaningful error rather than
+                # returning an error string that gets mistaken for a valid response.
+                raise
             else:
                 return f"I encountered an AWS error: {error_message}"
                 

@@ -342,31 +342,28 @@ class Settings(BaseSettings):
 
     # AWS Bedrock Configuration
     bedrock_model_id: str = Field(
-        default="us.amazon.nova-pro-v1:0",
+        default="apac.anthropic.claude-3-5-sonnet-20241022-v2:0",
         env="BEDROCK_MODEL_ID",
-        description="Bedrock cross-region inference profile for Amazon Nova Pro"
+        description="Bedrock cross-region inference profile"
     )
-    
-    # Available models for dynamic switching (use inference profiles for Nova models)
+
+    # Available models for dynamic switching
     available_models: list = [
-        "us.amazon.nova-pro-v1:0",                        # Amazon Nova Pro - DEFAULT (balanced quality and cost)
-        "us.amazon.nova-lite-v1:0",                       # Amazon Nova Lite (lower cost inference profile)
-        "us.amazon.nova-micro-v1:0",                      # Amazon Nova Micro (fastest inference profile)
-        "us.amazon.nova-2-lite-v1:0",                     # Amazon Nova 2 Lite (requires inference profile)
-        "amazon.nova-2-sonic-v1:0",                       # Amazon Nova 2 Sonic (speech/text model)
-        "meta.llama3-70b-instruct-v1:0",                  # Meta Llama 3 70B (open source alternative)
-        "meta.llama3-8b-instruct-v1:0",                   # Meta Llama 3 8B (lighter alternative)
-        "mistral.mistral-large-2402-v1:0",                # Mistral Large (European alternative)
-        "mistral.mixtral-8x7b-instruct-v0:1",             # Mistral Mixtral 8x7B (MoE model)
-        "cohere.command-r-plus-v1:0",                     # Cohere Command R+ (enterprise focused)
-        "amazon.titan-text-express-v1",                   # Amazon Titan Text Express (legacy)
+        "apac.anthropic.claude-3-5-sonnet-20241022-v2:0", # Claude 3.5 Sonnet v2 APAC - DEFAULT
+        "apac.anthropic.claude-3-7-sonnet-20250219-v1:0",  # Claude 3.7 Sonnet APAC
+        "apac.anthropic.claude-3-5-sonnet-20240620-v1:0",  # Claude 3.5 Sonnet APAC
+        "apac.anthropic.claude-3-haiku-20240307-v1:0",     # Claude 3 Haiku APAC (fastest)
+        "amazon.nova-pro-v1:0",                             # Amazon Nova Pro (no subscription needed)
+        "amazon.nova-lite-v1:0",                            # Amazon Nova Lite
+        "amazon.nova-micro-v1:0",                           # Amazon Nova Micro
+        "meta.llama3-70b-instruct-v1:0",                   # Meta Llama 3 70B
     ]
-    
-    max_tokens: int = Field(default=4000, env="MAX_TOKENS", description="Maximum tokens for LLM responses")
+
+    max_tokens: int = Field(default=8000, env="MAX_TOKENS", description="Maximum tokens for LLM responses")
     temperature: float = Field(default=0.7, env="TEMPERATURE", description="Temperature for LLM responses")
-    
+
     # Model Configuration
-    default_llm_model: str = Field(default="us.amazon.nova-pro-v1:0", env="DEFAULT_LLM_MODEL")
+    default_llm_model: str = Field(default="apac.anthropic.claude-3-5-sonnet-20241022-v2:0", env="DEFAULT_LLM_MODEL")
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2", env="EMBEDDING_MODEL")
     
     # Vector Store
